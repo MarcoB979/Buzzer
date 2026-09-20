@@ -1,22 +1,28 @@
 /**
- * OSSM Remote — video URL extractor (Cloudflare Worker)
+ * Sparkmote — Cloudflare Worker: video URL extractor + local-video cast host.
  *
- * This tiny server fetches a video page on your behalf (bypassing CORS) and
- * returns the direct .mp4 / .m3u8 stream URL that the web app can play.
+ * Two jobs in one worker:
+ *   1. EXTRACT  GET  ?url=<page>      -> fetch a video page for you (bypassing
+ *      CORS) and return the direct .mp4 / .m3u8 stream URL, as before.
+ *   2. HOST     PUT  /upload/<name>   -> store a local video in R2 so it gets a
+ *      public https URL that a Chromecast can fetch.
+ *               GET  /v/<id>/<name>   -> stream it back with Range support
+ *      (needed for seeking). This is what lets "Load Video" (a local file) cast.
  *
  * Deploy (once):
- *   1. npm i -g wrangler   (or use: npx wrangler login)
- *   2. npx wrangler deploy video-extractor.js
- *   3. Copy the resulting URL, e.g. https://ossm-extractor.YOURNAME.workers.dev
- *      into the "Your extractor URL" field in Funscript mode (saved per device).
+ *   1. Create a free Cloudflare R2 bucket: dash.cloudflare.com → R2 → Create.
+ *   2. Bind it to this worker with variable name BUCKET:
+ *      Workers & Pages → your worker → Settings → Bindings → Add → R2 bucket
+ *      → Variable name: BUCKET.
+ *   3. npx wrangler deploy video-extractor.js
+ *   4. Paste the worker URL into the "Your extractor URL" field in Funscript mode.
  *
- * Usage:
- *   https://<your-worker>.workers.dev/?url=<encoded page url>
+ *   Extractor usage : https://<worker>/?url=<encoded page url>
+ *   Upload usage    : PUT https://<worker>/upload/<filename>   (body = video)
+ *                     -> { "url": "https://<worker>/v/<id>/<filename>" }
  *
- * Response (JSON):
- *   { "url": "https://cdn.../video.mp4", "type": "mp4" }   or
- *   { "url": "https://cdn.../video.m3u8", "type": "hls" }  or
- *   { "error": "..." }
+ * Note: an open upload endpoint accepts anything — fine for personal use, but if
+ * you share the URL widely, add a check against a secret env var (e.g. UPLOAD_KEY).
  */
 
 const UA =
@@ -28,10 +34,92 @@ function json(obj, status) {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Methods": "GET, HEAD, PUT, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Range",
+      "Access-Control-Max-Age": "86400",
     },
   });
+}
+
+function sanitizeName(name) {
+  const n = String(name || "video.mp4").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120);
+  return n || "video.mp4";
+}
+
+function parseRange(header) {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m) return null;
+  if (m[1] === "" && m[2] === "") return null;
+  if (m[1] === "") {
+    const n = parseInt(m[2], 10);
+    return isFinite(n) && n > 0 ? { suffix: n } : null;
+  }
+  const start = parseInt(m[1], 10);
+  if (m[2] === "") return isFinite(start) ? { offset: start } : null;
+  const end = parseInt(m[2], 10);
+  if (!isFinite(start) || !isFinite(end) || end < start) return null;
+  return { offset: start, length: end - start + 1 };
+}
+
+async function handleUpload(request, env) {
+  if (!env || !env.BUCKET) {
+    return json({ error: "R2 bucket not bound. Bind an R2 bucket with variable name BUCKET and redeploy." }, 501);
+  }
+  const url = new URL(request.url);
+  const parts = url.pathname.replace(/^\/+/, "").split("/");
+  const name = sanitizeName(parts[1] ? decodeURIComponent(parts[1]) : "video.mp4");
+  const id = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+  const key = "uploads/" + id + "/" + name;
+  const contentType = request.headers.get("Content-Type") || "application/octet-stream";
+  try {
+    await env.BUCKET.put(key, request.body, {
+      httpMetadata: { contentType },
+      customMetadata: { name },
+    });
+  } catch (e) {
+    return json({ error: "Upload failed: " + ((e && e.message) || e) }, 500);
+  }
+  return json({ url: new URL(request.url).origin + "/v/" + id + "/" + encodeURIComponent(name) }, 201);
+}
+
+async function handleServe(request, env, key) {
+  if (!env || !env.BUCKET) return json({ error: "R2 bucket not bound." }, 501);
+  const range = parseRange(request.headers.get("Range"));
+  try {
+    let obj;
+    if (range) {
+      const r = {};
+      if (range.offset !== undefined) { r.offset = range.offset; if (range.length) r.length = range.length; }
+      else if (range.suffix) r.suffix = range.suffix;
+      obj = await env.BUCKET.get(key, { range: r });
+    } else {
+      obj = await env.BUCKET.get(key);
+    }
+    if (!obj) return json({ error: "Video not found." }, 404);
+    const headers = new Headers();
+    obj.writeHttpMetadata(headers);
+    headers.set("Accept-Ranges", "bytes");
+    headers.set("Access-Control-Allow-Origin", "*");
+    headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    if (range) {
+      const total = obj.size || 0;
+      let start, end;
+      if (range.offset !== undefined) {
+        start = range.offset;
+        end = range.length ? Math.min(start + range.length - 1, total - 1) : total - 1;
+      } else {
+        start = Math.max(0, total - range.suffix);
+        end = total - 1;
+      }
+      headers.set("Content-Range", "bytes " + start + "-" + end + "/" + total);
+      headers.set("Content-Length", String(Math.max(0, end - start + 1)));
+      return new Response(obj.body, { status: 206, headers });
+    }
+    return new Response(obj.body, { status: 200, headers });
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 500);
+  }
 }
 
 function extractVideo(html) {
@@ -65,20 +153,34 @@ function extractVideo(html) {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    const path = url.pathname.replace(/^\/+$/, "").replace(/^\//, "");
+
     if (request.method === "OPTIONS") {
       return new Response(null, {
         status: 204,
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
+          "Access-Control-Allow-Methods": "GET, HEAD, PUT, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Range",
+          "Access-Control-Max-Age": "86400",
         },
       });
     }
 
-    const target = new URL(request.url).searchParams.get("url");
-    if (!target) return json({ error: "Missing ?url=" }, 400);
+    if (request.method === "PUT" || request.method === "POST") {
+      return handleUpload(request, env);
+    }
+
+    if (path.startsWith("v/")) {
+      const res = await handleServe(request, env, decodeURIComponent(path.slice(2)));
+      if (request.method === "HEAD") return new Response(null, { status: res.status, headers: res.headers });
+      return res;
+    }
+
+    const target = url.searchParams.get("url");
+    if (!target) return json({ error: "Missing ?url= for extraction, or use PUT /upload/<name> to host a local video." }, 400);
     if (!/^https?:\/\//i.test(target)) return json({ error: "Invalid URL" }, 400);
 
     try {

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sparkmote Receiver</title>
+<script src="https://www.gstatic.com/cast/sdk/libs/receiver/2.0.0/cast_receiver.js"></script>
+<style>
+  html, body { margin:0; padding:0; background:#000; width:100%; height:100%; overflow:hidden; }
+  video { width:100vw; height:100vh; object-fit:contain; background:#000; }
+  #status { position:fixed; bottom:18px; left:0; right:0; text-align:center; color:#94a3b8;
+            font:14px/1.4 system-ui,sans-serif; z-index:10; text-shadow:0 1px 2px #000; pointer-events:none; }
+</style>
+</head>
+<body>
+<video id="v" playsinline></video>
+<div id="status">Waiting for a video…</div>
+<script>
+// Sparkmote custom Cast receiver.
+// Receives a local video file from the phone over a WebRTC DataChannel
+// (signaled through the Cast custom-message channel) and plays it on the TV.
+// No upload, no server, no storage — the bytes go straight phone → TV over WiFi.
+const NS = "urn:x-cast:com.sparkmote.local";
+const context = cast.framework.CastReceiverContext.getInstance();
+const video = document.getElementById("v");
+const statusEl = document.getElementById("status");
+
+let pc = null, channel = null;
+let chunks = [], received = 0, totalSize = 0, mime = "";
+let finished = false;
+
+function send(obj) {
+  try { context.sendCustomMessage(NS, undefined, obj); } catch (e) {}
+}
+function setStatus(s) { statusEl.textContent = s; }
+function pushStatus() {
+  send({ type: "status", t: video.currentTime || 0, playing: !video.paused, duration: video.duration || 0 });
+}
+setInterval(pushStatus, 250);
+
+function createPeer() {
+  cleanupPeer();
+  chunks = []; received = 0; totalSize = 0; finished = false;
+  try { pc = new RTCPeerConnection({ iceServers: [] }); }
+  catch (e) { send({ type: "error", msg: "WebRTC unavailable: " + (e && e.message) }); return; }
+  pc.onicecandidate = e => { if (e.candidate) send({ type: "ice", candidate: e.candidate }); };
+  pc.ondatachannel = e => {
+    channel = e.channel;
+    channel.binaryType = "arraybuffer";
+    channel.onmessage = onData;
+    setStatus("Receiving…");
+  };
+}
+
+function onData(ev) {
+  if (typeof ev.data === "string") return; // reserved for future metadata
+  const len = ev.data.byteLength || 0;
+  chunks.push(ev.data);
+  received += len;
+  if (totalSize > 0) setStatus("Receiving… " + Math.min(100, Math.round(received / totalSize * 100)) + "%");
+  if (totalSize > 0 && received >= totalSize) finish();
+}
+
+function finish() {
+  if (finished) return;
+  finished = true;
+  setStatus("Preparing…");
+  const blob = new Blob(chunks, { type: mime || "" });
+  chunks = [];
+  const url = URL.createObjectURL(blob);
+  video.src = url;
+  video.onloadedmetadata = () => {
+    setStatus("Ready");
+    pushStatus();
+    video.play().catch(() => setStatus("Ready — press play on your phone"));
+  };
+  video.onended = () => {
+    video.pause();
+    send({ type: "status", t: video.duration || 0, playing: false, duration: video.duration || 0 });
+  };
+  video.onerror = () => { setStatus("This file format cannot be played by the TV."); send({ type: "error", msg: "Unsupported video format on TV." }); };
+}
+
+function cleanupPeer() {
+  if (channel) { try { channel.close(); } catch (e) {} }
+  if (pc) { try { pc.close(); } catch (e) {} }
+  channel = null; pc = null;
+}
+
+function onMessage(event) {
+  const m = (event && (event.data !== undefined ? event.data : event.message)) || {};
+  try {
+    if (m.type === "hello") {
+      totalSize = m.size || 0;
+      mime = m.mime || "";
+      received = 0; chunks = []; finished = false;
+      setStatus("Connecting…");
+    } else if (m.type === "offer") {
+      createPeer();
+      pc.setRemoteDescription({ type: "offer", sdp: m.sdp })
+        .then(() => pc.createAnswer())
+        .then(a => pc.setLocalDescription(a))
+        .then(() => send({ type: "answer", sdp: pc.localDescription.sdp }))
+        .catch(e => send({ type: "error", msg: "Signaling failed: " + (e && e.message) }));
+    } else if (m.type === "ice" && m.candidate && pc) {
+      pc.addIceCandidate(m.candidate).catch(() => {});
+    } else if (m.type === "seek") {
+      try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
+      pushStatus();
+    } else if (m.type === "play") {
+      video.play().catch(() => {});
+      pushStatus();
+    } else if (m.type === "pause") {
+      video.pause();
+      pushStatus();
+    } else if (m.type === "stop") {
+      video.pause();
+      try { video.removeAttribute("src"); video.load(); } catch (e) {}
+      chunks = []; received = 0; totalSize = 0; finished = false;
+      cleanupPeer();
+      setStatus("Waiting for a video…");
+    }
+  } catch (e) {
+    send({ type: "error", msg: (e && e.message) || "receiver error" });
+  }
+}
+
+context.addCustomMessageListener(NS, onMessage);
+try {
+  const p = context.start();
+  if (p && typeof p.then === "function") p.then(() => send({ type: "ready" })).catch(() => send({ type: "ready" }));
+  else setTimeout(() => send({ type: "ready" }), 300);
+} catch (e) {
+  setTimeout(() => send({ type: "ready" }), 300);
+}
+</script>
+</body>
+</html>
