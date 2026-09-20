@@ -1,0 +1,3606 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0a0a12" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20"></script>
+<script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<title>Sparkmote — OSSM Remote</title>
+<style>
+  :root {
+    --bg-color: #0a0a12;
+    --panel-bg: #0f172a;
+    --border-color: #334155;
+    --text-color: #dde6f0;
+    --muted: #94a3b8;
+    --color-top: #ff0c00;
+    --color-bottom: #ff8100;
+    --color-rise: #ffff00;
+    --color-fall: #00ff00;
+    --color-curvein: #0000ff;
+    --color-curveout: #ac8dee;
+  }
+  * { box-sizing: border-box; }
+  /* Hide scrollbars everywhere but keep scrolling */
+  * { scrollbar-width: none; -ms-overflow-style: none; }
+  *::-webkit-scrollbar { width: 0; height: 0; display: none; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 0; padding: 20px;
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .phone-container {
+    width: 100%; max-width: 400px;
+    background-color: #05050a;
+    border: 4px solid #1e293b; border-radius: 24px;
+    padding: 16px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.7);
+    display: flex; flex-direction: column;
+  }
+  .col { display: contents; }
+  .col-toggle { display: none; }
+  /* Portrait: restore the original single-column order */
+  #ble-panel { order: 1; }
+  .header-row { order: 2; }
+  #pad-status { order: 3; }
+  #tabs-wrapper { order: 4; }
+  .visualizer-area { order: 5; }
+  #speed-control { order: 6; }
+  #sliders-wrapper { order: 7; }
+  #reset-row { order: 8; }
+  #mode-row { order: 9; }
+  #bind-panel { order: 10; }
+  #presets-panel { order: 11; }
+  .start-stop-row { order: 12; }
+  #pad-debug { order: 13; }
+  .ble-panel {
+    display: flex; justify-content: space-between; align-items: center;
+    background-color: #111827; padding: 10px; border-radius: 12px;
+    margin-bottom: 14px; border: 1px solid var(--border-color);
+  }
+  .ble-panel.small { padding: 6px 10px; margin-bottom: 10px; }
+  .ble-btn { background-color: #2563eb; color: #fff; border: none; padding: 8px 14px; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: .85rem; }
+  .ble-btn.small { padding: 4px 10px; font-size: .75rem; }
+  .ble-btn.danger { background-color: #dc2626; }
+  .ble-btn.connecting { background-color: #f59e0b; cursor: progress; }
+  .ble-btn.demo { background-color: #eab308; color: #1e293b; }
+  .ble-status { font-size: .8rem; font-family: monospace; color: var(--muted); }
+  .ble-status.small { font-size: .7rem; }
+  .header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .screen-header { flex: 1; min-width: 0; text-align: left; font-size: 1.05rem; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .conn-dot { width: 10px; height: 10px; border-radius: 50%; background-color: #22c55e; flex: 0 0 auto; box-shadow: 0 0 6px rgba(34, 197, 94, 0.8); }
+  .pad-status { font-size: .75rem; color: var(--muted); text-align: center; margin-bottom: 12px; font-family: monospace; }
+  .pad-status.active { color: #22c55e; }
+  .focus-status { display: flex; align-items: center; gap: 6px; font-size: .7rem; color: var(--muted); font-family: monospace; flex: 0 1 auto; white-space: nowrap; overflow: hidden; min-width: 0; }
+  .focus-status .fs-dot { width: 7px; height: 7px; border-radius: 50%; background: #64748b; flex: 0 0 auto; }
+  .focus-status .fs-dot.on { background: #22c55e; }
+  .focus-status .fs-sep { color: #475569; }
+  .bind-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
+  .bind-panel summary { list-style: none; cursor: pointer; user-select: none; font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .bind-panel summary::-webkit-details-marker { display: none; }
+  .bind-panel summary::after { content: "▾"; font-size: .7rem; }
+  .bind-panel[open] summary { margin-bottom: 8px; }
+  .bind-panel[open] summary::after { content: "▴"; }
+  .bind-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: .8rem; border-bottom: 1px solid var(--border-color); }
+  .bind-row:last-child { border-bottom: none; }
+  .bind-label { flex: 1; }
+  .bind-val { font-family: monospace; color: #38bdf8; min-width: 72px; }
+  .bind-view-toggle { display: flex; background: #1e293b; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; margin-bottom: 8px; }
+  .bind-view-btn { flex: 1; background: transparent; color: var(--muted); border: none; padding: 6px 8px; font-size: .72rem; font-weight: bold; cursor: pointer; }
+  .bind-view-btn.active { background: #2563eb; color: #fff; }
+  .bind-btn { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 4px 10px; font-size: .72rem; font-weight: bold; cursor: pointer; }
+  .bind-clear { background: none; border: 1px solid var(--border-color); color: var(--muted); border-radius: 6px; padding: 2px 7px; font-size: .72rem; cursor: pointer; }
+  .bind-clear:hover { color: #fff; border-color: #fff; }
+  .bind-conflict .bind-val { color: #f87171; }
+  .bind-conflict .bind-label { color: #f87171; }
+  .bind-status { font-size: .72rem; color: #fbbf24; margin: 8px 0 4px; min-height: 1em; }
+  .bind-reset { background: none; border: 1px solid #ff5b6a; color: #ff5b6a; border-radius: 6px; padding: 4px 10px; font-size: .72rem; cursor: pointer; margin-top: 6px; }
+  .bind-hint { font-size: .7rem; color: var(--muted); margin-bottom: 8px; line-height: 1.35; }
+  .bind-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .bind-wizard { background: #7c3aed; color: #fff; border: none; border-radius: 6px; padding: 5px 10px; font-size: .72rem; font-weight: bold; cursor: pointer; }
+  .wizard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .wizard-box { background: #111827; border: 1px solid var(--border-color); border-radius: 14px; padding: 18px; max-width: 360px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,.8); }
+  .wizard-title { font-size: .8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+  .wizard-progress { font-size: .72rem; color: #38bdf8; font-family: monospace; margin-bottom: 10px; }
+  .wizard-label { font-size: 1.15rem; font-weight: bold; color: #fff; margin-bottom: 6px; }
+  .wizard-prompt { font-size: .82rem; color: #fbbf24; margin-bottom: 8px; }
+  .wizard-help { font-size: .75rem; color: var(--muted); line-height: 1.4; margin-bottom: 14px; }
+  .wizard-note { font-size: .75rem; color: #f87171; margin-bottom: 12px; line-height: 1.35; }
+  .wizard-seg { display: flex; background: #1e293b; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+  .wizard-seg-btn { flex: 1; background: transparent; color: var(--muted); border: none; padding: 7px 10px; font-size: .75rem; font-weight: bold; cursor: pointer; }
+  .wizard-seg-btn.active { background: #2563eb; color: #fff; }
+  .wizard-row { display: flex; gap: 8px; justify-content: flex-end; }
+  .wizard-btn { border: 1px solid var(--border-color); background: #1f2937; color: #fff; border-radius: 6px; padding: 6px 12px; font-size: .75rem; cursor: pointer; }
+  .wizard-btn.ghost { background: transparent; }
+  .wizard-btn.danger { border-color: #dc2626; color: #dc2626; background: transparent; }
+  .pad-debug { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px; margin-top: 12px; }
+  .pad-debug summary { list-style: none; cursor: pointer; user-select: none; font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+  .pad-debug summary::-webkit-details-marker { display: none; }
+  .pad-debug pre { font-family: 'Courier New', monospace; font-size: .7rem; color: #38bdf8; white-space: pre-wrap; margin: 8px 0 0; }
+  .tabs-container { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .tab-row { display: flex; justify-content: space-between; gap: 4px; }
+  .tab-box {
+    flex: 1; background-color: #3a3a3a; border-radius: 4px; text-align: center;
+    padding: 6px 2px; font-size: .78rem; font-weight: bold; color: var(--text-color);
+    border: 2px solid transparent; cursor: pointer;
+  }
+  .tab-value { font-size: .85rem; font-weight: bold; line-height: 1.1; }
+  .tab-name { font-size: .55rem; font-weight: normal; line-height: 1.1; margin-top: 2px; }
+  .visualizer-area { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 16px; }
+  .meter-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 auto; }
+  .meter-bar { width: 12px; height: 132px; background-color: var(--panel-bg); border: 2px solid var(--border-color); border-radius: 4px; position: relative; overflow: hidden; }
+  .meter-fill { position: absolute; bottom: 0; width: 100%; height: 50%; transition: height .1s; }
+  .meter-label { font-size: 10px; color: var(--muted); text-align: center; }
+  canvas { display: block; background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 6px; width: 280px; max-width: 100%; height: auto; flex: 0 1 auto; min-width: 0; }
+  .sliders-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
+  .focused-sliders { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; }
+  .fun-controls { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; }
+  .fun-title { font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
+  .fun-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .fun-btn { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 6px 10px; font-size: .75rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
+  .fun-fold { background: #334155; }
+  .fun-fold.active { background: #7c3aed; }
+  .fun-help { background: #334155; color: #e2e8f0; border: 1px solid var(--border-color); border-radius: 50%; width: 22px; height: 22px; min-width: 22px; font-size: .78rem; font-weight: bold; cursor: pointer; line-height: 1; display: flex; align-items: center; justify-content: center; padding: 0; }
+  .fun-help:hover { background: #475569; color: #fff; }
+  .help-body { font-size: .78rem; color: #d1d5db; line-height: 1.45; }
+  .help-body p { margin: 0 0 10px; }
+  .help-body ol { margin: 0 0 10px; padding-left: 18px; }
+  .help-body li { margin-bottom: 6px; }
+  .help-body code { background: #1e293b; border: 1px solid var(--border-color); border-radius: 4px; padding: 1px 5px; font-size: .7rem; color: #38bdf8; }
+  .help-body b { color: #fff; }
+  .fun-file { font-family: monospace; font-size: .7rem; color: #38bdf8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fun-video { background: #000; border: 1px solid var(--border-color); border-radius: 8px; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+  .fun-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .fun-cast-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: #0f172a; border-radius: 8px; z-index: 2; }
+  .fun-placeholder { color: var(--muted); font-size: .9rem; padding: 40px; text-align: center; }
+  .phone-container.fun .col-left { display: none; }
+  .phone-container.fun .col-right { display: none; }
+  .phone-container.fun .conn-dot { display: none !important; }
+  .fun-status { font-size: .72rem; color: #fbbf24; margin-top: 8px; min-height: 1em; word-break: break-word; }
+  .fun-settings-toggle { display: none; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; padding: 0; }
+  .fun-preview-wrap { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+  .fun-preview-toggle { align-self: flex-start; background: #1e293b; border: 1px solid var(--border-color); border-radius: 4px; color: #cbd5e1; font-size: .7rem; cursor: pointer; padding: 2px 8px; line-height: 1.2; }
+  .fun-preview-wrap canvas { display: block; width: 100%; background: #0f172a; border: 1px solid var(--border-color); border-radius: 6px; }
+  .slider-group { margin-bottom: 12px; }
+  .slider-group:last-child { margin-bottom: 0; }
+  .slider-label { display: flex; justify-content: space-between; font-size: .8rem; margin-bottom: 4px; }
+  .slider-label .val-num { font-family: monospace; font-size: .9rem; font-weight: bold; }
+  .inline-toggle { display: flex; align-items: center; justify-content: space-between; font-size: .8rem; color: var(--text-color); cursor: pointer; }
+  .switch { position: relative; display: inline-block; width: 36px; height: 20px; flex: 0 0 auto; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #4b5563; border-radius: 20px; transition: .2s; }
+  .switch .slider:before { content: ""; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background-color: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + .slider { background-color: #22c55e; }
+  .switch input:checked + .slider:before { transform: translateX(16px); }
+  input[type=range] { width: 100%; height: 6px; background: #1e293b; border-radius: 3px; outline: none; -webkit-appearance: none; appearance: none; touch-action: pan-y; }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; cursor: pointer; }
+  .slider-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+  .slider-row .slider-name { flex: 1 1 auto; min-width: 0; font-size: .8rem; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .slider-row .val-num { flex: 0 0 auto; min-width: 40px; text-align: center; line-height: 26px; padding: 0 7px; border-radius: 4px; font-family: monospace; font-size: .85rem; font-weight: bold; }
+  .val-input { width: 2.5em; min-width: 0; background: transparent; border: none; outline: none; color: inherit; font: inherit; text-align: inherit; padding: 0; margin: 0; height: 24px; vertical-align: middle; }
+  .val-input::-webkit-outer-spin-button, .val-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .val-input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  .slider-row input[type=range] { flex: 1 1 100%; order: 10; }
+  .step-btn {
+    flex: 0 0 auto; width: 26px; height: 26px;
+    background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px;
+    color: #fff; font-size: 1.05rem; font-weight: bold; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; cursor: pointer; user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  .step-btn:active { background: #334155; }
+  select { background: #1e293b; border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px; padding: 8px; font-size: .85rem; width: 100%; }
+  .pattern-desc { font-size: .72rem; color: var(--muted); margin-top: 6px; line-height: 1.4; }
+  .start-stop-row { position: sticky; bottom: 0; z-index: 10; margin-top: 8px; padding-top: 8px; background: #05050a; }
+  .speed-line { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+  .speed-label { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  .speed-val { font-family: monospace; font-size: .9rem; font-weight: bold; color: #fff; min-width: 30px; text-align: right; }
+  .speed-line input[type=range] { flex: 1; }
+  #btnStart { width: 100%; background-color: #16a34a; border: none; border-radius: 10px; padding: 14px; color: #fff; font-weight: bold; font-size: 1rem; cursor: pointer; }
+  #btnStart.stop { background-color: #dc2626; }
+  #btnStart:disabled { background-color: #334155; color: #94a3b8; cursor: not-allowed; }
+  .reset-row { text-align: center; margin-bottom: 4px; }
+  #btnResetValues { background: none; border: none; color: #ff5b6a; font-size: .78rem; cursor: pointer; text-decoration: underline; padding: 4px 8px; }
+  .mode-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 2px 0 10px; }
+  .mode-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; text-align: center; }
+  .mode-seg { display: flex; background: #1e293b; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+  .mode-btn { flex: 1; background: transparent; color: var(--muted); border: none; padding: 6px 2px; font-size: .7rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
+  .mode-btn.active { background: #2563eb; color: #fff; }
+  .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
+  .presets-panel summary {
+    list-style: none; cursor: pointer; user-select: none;
+    font-size: .8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .presets-panel .summary-left { display: flex; align-items: baseline; min-width: 0; }
+  .presets-panel .summary-value { text-transform: none; letter-spacing: 0; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .presets-panel .summary-value:empty { display: none; }
+  .presets-panel .summary-value:not(:empty)::before { content: ":"; margin-right: 5px; }
+  .presets-panel summary::-webkit-details-marker { display: none; }
+  .presets-panel summary::after { content: "▾"; font-size: .7rem; }
+  .presets-panel[open] summary { margin-bottom: 8px; }
+  .presets-panel[open] summary::after { content: "▴"; }
+  #presetList { display: flex; gap: 8px; align-items: center; }
+  #presetList select { flex: 1; width: auto; min-width: 0; }
+  #presetList button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 8px 12px; font-weight: bold; cursor: pointer; white-space: nowrap; }
+  #presetList button.danger { background: #7f1d1d; }
+  .preset-item { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border-color); font-size: .85rem; }
+  .preset-item .pname { flex: 1; }
+  .preset-item button { background: transparent; border: 1px solid #5b8cff; color: #5b8cff; border-radius: 6px; padding: 4px 8px; font-size: .75rem; cursor: pointer; margin-left: 4px; }
+  .preset-item button.danger { border-color: #ff5b6a; color: #ff5b6a; }
+  .preset-row { display: flex; gap: 8px; margin-top: 10px; }
+  .preset-row input { flex: 1; background: #1e293b; border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px; padding: 8px; font-size: .85rem; }
+  .preset-row button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 8px 12px; font-weight: bold; cursor: pointer; white-space: nowrap; }
+  .preset-row button.danger { background: #7f1d1d; }
+  .cpp-logger { width: 100%; max-width: 400px; background: #000; font-family: 'Courier New', monospace; font-size: .75rem; color: #38bdf8; padding: 12px; border-radius: 8px; margin-top: 16px; border: 1px solid #1e293b; box-sizing: border-box; max-height: 250px; overflow-y: auto; }
+  @media (max-width: 480px) {
+    body { padding: 0; }
+    .phone-container {
+      max-width: none;
+      border: none;
+      border-radius: 0;
+      padding: 12px;
+      padding-top: max(12px, env(safe-area-inset-top));
+      padding-bottom: max(12px, env(safe-area-inset-bottom));
+      box-shadow: none;
+    }
+    .cpp-logger { max-height: 160px; }
+    .step-btn { width: 36px; height: 36px; }
+    .speed-line { flex-wrap: wrap; }
+    .speed-line .speed-label { order: 0; }
+    .speed-line .step-btn.minus { order: 1; margin-left: auto; }
+    .speed-line .speed-val { order: 2; }
+    .speed-line .step-btn.plus { order: 3; }
+    .speed-line input[type=range] { order: 4; flex: 1 1 100%; }
+    input[type=range] { height: 8px; }
+    input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; }
+    .start-stop-row { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  }
+  @media (orientation: landscape) and (max-height: 520px), (min-width: 700px) {
+    body { padding: 4px; }
+    .phone-container {
+      max-width: 100%;
+      border-radius: 0;
+      border-width: 2px;
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 250px 1fr 230px;
+      align-items: start;
+      gap: 8px;
+    }
+    .phone-container.hide-left  { grid-template-columns: 1fr 230px; }
+    .phone-container.hide-right { grid-template-columns: 250px 1fr; }
+    .phone-container.hide-left.hide-right { grid-template-columns: 1fr; }
+    .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .col-left  { max-height: calc(100vh - 20px); }
+    .col-right { max-height: calc(100vh - 20px); overflow-y: auto; }
+    .phone-container.hide-left  .col-left  { display: none; }
+    .phone-container.hide-right .col-right { display: none; }
+    .col > * { margin: 0; }
+    #col-left > *, #col-center > *, #col-right > * { order: 0; }
+    .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; padding: 0; }
+    #sliders-wrapper { flex: 1 1 auto; overflow-y: auto; }
+    #sliders-wrapper > .slider-group:first-child:has(.switch) { position: sticky; top: 0; background: var(--panel-bg); z-index: 2; padding-bottom: 4px; }
+    .start-stop-row { position: static; padding-top: 0; margin-top: auto; }
+    .meter-bar { height: 105px; }
+    canvas { width: 250px; }
+    #btnStart { padding: 10px; font-size: .9rem; }
+    .wizard-box { max-height: 94vh; overflow-y: auto; }
+    .cpp-logger { display: none; }
+
+    /* Focused mode (both sidebars hidden): graph fills width, Start beside it */
+    .phone-container.hide-left.hide-right .col-center {
+      display: grid;
+      grid-template-columns: 1fr 78px;
+      grid-template-areas:
+        "header  header"
+        "visual  start"
+        "speed   speed"
+        "tabs    tabs"
+        "sliders sliders";
+      column-gap: 8px;
+      row-gap: 4px;
+      align-items: start;
+    }
+    .phone-container.hide-left.hide-right .header-row { grid-area: header; }
+    .phone-container.hide-left.hide-right .conn-dot { display: none !important; }
+    .phone-container.hide-left.hide-right .visualizer-area { grid-area: visual; }
+    .phone-container.hide-left.hide-right .start-stop-row { grid-area: start; align-self: stretch; margin: 0; width: auto; }
+    .phone-container.hide-left.hide-right .start-stop-row #btnStart { height: 100%; min-height: 88px; padding: 8px 6px; font-size: .85rem; }
+    .phone-container.hide-left.hide-right .speed-line { grid-area: speed; }
+    .phone-container.hide-left.hide-right .tabs-container { grid-area: tabs; }
+    .phone-container.hide-left.hide-right .focused-sliders { grid-area: sliders; }
+    .phone-container.hide-left.hide-right .meter-bar { height: 96px; }
+    .phone-container.hide-left.hide-right .tab-box { padding: 3px 2px; font-size: .7rem; }
+    .phone-container.hide-left.hide-right .tab-value { font-size: .75rem; }
+    .phone-container.hide-left.hide-right .tab-name { font-size: .48rem; margin-top: 1px; }
+    .phone-container.hide-left.hide-right .focused-sliders { padding: 8px 10px; }
+    .phone-container.hide-left.hide-right .focused-sliders .slider-group { margin-bottom: 6px; }
+    .phone-container.hide-left.hide-right .focused-sliders .slider-row { flex-wrap: nowrap; }
+    .phone-container.hide-left.hide-right .focused-sliders .slider-name { flex: 0 0 auto; }
+    .phone-container.hide-left.hide-right .focused-sliders .slider-row input[type=range] { flex: 1 1 0; order: 0; }
+
+    /* Funscript mode: controls left, video full-width center, settings hidden */
+    .phone-container.fun { grid-template-columns: 250px 1fr 0; }
+    .phone-container.fun .col-left { display: flex; }
+    .phone-container.fun .col-right { display: none; }
+    .phone-container.fun .col-center { max-height: calc(100vh - 20px); }
+    .phone-container.fun .col-toggle { display: none; }
+    .phone-container.fun { height: calc(100vh - 8px); align-items: stretch; }
+    .phone-container.fun .col-left { max-height: calc(100vh - 8px); overflow: hidden; }
+    .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+    .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
+    .phone-container.fun .fun-video { flex: 1 1 auto; min-height: 0; }
+    .phone-container.fun-settings-hidden { grid-template-columns: 1fr 0; }
+    .phone-container.fun-settings-hidden .col-left { display: none; }
+  }
+
+  /* Medium screens (foldables & small tablets): two columns, right panel below center */
+  @media (min-width: 700px) and (max-width: 899px) {
+    .phone-container:not(.fun) {
+      grid-template-columns: 250px 1fr;
+      grid-template-areas:
+        "left center"
+        "left right";
+    }
+    .phone-container:not(.fun) .col-left  { grid-area: left; }
+    .phone-container:not(.fun) .col-center { grid-area: center; }
+    .phone-container:not(.fun) .col-right { grid-area: right; max-height: none; overflow-y: visible; }
+    .phone-container:not(.fun).hide-left { grid-template-columns: 1fr; grid-template-areas: "center" "right"; }
+    .phone-container:not(.fun).hide-right { grid-template-columns: 250px 1fr; grid-template-areas: "left center"; }
+    .phone-container:not(.fun).hide-left.hide-right { grid-template-columns: 1fr; grid-template-areas: "center"; }
+  }
+</style>
+</head>
+<body>
+<div class="phone-container">
+  <input type="file" id="funVideoInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg" style="display:none;">
+  <input type="file" id="funScriptInput" accept=".funscript,.json,application/json" style="display:none;">
+  <div class="col col-left" id="col-left">
+    <div class="fun-controls" id="fun-controls" style="display:none;"></div>
+    <div class="sliders-panel" id="sliders-wrapper"></div>
+    <div class="start-stop-row">
+      <button id="btnStart">Start</button>
+    </div>
+    <div class="reset-row" id="reset-row">
+      <button id="btnResetValues">Reset all values</button>
+    </div>
+  </div>
+
+  <div class="col col-center" id="col-center">
+    <div class="header-row">
+      <button class="col-toggle" id="toggleColLeft" title="Show / hide sliders column">◀</button>
+      <span class="conn-dot" id="conn-dot" style="display:none;"></span>
+      <div class="screen-header">
+        <div id="active-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">OSSM Standard</div>
+        <div class="build-info" id="buildInfo" style="font-size:.62rem;color:#64748b;font-weight:normal;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+      </div>
+      <div class="focus-status" id="focus-status" style="display:none;"></div>
+      <button class="ble-btn small" id="header-connect" style="display:none;">Connect</button>
+      <button class="ble-btn small danger" id="header-disconnect" style="display:none;">Disconnect</button>
+      <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
+      <button class="fun-settings-toggle" id="funSettingsToggle" title="Fullscreen video (hide settings)" style="display:none;">⤢</button>
+      <button class="ble-btn small" id="funExit" style="display:none;">Exit Funscript</button>
+      <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
+    </div>
+
+    <div class="visualizer-area">
+      <div class="meter-col"><div class="meter-label">Max</div><div class="meter-bar"><div class="meter-fill" id="left-meter" style="background-color: var(--color-top);"></div></div></div>
+      <canvas id="graphCanvas" width="280" height="132"></canvas>
+      <div class="meter-col"><div class="meter-label">Min</div><div class="meter-bar"><div class="meter-fill" id="right-meter" style="background-color: var(--color-bottom);"></div></div></div>
+    </div>
+
+    <div class="fun-video" id="fun-video" style="display:none;"></div>
+
+    <div class="fun-preview-wrap" id="fun-preview-wrap" style="display:none;">
+      <button class="fun-preview-toggle" id="funPreviewToggle" title="Show funscript preview">▴</button>
+      <canvas id="funPreview"></canvas>
+    </div>
+
+    <div class="speed-line" id="speed-control"></div>
+
+    <div class="tabs-container" id="tabs-wrapper"></div>
+
+    <div class="focused-sliders" id="focused-sliders" style="display:none;"></div>
+  </div>
+
+  <div class="col col-right" id="col-right">
+    <div class="ble-panel" id="ble-panel">
+      <span class="ble-status" id="ble-text">OSSM: Disconnected</span>
+      <button class="ble-btn" id="ble-button">Connect</button>
+    </div>
+
+    <div class="mode-row" id="mode-row">
+      <span class="mode-label">Mode</span>
+      <div class="mode-seg">
+        <button id="modeAp" class="mode-btn">Advanced</button>
+        <button id="modeStd" class="mode-btn active">Standard</button>
+        <button id="modeFun" class="mode-btn">Funscript</button>
+      </div>
+    </div>
+
+    <div class="pad-status" id="pad-status">🎮 Press a button on the controller, or use the keyboard…</div>
+
+    <details class="presets-panel" id="presets-panel">
+      <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
+      <div id="presetList"></div>
+      <div class="preset-row">
+        <input type="text" id="presetName" placeholder="New preset name" />
+        <button id="btnSavePreset">Save</button>
+        <button id="btnFactoryReset" class="danger">Reset</button>
+      </div>
+    </details>
+
+    <details class="bind-panel" id="bind-panel">
+      <summary>🎮 Controller & keyboard mapping</summary>
+      <div class="bind-hint">Tap <b>✨ Run setup wizard</b> to assign every input step-by-step, or tap <b>Bind</b> on a single row. Works with a gamepad or the keyboard (on PC). If an input is already in use, it is moved from its previous action automatically.</div>
+      <div class="bind-view-toggle">
+        <button id="bindViewPad" class="bind-view-btn active">🎮 Controller</button>
+        <button id="bindViewKb" class="bind-view-btn">⌨ Keyboard</button>
+      </div>
+      <div id="bind-list"></div>
+      <div class="bind-status" id="bind-status"></div>
+      <div class="bind-actions">
+        <button class="bind-wizard" id="btnWizard">✨ Run setup wizard</button>
+        <button class="bind-reset" id="bind-reset">Reset to default</button>
+      </div>
+    </details>
+
+    <details class="pad-debug" id="pad-debug">
+      <summary>🎮 Raw input</summary>
+      <pre id="pad-debug-axes">Axes: —</pre>
+      <pre id="pad-debug-buttons">Pressed: —</pre>
+    </details>
+  </div>
+
+  <div class="wizard-overlay" id="helpOverlay" style="display:none;">
+    <div class="wizard-box" style="max-width:440px;">
+      <div class="wizard-title">❓ Extractor URL</div>
+      <div class="help-body" id="helpBody"></div>
+      <div class="wizard-row" style="margin-top:14px;">
+        <button class="wizard-btn" id="helpClose">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="wizard-overlay" id="wizard" style="display:none;">
+    <div class="wizard-box">
+      <div class="wizard-title">✨ Input setup wizard</div>
+      <div class="wizard-progress" id="wizard-progress"></div>
+      <div class="wizard-label" id="wizard-label"></div>
+      <div class="wizard-seg">
+        <button id="wizardViewPad" class="wizard-seg-btn active">🎮 Controller</button>
+        <button id="wizardViewKb" class="wizard-seg-btn">⌨ Keyboard</button>
+      </div>
+      <div class="wizard-prompt" id="wizard-prompt"></div>
+      <div class="wizard-help" id="wizard-help"></div>
+      <div class="wizard-note" id="wizard-note" style="display:none;"></div>
+      <div class="wizard-row">
+        <button class="wizard-btn ghost" id="wizard-back">‹ Back</button>
+        <button class="wizard-btn ghost" id="wizard-skip">Skip</button>
+        <button class="wizard-btn danger" id="wizard-cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="cpp-logger">
+  <strong style="color:#fff;">OSSM Live Dashboard Monitor:</strong>
+  <div id="log" style="margin-top:6px;">Open this in Chrome or Edge to control the OSSM over Bluetooth.</div>
+</div>
+
+<script>
+"use strict";
+
+const SERVICE_UUID   = "4f53534d-0000-0000-0000-000000000000";
+const CONTROL_UUID   = "4f53534d-6164-7661-6e63-6564636f6e74";
+const CONFIG_UUID    = "4f53534d-6164-7661-6e63-6564636f6e66";
+const STATUS_UUID    = "4f53534d-6164-7661-6e63-656473746174";
+const PRESETS_UUID   = "4f53534d-6164-7661-6e63-656470727374";
+
+// Standard (home) mode lives on the legacy OSSM service.
+const LEGACY_SERVICE_UUID = "522b443a-4f53-534d-0001-420badbabe69";
+const STD_CMD_UUID        = "522b443a-4f53-534d-1000-420badbabe69";
+const STD_STATE_UUID      = "522b443a-4f53-534d-2000-420badbabe69";
+const STD_PATTERNS_UUID   = "522b443a-4f53-534d-3000-420badbabe69";
+const STD_SENPTL_UUID     = "4f53534d-456e-6769-6e65-5061744c7374";
+const STREAM_UUID         = "4f53534d-436f-6d6d-6f6e-53747265616D";
+const STD_PATTERN_FALLBACK = ["Simple Stroke", "Teasing Pounding", "Robo Stroke", "Half'n'Half", "Deeper", "Stop'n'Go", "Insist", "Progressive Stroke", "Random Stroke", "Go to Point"];
+const STD_PATTERN_DESC_FALLBACK = [
+  "Acceleration, coasting, deceleration equally split; sensation adds randomness in stroke.",
+  "Speed shifts with sensation; balances faster strokes.",
+  "Sensation varies acceleration; from robotic to gradual.",
+  "Full and half depth strokes alternate; sensation affects speed.",
+  "Stroke depth increases per cycle; sensation sets count.",
+  "Pauses between strokes; sensation adjusts length.",
+  "Stroke length decreases per cycle; sensation sets count.",
+  "Strokes are made of substrokes controlled by sensation.",
+  "Random stroke; sensation controls maximum randomness from current location.",
+  "Moves to a point between depth and stroke based on sensation."
+];
+const STD_KNOWN_PATTERN_COUNT = 10;  // indices 0..9 have graph renderers; newer ones show no line
+
+let device = null, server = null;
+let ctlChar = null, cfgChar = null, stsChar = null, prsChar = null;
+let stdCmd = null, stdState = null, stdPatternsChar = null, senptlChar = null, streamChar = null;
+let presetNames = [];
+let connected = false;
+let running = false;
+let padStateText = "";       // last gamepad/keyboard status text
+let appMode = "std";         // "ap" (advanced penetration) | "std" (standard home)
+let funSettingsHidden = false;
+try { funSettingsHidden = localStorage.getItem("ossm-fun-hidden") === "1"; } catch (e) {}
+let funControlsCollapsed = false;
+try { funControlsCollapsed = localStorage.getItem("ossm-fun-controls-collapsed") === "1"; } catch (e) {}
+let demoMode = false;
+let funPreviewShown = false;
+try { funPreviewShown = localStorage.getItem("ossm-fun-preview-shown") === "1"; } catch (e) {}
+let stdValues = { speed: 0, max: 100, min: 0, sensation: 50, pattern: 0 };
+let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
+let stdStateName = "";
+let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
+let stdRunning = false;
+let lastNonZeroSpeed = 50;
+
+const BASE_NAMES = ["Max Depth", "Min Depth", "In Speed", "Out Speed", "In Accel", "Out Accel"];
+const BASE_COLORS = ["#ff0c00", "#ff8100", "#ffff00", "#00ff00", "#0000ff", "#ac8dee"];
+const MODIFIER_NAMES = ["Amplitude", "Steps to Min", "Steps at Min", "Steps to Max", "Steps at Max", "Offset"];
+const MOD_COLORS = ["#38bdf8", "#34d399", "#fbbf24", "#f87171", "#c084fc", "#94a3b8"];
+const SPEED_KEY = "SP";
+
+// Firmware defaults (OSSM-Lite advanced_penetration_structs.h).
+const BASE_DEFAULTS = [10, 0, 100, 100, 40, 40];   // Max Depth, Min Depth, In Speed, Out Speed, In Accel, Out Accel
+const SPEED_DEFAULT = 0;
+const MODIFIER_DEFAULTS = [100, 1, 0, 1, 0, 0];    // Amplitude, Steps to Min, Steps at Min, Steps to Max, Steps at Max, Offset
+
+// Firmware names -> canonical keys (used when parsing CONFIG strings).
+const BASE_ALIAS = {
+  "Max Depth": "Max Depth", "Min Depth": "Min Depth",
+  "In Speed": "In Speed", "Out Speed": "Out Speed",
+  "In Accel": "In Accel", "Out Accel": "Out Accel"
+};
+const MODIFIER_ALIAS = {
+  "Amplitude": "Amplitude",
+  "Steps to Min": "Steps to Min", "Steps at Min": "Steps at Min",
+  "Steps to Max": "Steps to Max", "Steps at Max": "Steps at Max",
+  "Offset": "Offset"
+};
+
+// Combined-key dictionary: settings["Max Depth"], settings["Max DepthAmplitude"], settings["In SpeedSteps to Min"], settings["SP"], ...
+// Each entry: { min, max, value }.
+// Seeded with the OSSM-Lite advanced-penetration firmware defaults so the graph
+// and tabs render consistently before the device is connected.
+function buildDefaultSettings() {
+  const s = {};
+  const baseMin = [0, 0, 1, 1, 0, 0];
+  const baseMax = [100, 100, 100, 100, 100, 100];
+  const modMin = [0, 1, 0, 1, 0, 0];
+  const modMax = [100, 25, 25, 25, 25, 100];
+  for (let i = 0; i < BASE_NAMES.length; i++) {
+    s[BASE_NAMES[i]] = { min: baseMin[i], max: baseMax[i], value: BASE_DEFAULTS[i] };
+    for (let mi = 0; mi < MODIFIER_NAMES.length; mi++) {
+      s[BASE_NAMES[i] + MODIFIER_NAMES[mi]] = { min: modMin[mi], max: modMax[mi], value: MODIFIER_DEFAULTS[mi] };
+    }
+  }
+  s[SPEED_KEY] = { min: 0, max: 100, value: SPEED_DEFAULT };
+  return s;
+}
+let settings = buildDefaultSettings();
+
+const $ = (id) => document.getElementById(id);
+const log = (msg) => { $("log").textContent = msg || ""; };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const decode = (dv) => new TextDecoder().decode(dv);
+const encode = (s) => new TextEncoder().encode(s);
+
+const speedIndex = () => 6; // firmware: 6 base controls + speed at index 6
+function baseKey(i) { return i === speedIndex() ? SPEED_KEY : BASE_NAMES[i]; }
+function modifierKey(bi, mi) { return BASE_NAMES[bi] + MODIFIER_NAMES[mi]; }
+function getSetting(key) { return settings[key] || { min: 0, max: 100, value: 0 }; }
+function settingValue(key, fallback = 0) {
+  const s = settings[key];
+  return s ? s.value : fallback;
+}
+
+const canvas = $("graphCanvas");
+const ctx = canvas.getContext("2d");
+
+// ---------- BLE ----------
+async function readStr(ch) { return decode(await ch.readValue()); }
+async function writeControl(s) {
+  try { await ctlChar.writeValueWithoutResponse(encode(s)); }
+  catch { await ctlChar.writeValueWithResponse(encode(s)); }
+}
+async function writePreset(s) { await prsChar.writeValueWithResponse(encode(s)); }
+
+function parseConfig(raw) {
+  const parsed = {};
+  for (const entry of raw.split(",")) {
+    const m = entry.match(/^([^(]+)\((\d+)\/(\d+)\)(.*)$/);
+    if (!m) continue;
+    const rawName = m[1].trim();
+    const min = parseInt(m[2], 10);
+    const max = parseInt(m[3], 10);
+
+    let canonical;
+    if (rawName === "Speed" || rawName === "SP") canonical = SPEED_KEY;
+    else canonical = BASE_ALIAS[rawName];
+    if (!canonical) continue;
+
+    parsed[canonical] = { min, max, value: min };
+    if (canonical === SPEED_KEY) continue; // speed has no modifiers
+
+    const re = /:([^(]+)\((\d+)\/(\d+)\)/g;
+    let mm;
+    while ((mm = re.exec(m[4])) !== null) {
+      const modCanonical = MODIFIER_ALIAS[mm[1].trim()];
+      if (!modCanonical) continue;
+      const modMin = parseInt(mm[2], 10);
+      const modMax = parseInt(mm[3], 10);
+      parsed[canonical + modCanonical] = { min: modMin, max: modMax, value: modMin };
+    }
+  }
+  settings = parsed;
+  if (!settings[SPEED_KEY]) settings[SPEED_KEY] = { min: 0, max: 100, value: 0 };
+}
+
+function parseStatus(raw) {
+  const entries = raw.split(",");
+  entries.forEach((entry, i) => {
+    const parts = entry.split(":");
+    if (i === speedIndex()) {
+      const v = parseFloat(parts[0]);
+      if (!isNaN(v)) {
+        const s = getSetting(SPEED_KEY);
+        s.value = clamp(v, s.min, s.max);
+        settings[SPEED_KEY] = s;
+      }
+      return;
+    }
+    if (i >= BASE_NAMES.length) return;
+
+    const key = BASE_NAMES[i];
+    const base = parseFloat(parts[0]);
+    if (!isNaN(base)) {
+      const s = getSetting(key);
+      s.value = clamp(base, s.min, s.max);
+      settings[key] = s;
+    }
+    for (let mi = 0; mi < MODIFIER_NAMES.length; mi++) {
+      if (mi + 1 >= parts.length) break;
+      const v = parseFloat(parts[mi + 1]);
+      if (isNaN(v)) continue;
+      const mk = key + MODIFIER_NAMES[mi];
+      const s = getSetting(mk);
+      s.value = clamp(v, s.min, s.max);
+      settings[mk] = s;
+    }
+  });
+}
+
+const speed = () => Math.round(settingValue(SPEED_KEY));
+
+function setConnectingUI(on) {
+  const els = [$("ble-button"), $("header-connect")];
+  for (const el of els) {
+    if (!el) continue;
+    el.textContent = on ? "Connecting…" : "Connect";
+    el.classList.toggle("connecting", on);
+    el.disabled = on;
+  }
+  const bt = $("ble-text");
+  if (bt) bt.textContent = on ? "OSSM: Connecting…" : (bt.textContent === "OSSM: Connecting…" ? "OSSM: Disconnected" : bt.textContent);
+}
+
+async function connect() {
+  if (!navigator.bluetooth) { log("Web Bluetooth not available. Use Chrome/Edge over HTTPS or localhost."); return; }
+  setConnectingUI(true);
+  log("Requesting device…");
+  try {
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [SERVICE_UUID] }],
+      optionalServices: [SERVICE_UUID, LEGACY_SERVICE_UUID]
+    });
+    device.addEventListener("gattserverdisconnected", onDisconnected);
+    log("Connecting to " + (device.name || "OSSM") + "…");
+    server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(SERVICE_UUID);
+    ctlChar = await svc.getCharacteristic(CONTROL_UUID);
+    cfgChar = await svc.getCharacteristic(CONFIG_UUID);
+    stsChar = await svc.getCharacteristic(STATUS_UUID);
+    prsChar = await svc.getCharacteristic(PRESETS_UUID);
+
+    // Standard-mode characteristics (legacy service) — best effort.
+    stdCmd = null; stdState = null; stdPatternsChar = null; senptlChar = null; streamChar = null;
+    try { senptlChar = await svc.getCharacteristic(STD_SENPTL_UUID); } catch (e) {}
+    try { streamChar = await svc.getCharacteristic(STREAM_UUID); } catch (e) {}
+    try {
+      const legacy = await server.getPrimaryService(LEGACY_SERVICE_UUID);
+      try { stdCmd = await legacy.getCharacteristic(STD_CMD_UUID); } catch (e) {}
+      try { stdState = await legacy.getCharacteristic(STD_STATE_UUID); } catch (e) {}
+      try { stdPatternsChar = await legacy.getCharacteristic(STD_PATTERNS_UUID); } catch (e) {}
+    } catch (e) {}
+
+    if (stsChar.properties.notify) {
+      stsChar.addEventListener("characteristicvaluechanged", onStatus);
+      await stsChar.startNotifications();
+    }
+    if (stdState && stdState.properties.notify) {
+      stdState.addEventListener("characteristicvaluechanged", onStdState);
+      try { await stdState.startNotifications(); } catch (e) {}
+    }
+    log("Reading configuration…");
+    const cfg = await readStr(cfgChar);
+    parseConfig(cfg);
+    await refreshStatus();
+    await refreshPresets();
+    await refreshStdPatterns();
+    await refreshStdValues();
+    connected = true;
+    updateFocusStatus();
+    running = speed() > 0;
+    lastNonZeroSpeed = speed() > 0 ? speed() : 50;
+    setConnectingUI(false);
+    $("ble-panel").style.display = "none";
+    $("conn-dot").style.display = "inline-block";
+    $("header-disconnect").style.display = "inline-block";
+    $("header-stop").style.display = "inline-block";
+    buildInterface();
+    enforceModeAvailability();
+    if (appMode === "std") enterStdMode();
+    log("");
+  } catch (e) {
+    setConnectingUI(false);
+    $("ble-text").textContent = "OSSM: Error 🔴";
+    log("Bluetooth error: " + e.message);
+  }
+}
+
+function onDisconnected() {
+  connected = false; running = false; stdRunning = false; stdStateName = ""; streamChar = null;
+  firmwareKind = "unknown";
+  updateFocusStatus();
+  $("ble-panel").style.display = "";
+  $("conn-dot").style.display = "none";
+  $("header-disconnect").style.display = "none";
+  $("header-stop").style.display = "none";
+  log("Disconnected from OSSM.");
+  buildInterface();
+}
+
+function disconnect() {
+  try {
+    if (server && server.connected) server.disconnect();
+    else if (device && device.gatt.connected) device.gatt.disconnect();
+  } catch (e) { log("Disconnect failed: " + e.message); }
+}
+
+function onStatus(ev) { parseStatus(decode(ev.target.value)); buildInterface(); }
+async function refreshStatus() { parseStatus(await readStr(stsChar)); }
+async function refreshPresets() {
+  presetNames = (await readStr(prsChar)).split(",").map(s => s.trim()).filter(Boolean);
+  renderPresets();
+}
+
+// ---------- Standard (home) mode ----------
+function parseStdState(raw) {
+  let j;
+  try { j = JSON.parse(raw); } catch (e) { return; }
+  if (typeof j.speed === "number") stdValues.speed = Math.round(j.speed);
+  if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
+  if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
+  if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
+  if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
+  if (typeof j.state === "string") stdStateName = j.state;
+  stdRunning = stdValues.speed > 0.5;
+  detectFirmware(j);
+}
+// OSSM-Lite reports minPosition/maxPosition in its state JSON; standard OSSM and
+// OSSM-RS only report depth/stroke. Rust OSSM state names use ready/playing/paused.
+function detectFirmware(j) {
+  if (firmwareKind === "lite") return; // definitive, never downgrade
+  if (typeof j.minPosition === "number" && typeof j.maxPosition === "number") {
+    firmwareKind = "lite";
+  } else if (typeof j.state === "string") {
+    const s = j.state.toLowerCase();
+    if (/^(ready|playing|paused)/.test(s)) firmwareKind = "rust";
+    else if (s) firmwareKind = "ossm";
+  }
+}
+function apAvailable() { return firmwareKind !== "ossm" && firmwareKind !== "rust"; }
+// Advanced Penetration only exists on OSSM-Lite firmware; on standard OSSM / OSSM-RS
+// the mode is unavailable, so fall back to Standard mode.
+function enforceModeAvailability() {
+  if (appMode === "ap" && !apAvailable()) {
+    appMode = "std";
+    buildInterface();
+    enterStdMode();
+  }
+}
+function onStdState(ev) {
+  parseStdState(decode(ev.target.value));
+  if (appMode === "ap") enforceModeAvailability();
+  else if (appMode === "std") buildInterface();
+  else if (appMode === "fun") updateStartButton();
+}
+
+async function stdWrite(cmd) {
+  if (!stdCmd) return;
+  const data = encode(cmd);
+  try { await stdCmd.writeValueWithoutResponse(data); }
+  catch (e) { try { await stdCmd.writeValueWithResponse(data); } catch (e2) { log("Std write failed: " + e2.message); } }
+}
+async function streamWrite(data) {
+  if (!streamChar) return;
+  const enc = encode(data);
+  try { await streamChar.writeValueWithoutResponse(enc); }
+  catch (e) { try { await streamChar.writeValueWithResponse(enc); } catch (e2) {} }
+}
+
+async function refreshStdPatterns() {
+  stdPatterns = [];
+  if (stdPatternsChar) {
+    try {
+      const arr = JSON.parse(decode(await stdPatternsChar.readValue()));
+      if (Array.isArray(arr)) stdPatterns = arr.map(p => ({ name: p.name, idx: p.idx, desc: "" }));
+    } catch (e) {}
+  }
+  if (!stdPatterns.length) stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: "" }));
+
+  // Fetch live descriptions from the OSSM: write the index, read back "name:description".
+  if (senptlChar) {
+    for (const p of stdPatterns) {
+      try {
+        await senptlChar.writeValueWithResponse(encode(String(p.idx)));
+        const resp = decode(await senptlChar.readValue());
+        const colon = resp.indexOf(":");
+        p.desc = (colon >= 0 ? resp.slice(colon + 1) : resp).trim();
+      } catch (e) {}
+    }
+  }
+  // Fill any still-missing descriptions from the built-in list.
+  stdPatterns.forEach(p => {
+    if (!p.desc && p.idx >= 0 && p.idx < STD_PATTERN_DESC_FALLBACK.length) p.desc = STD_PATTERN_DESC_FALLBACK[p.idx];
+  });
+}
+
+async function refreshStdValues() {
+  if (!stdState) return;
+  try { parseStdState(decode(await stdState.readValue())); } catch (e) {}
+}
+
+// ---------- Commands ----------
+function baseRange(i) {
+  const s = getSetting(baseKey(i));
+  let lo = s.min, hi = s.max;
+  if (i === 0) lo = Math.max(lo, Math.round(settingValue(BASE_NAMES[1])));
+  else if (i === 1) hi = Math.min(hi, Math.round(settingValue(BASE_NAMES[0])));
+  return { min: lo, max: hi };
+}
+
+function setBase(i, v) {
+  const key = baseKey(i);
+  const s = getSetting(key);
+  v = clamp(Math.round(v), s.min, s.max);
+  if (i === 0) v = Math.max(v, Math.round(settingValue(BASE_NAMES[1])));
+  else if (i === 1) v = Math.min(v, Math.round(settingValue(BASE_NAMES[0])));
+  s.value = v;
+  settings[key] = s;
+  if (i >= 0 && i < BASE_NAMES.length) activeBaseIndex = i; // highlight the moved setting
+  writeControl(`${i}:${v},`).catch(e => log("Write failed: " + e));
+  buildInterface();
+}
+function setSpeed(v) { setBase(speedIndex(), v); if (v > 0) lastNonZeroSpeed = v; }
+function setModifier(bi, mi, v) {
+  const key = modifierKey(bi, mi);
+  const s = getSetting(key);
+  v = clamp(Math.round(v), s.min, s.max);
+  s.value = v;
+  settings[key] = s;
+  activeModifierIndex = mi; // highlight the moved modifier
+  writeControl(`${bi}:${mi}:${v},`).catch(e => log("Write failed: " + e));
+  buildInterface();
+}
+function machineRunningState() {
+  if (demoMode) return true;
+  if (!connected) return false;
+  const s = stdStateName || "";
+  if (appMode === "fun") return s === "streaming" || s === "streaming.idle";
+  if (appMode === "std") return s.indexOf("strokeEngine") === 0;
+  return true; // advanced penetration: not gated (existing behaviour)
+}
+function machineStateLabel() {
+  const s = stdStateName || "";
+  if (s.indexOf("homing") === 0 || s === "measure.run") return "Homing…";
+  if (s.indexOf("preflight") !== -1) return "Preflight…";
+  if (s.indexOf("streaming") === 0) return "Streaming ready";
+  if (s.indexOf("strokeEngine") === 0) return "Stroke engine ready";
+  if (s.indexOf("advancedPenetration") === 0) return "Advanced ready";
+  if (s.indexOf("menu") === 0 || s === "idle") return "In menu…";
+  return s || "Preparing…";
+}
+function updateStartButton() {
+  const b = $("btnStart");
+  if (!b) return;
+  const isFun = appMode === "fun";
+  const isStd = appMode === "std";
+  const runningNow = isFun ? funState.playing : (isStd ? stdRunning : speed() > 0);
+  if (!connected || machineRunningState()) {
+    b.disabled = false;
+    b.textContent = runningNow ? "Stop" : "Start";
+    b.classList.toggle("stop", runningNow);
+  } else {
+    b.disabled = true;
+    b.textContent = machineStateLabel();
+    b.classList.remove("stop");
+  }
+}
+function emergencyStop() {
+  if (connected && stdCmd) stdWrite("go:menu");
+  const v = $("funVideo");
+  if (v && !v.paused) { try { v.pause(); } catch (e) {} }
+  funState.playing = false;
+  if (funState.timer) { clearInterval(funState.timer); funState.timer = null; }
+  stdRunning = false;
+  if (castConnected && castContext) {
+    castPausedLocal = false;
+    try {
+      const s = castContext.getCurrentSession();
+      const m = s && s.getMediaSession && s.getMediaSession();
+      if (m && typeof m.stop === "function") m.stop(mkCastRequest("StopRequest"), () => {}, () => {});
+    } catch (e) {}
+    castContext.endCurrentSession(true);
+  }
+  updateStartButton();
+  log("⚠ Emergency stop — returning to menu.");
+}
+function toggleStart() {
+  if (appMode === "fun") {
+    if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
+    if (castConnected && castSession) {
+      try {
+        const media = castSession.getMediaSession ? castSession.getMediaSession() : (castMedia || null);
+        if (!media) { funLog("No media session."); return; }
+        const ps = media.playerState;
+        const playing = ps === "PLAYING" || ps === "BUFFERING";
+        if (playing && media.pause) media.pause(mkCastRequest("PauseRequest"), () => {}, () => {});
+        else if (media.play) media.play(mkCastRequest("PlayRequest"), () => {}, () => {});
+      } catch (e) { funLog("Cast control failed."); }
+      return;
+    }
+    const v = $("funVideo");
+    if (v) { if (v.paused) v.play(); else v.pause(); }
+    return;
+  }
+  if (appMode === "std") {
+    if (!machineRunningState()) { log("Waiting for the OSSM to finish homing…"); return; }
+    if (stdRunning) stdWrite("set:speed:0");
+    else stdWrite("set:speed:" + (stdValues.speed > 0 ? stdValues.speed : 50));
+    return;
+  }
+  if (speed() > 0) setSpeed(0);
+  else setSpeed(lastNonZeroSpeed > 0 ? lastNonZeroSpeed : 50);
+}
+
+function setLocal(key, v) {
+  const s = getSetting(key);
+  s.value = clamp(Math.round(v), s.min, s.max);
+  settings[key] = s;
+}
+
+// Resets every base value, speed, and all modifiers to the firmware defaults.
+function resetAllValues() {
+  for (let i = 0; i < BASE_NAMES.length; i++) setLocal(baseKey(i), BASE_DEFAULTS[i]);
+  setLocal(SPEED_KEY, SPEED_DEFAULT);
+  for (let bi = 0; bi < BASE_NAMES.length; bi++)
+    for (let mi = 0; mi < MODIFIER_NAMES.length; mi++)
+      setLocal(modifierKey(bi, mi), MODIFIER_DEFAULTS[mi]);
+  buildInterface();
+
+  const parts = [];
+  for (let i = 0; i < BASE_NAMES.length; i++) parts.push(`${i}:${BASE_DEFAULTS[i]}`);
+  parts.push(`${speedIndex()}:${SPEED_DEFAULT}`);
+  for (let bi = 0; bi < BASE_NAMES.length; bi++)
+    for (let mi = 0; mi < MODIFIER_NAMES.length; mi++)
+      parts.push(`${bi}:${mi}:${MODIFIER_DEFAULTS[mi]}`);
+  writeControl(parts.join(",") + ",")
+    .then(() => setTimeout(async () => { await refreshStatus(); buildInterface(); }, 800))
+    .catch(e => log("Reset failed: " + e));
+}
+
+// ---------- UI ----------
+let viewMode = "main";          // "main" | "mod"
+let activeBaseIndex = 0;        // 0..5 (main base controls)
+let activeModifierIndex = 0;    // 0..5 (modifier type)
+let presetSelection = "";       // currently selected preset in the dropdown
+let showAll = (window.matchMedia && (window.matchMedia("(orientation: landscape)").matches || window.matchMedia("(min-width: 700px)").matches)); // wide/landscape defaults to showing all sliders
+let modifierRowVisible = (window.matchMedia && (window.matchMedia("(orientation: landscape)").matches || window.matchMedia("(min-width: 700px)").matches)); // show modifier boxes by default when wide/landscape
+
+// Picks a readable text color (black/white) for the active tab's bright background.
+function tabTextColor(hex) {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 0.5 ? "#000000" : "#ffffff";
+}
+function placeStartButton() {
+  const row = document.querySelector(".start-stop-row");
+  if (!row) return;
+  let anchor;
+  if (appMode === "fun") anchor = (funSettingsHidden && $("fun-video")) ? $("fun-video") : $("fun-controls");
+  else if (appMode === "std" || focusedMode()) anchor = $("speed-control");
+  else anchor = $("sliders-wrapper");
+  if (anchor && anchor.nextElementSibling !== row) anchor.insertAdjacentElement("afterend", row);
+}
+function updateFocusStatus() {
+  const el = $("focus-status");
+  if (!el) return;
+  const ble = connected ? "Connected" : "Disconnected";
+  el.innerHTML = `<span class="fs-dot${connected ? " on" : ""}"></span><span>${ble}</span>` +
+                 (padStateText ? `<span class="fs-sep">·</span><span>${padStateText}</span>` : "");
+}
+function buildInterface() {
+  if (appMode === "ap" && !apAvailable()) appMode = "std";
+  const isStd = appMode === "std";
+  const isFun = appMode === "fun";
+  const pc = document.querySelector(".phone-container");
+  if (pc) { pc.classList.toggle("fun", isFun); pc.classList.toggle("fun-settings-hidden", isFun && funSettingsHidden); }
+  const fstBtn = $("funSettingsToggle");
+  if (fstBtn) fstBtn.style.display = isFun ? "inline-flex" : "none";
+
+  $("active-title").textContent = isFun
+    ? "OSSM Funscript"
+    : (isStd ? "OSSM Standard" : (viewMode === "main" ? "OSSM Advanced Penetration" : "Modifier for: " + BASE_NAMES[activeBaseIndex]));
+  updateStartButton();
+
+  $("tabs-wrapper").style.display = (isStd || isFun) ? "none" : "";
+  $("reset-row").style.display = (isFun || isStd || viewMode !== "main" || !showAll) ? "none" : "";
+  $("presets-panel").style.display = (isStd || isFun) ? "none" : "";
+  $("sliders-wrapper").style.display = isFun ? "none" : "";
+  $("speed-control").style.display = isFun ? "none" : "";
+  $("fun-controls").style.display = isFun ? "" : "none";
+  $("fun-video").style.display = isFun ? "" : "none";
+  $("fun-preview-wrap").style.display = isFun ? "" : "none";
+  const pv = $("funPreview"); if (pv) pv.style.display = funPreviewShown ? "block" : "none";
+  const pvt = $("funPreviewToggle"); if (pvt) { pvt.textContent = funPreviewShown ? "▾" : "▴"; pvt.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
+  $("funExit").style.display = isFun ? "" : "none";
+  const va = document.querySelector(".visualizer-area"); if (va) va.style.display = isFun ? "none" : "";
+
+  const apBtn = $("modeAp");
+  if (apBtn) { apBtn.style.display = apAvailable() ? "" : "none"; apBtn.classList.toggle("active", !isStd && !isFun); }
+  $("modeStd").classList.toggle("active", isStd);
+  const mf = $("modeFun"); if (mf) mf.classList.toggle("active", isFun);
+  const fst = $("focus-status"); if (fst) fst.style.display = (focusedMode() || isFun) ? "" : "none";
+  const hc = $("header-connect");
+  if (hc) {
+    hc.style.display = (isFun && !connected) ? "" : "none";
+    hc.textContent = demoMode ? "DEMO" : "Connect";
+    hc.classList.toggle("demo", !!demoMode);
+  }
+
+  if (isFun) { buildFunControls(); buildFunVideo(); }
+  else if (isStd) { buildStdSliders(); const fs = $("focused-sliders"); if (fs) fs.style.display = "none"; }
+  else {
+    buildTabs();
+    if (focusedMode()) { buildFocusedSliders(); const fs = $("focused-sliders"); if (fs) fs.style.display = ""; }
+    else { buildSliders(); const fs = $("focused-sliders"); if (fs) fs.style.display = "none"; }
+    renderPresets();
+  }
+  if (!isFun) { buildSpeed(); resizeCanvas(); drawGraph(); }
+  placeStartButton();
+}
+
+function buildTabs() {
+  const wrap = $("tabs-wrapper");
+  wrap.innerHTML = "";
+  const mk = (text, active, color, title, label, dim = false) => {
+    const d = document.createElement("div");
+    d.className = "tab-box";
+    d.title = title;
+    d.innerHTML = `<div class="tab-value">${text}</div>` + (label ? `<div class="tab-name">${label}</div>` : "");
+    d.style.background = active ? color : (dim ? `color-mix(in srgb, ${color} 22%, #3a3a3a)` : "#3a3a3a");
+    d.style.color = active ? tabTextColor(color) : "#dde6f0";
+    d.style.borderColor = active ? "#ffffff" : "transparent";
+    return d;
+  };
+  const addRow = () => {
+    const row = document.createElement("div");
+    row.className = "tab-row";
+    wrap.appendChild(row);
+    return row;
+  };
+
+  // Base squares row (always visible — acts as navigation).
+  const baseRow = addRow();
+  for (let i = 0; i < BASE_NAMES.length; i++) {
+    const d = mk(Math.round(settingValue(BASE_NAMES[i])), i === activeBaseIndex, BASE_COLORS[i], BASE_NAMES[i], BASE_NAMES[i], true);
+    d.onclick = () => {
+      if (activeBaseIndex === i) modifierRowVisible = !modifierRowVisible;
+      else { activeBaseIndex = i; modifierRowVisible = true; }
+      viewMode = "main";
+      buildInterface();
+    };
+    baseRow.appendChild(d);
+  }
+
+  // Modifier squares row for the selected base (only while toggled on).
+  if (modifierRowVisible) {
+    const modRow = addRow();
+    const bi = clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
+    const activeColor = BASE_COLORS[bi];
+    const modActive = viewMode === "mod";
+    MODIFIER_NAMES.forEach((name, mi) => {
+      const d = mk(Math.round(settingValue(BASE_NAMES[bi] + name)), modActive && mi === activeModifierIndex, activeColor, name, name, true);
+      d.onclick = () => { activeModifierIndex = mi; viewMode = "mod"; buildInterface(); };
+      modRow.appendChild(d);
+    });
+  }
+}
+
+function buildSpeed() {
+  const wrap = $("speed-control");
+  wrap.innerHTML = "";
+  wrap.className = "speed-line";
+  const isStd = appMode === "std";
+  const lo = 0, hi = 100;
+  const val = isStd ? stdValues.speed : Math.round(settingValue(SPEED_KEY));
+  const onSet = isStd
+    ? (v) => { stdValues.speed = v; stdWrite("set:speed:" + v); }
+    : (v) => setSpeed(v);
+  const label = document.createElement("span");
+  label.className = "speed-label";
+  label.textContent = "Speed:";
+  const num = document.createElement("span");
+  num.className = "speed-val";
+  num.textContent = val;
+  makeEditable(num, lo, hi, onSet);
+  const input = document.createElement("input");
+  input.type = "range";
+  input.min = lo;
+  input.max = hi;
+  input.value = val;
+  input.step = 1;
+  input.addEventListener("input", () => { num.textContent = input.value; });
+  input.addEventListener("change", () => onSet(parseInt(input.value, 10)));
+  const minus = document.createElement("button");
+  minus.type = "button";
+  minus.className = "step-btn minus";
+  minus.textContent = "−";
+  const plus = document.createElement("button");
+  plus.type = "button";
+  plus.className = "step-btn plus";
+  plus.textContent = "+";
+  wrap.appendChild(label);
+  wrap.appendChild(num);
+  wrap.appendChild(minus);
+  wrap.appendChild(input);
+  wrap.appendChild(plus);
+  attachStepButton(minus, -1, input, num, lo, hi, onSet);
+  attachStepButton(plus, +1, input, num, lo, hi, onSet);
+}
+
+function buildSliders() {
+  const wrap = $("sliders-wrapper");
+  wrap.innerHTML = "";
+
+  const toggleGroup = document.createElement("div");
+  toggleGroup.className = "slider-group";
+  const toggleLabel = viewMode === "main" ? "Show all settings" : "Show all modifiers";
+  toggleGroup.innerHTML = `<label class="inline-toggle">
+    <span>${toggleLabel}</span>
+    <span class="switch">
+      <input type="checkbox" id="showAllCheck" ${showAll ? "checked" : ""}>
+      <span class="slider"></span>
+    </span>
+  </label>`;
+  wrap.appendChild(toggleGroup);
+  toggleGroup.querySelector("#showAllCheck").onchange = (e) => {
+    showAll = e.target.checked;
+    buildInterface();
+  };
+
+  const bi = clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
+  const baseColor = BASE_COLORS[bi];
+  const modColor = (mi) => (viewMode === "mod" && mi === activeModifierIndex)
+    ? baseColor
+    : `color-mix(in srgb, ${baseColor} 22%, #3a3a3a)`;
+
+  if (showAll) {
+    if (viewMode === "main") {
+      for (let i = 0; i < BASE_NAMES.length; i++) {
+        const r = baseRange(i);
+        wrap.appendChild(sliderEl(BASE_NAMES[i], r.min, r.max, Math.round(settingValue(BASE_NAMES[i])), BASE_COLORS[i], (v) => setBase(i, v)));
+      }
+    } else {
+      const selGroup = document.createElement("div");
+      selGroup.className = "slider-group";
+      selGroup.innerHTML = `<div class="slider-label"><span>Base control</span></div>`;
+      const sel = document.createElement("select");
+      for (let i = 0; i < BASE_NAMES.length; i++) {
+        const o = document.createElement("option");
+        o.value = i; o.textContent = BASE_NAMES[i];
+        if (i === activeBaseIndex) o.selected = true;
+        sel.appendChild(o);
+      }
+      sel.onchange = () => { activeBaseIndex = parseInt(sel.value, 10); activeModifierIndex = 0; buildInterface(); };
+      selGroup.appendChild(sel);
+      wrap.appendChild(selGroup);
+
+      MODIFIER_NAMES.forEach((name, mi) => {
+        const s = getSetting(BASE_NAMES[bi] + name);
+        wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v)));
+      });
+    }
+  } else {
+    if (viewMode === "main") {
+      const r = baseRange(bi);
+      wrap.appendChild(sliderEl(BASE_NAMES[bi], r.min, r.max, Math.round(settingValue(BASE_NAMES[bi])), BASE_COLORS[bi], (v) => setBase(bi, v)));
+    } else {
+      const mi = clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1);
+      const name = MODIFIER_NAMES[mi];
+      const s = getSetting(BASE_NAMES[bi] + name);
+      wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v)));
+    }
+  }
+}
+
+function buildFocusedSliders() {
+  const wrap = $("focused-sliders");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const bi = clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
+  const r = baseRange(bi);
+  wrap.appendChild(sliderEl(BASE_NAMES[bi], r.min, r.max, Math.round(settingValue(BASE_NAMES[bi])), BASE_COLORS[bi], (v) => setBase(bi, v)));
+  if (viewMode === "mod") {
+    const mi = clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1);
+    const name = MODIFIER_NAMES[mi];
+    const s = getSetting(BASE_NAMES[bi] + name);
+    wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), BASE_COLORS[bi], (v) => setModifier(bi, mi, v)));
+  }
+}
+
+function buildStdSliders() {
+  const wrap = $("sliders-wrapper");
+  wrap.innerHTML = "";
+
+  wrap.appendChild(sliderEl("Max Depth", 0, 100, stdValues.max, BASE_COLORS[0], (v) => {
+    stdValues.max = v;
+    if (stdValues.min > stdValues.max) { stdValues.min = stdValues.max; stdWrite("set:min:" + stdValues.min); }
+    stdWrite("set:max:" + v);
+    drawGraph();
+  }));
+  wrap.appendChild(sliderEl("Min Depth", 0, stdValues.max, stdValues.min, BASE_COLORS[1], (v) => {
+    stdValues.min = Math.min(v, stdValues.max);
+    stdWrite("set:min:" + stdValues.min);
+    drawGraph();
+  }));
+  wrap.appendChild(sliderEl("Sensation", 0, 100, stdValues.sensation, "#c084fc", (v) => {
+    stdValues.sensation = v;
+    stdWrite("set:sensation:" + v);
+    drawGraph();
+  }));
+
+  const pg = document.createElement("div");
+  pg.className = "slider-group";
+  pg.innerHTML = `<div class="slider-label"><span>Pattern</span></div>`;
+  const sel = document.createElement("select");
+  stdPatterns.forEach(p => {
+    const o = document.createElement("option");
+    o.value = p.idx; o.textContent = p.name;
+    if (p.idx === stdValues.pattern) o.selected = true;
+    sel.appendChild(o);
+  });
+  const desc = document.createElement("div");
+  desc.className = "pattern-desc";
+  const updateDesc = () => {
+    const cur = stdPatterns.find(p => p.idx === stdValues.pattern);
+    desc.textContent = cur ? (cur.desc || "") : "";
+  };
+  sel.onchange = () => {
+    stdValues.pattern = parseInt(sel.value, 10);
+    stdWrite("set:pattern:" + stdValues.pattern);
+    updateDesc();
+    drawGraph();
+  };
+  updateDesc();
+  pg.appendChild(sel);
+  pg.appendChild(desc);
+  wrap.appendChild(pg);
+}
+
+let activeStep = null;
+
+function stopStepRepeat() {
+  if (activeStep) {
+    clearTimeout(activeStep.timer);
+    activeStep = null;
+  }
+}
+document.addEventListener("pointerup", stopStepRepeat);
+document.addEventListener("pointercancel", stopStepRepeat);
+
+function attachStepButton(btn, delta, input, valNum, min, max, onSet) {
+  const apply = () => {
+    const cur = parseInt(input.value, 10);
+    let v = cur + delta;
+    if (v < min) v = min;
+    if (v > max) v = max;
+    if (v === cur) return;
+    input.value = v;
+    valNum.textContent = v;
+    onSet(v);
+  };
+  btn.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    apply();
+    stopStepRepeat(); // cancel any previous hold before starting this one
+    const st = { timer: null };
+    activeStep = st;
+    let delay = 400;
+    st.timer = setTimeout(function repeat() {
+      apply();
+      delay = Math.max(90, delay - 40);
+      st.timer = setTimeout(repeat, delay);
+    }, delay);
+  });
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+
+function makeEditable(el, min, max, onSet) {
+  const commit = (v) => {
+    v = clamp(Math.round(parseInt(v, 10) || 0), min, max);
+    el.textContent = v;
+    onSet(v);
+  };
+  if (!el.title) el.title = "Click to edit";
+  el.addEventListener("click", () => {
+    if (el.querySelector("input")) return;
+    const original = el.textContent;
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.className = "val-input";
+    inp.value = original;
+    el.textContent = "";
+    el.appendChild(inp);
+    inp.focus();
+    inp.select();
+    let done = false;
+    const finish = (apply) => {
+      if (done) return;
+      done = true;
+      if (apply) commit(inp.value);
+      else el.textContent = original;
+    };
+    inp.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); finish(true); }
+      else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+    });
+    inp.addEventListener("blur", () => finish(true));
+  });
+  return el;
+}
+
+function sliderEl(name, min, max, value, color, onSet) {
+  const g = document.createElement("div");
+  g.className = "slider-group";
+  g.innerHTML = `
+    <div class="slider-row">
+      <span class="slider-name">${name}</span>
+      <span class="val-num" style="background:${color}; color:${tabTextColor(color)}">${value}</span>
+      <button type="button" class="step-btn minus">−</button>
+      <input type="range" min="${min}" max="${max}" value="${value}" step="1">
+      <button type="button" class="step-btn plus">+</button>
+    </div>`;
+  const input = g.querySelector("input");
+  const valNum = g.querySelector(".val-num");
+  g._onSet = onSet;
+  makeEditable(valNum, min, max, onSet);
+  input.addEventListener("input", () => { valNum.textContent = input.value; });
+  input.addEventListener("change", () => onSet(parseInt(input.value, 10)));
+  const [minus, plus] = g.querySelectorAll(".step-btn");
+  attachStepButton(minus, -1, input, valNum, min, max, onSet);
+  attachStepButton(plus, +1, input, valNum, min, max, onSet);
+  g.setValue = (v) => { input.value = v; valNum.textContent = v; };
+  return g;
+}
+
+function renderPresets() {
+  const list = $("presetList");
+  list.innerHTML = "";
+  const sel = document.createElement("select");
+  presetNames.forEach(name => {
+    const o = document.createElement("option");
+    o.value = name; o.textContent = name;
+    sel.appendChild(o);
+  });
+  if (presetNames.includes(presetSelection)) sel.value = presetSelection;
+  else if (presetNames.length) { sel.selectedIndex = 0; presetSelection = presetNames[0]; }
+  sel.onchange = () => { presetSelection = sel.value; $("presetSummaryName").textContent = presetSelection; };
+
+  const load = document.createElement("button");
+  load.textContent = "Load";
+  load.onclick = async () => {
+    if (!sel.value) return;
+    await writePreset(":" + sel.value);
+    setTimeout(refreshStatus, 800);
+  };
+  const del = document.createElement("button");
+  del.textContent = "Delete";
+  del.className = "danger";
+  del.onclick = async () => {
+    if (!sel.value) return;
+    await writePreset("<" + sel.value);
+    setTimeout(refreshPresets, 800);
+  };
+
+  list.appendChild(sel);
+  list.appendChild(load);
+  list.appendChild(del);
+  $("presetSummaryName").textContent = presetSelection;
+}
+
+// ---------- Graph ----------
+// Faithful port of AP-mode.cpp drawing: same plot bounds, sample counts,
+// colors (RGB565), and Bezier/step-trace math as the M5 screen.
+const SAMPLE_MAIN = 48;   // s_curve_main_pts[48]
+const SAMPLE_MOD = 24;    // s_curve_mod_pts[24]
+const PLOT_X = 2;         // k_graph_plot_x_margin
+const PLOT_Y = 0;         // top margin: keep traces inside the chart box (M5's -12 gets clipped)
+const DOT_MAIN = "#ffffff";
+const DOT_MOD = "#94a3b8";
+
+function sv(k, fb = 0) { return settingValue(k, fb); }
+function bezierMath(v0, v1, v2, v3, t) {
+  return Math.pow(1 - t, 3) * v0 + 3 * Math.pow(1 - t, 2) * t * v1 + 3 * (1 - t) * Math.pow(t, 2) * v2 + Math.pow(t, 3) * v3;
+}
+function baseVal(i) { return clamp(settingValue(BASE_NAMES[i]), 0, 100); }
+
+// computeGraphPlotBounds() for the 280x132 panel.
+function plotBounds() {
+  return { x: PLOT_X, y: PLOT_Y, w: canvas.width - 4, h: canvas.height - 5 };
+}
+
+function dot(x, y, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x), Math.round(y), 2, 2);
+}
+
+// Main screen: AP-mode.cpp updateCurvePreview() "live AP curve" layout.
+function drawMainGraph() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const { x: xMin, y: yMin, w: xSpan, h: ySpan } = plotBounds();
+
+  const topVal = sv("Max Depth", 50), bottomVal = sv("Min Depth", 50);
+  const riseVal = sv("In Speed", 1), fallVal = sv("Out Speed", 1);
+  const curveIn = sv("In Accel", 50), curveOut = sv("Out Accel", 50);
+
+  // Depth guides: top=0xF860, bottom=0xFC00, width=plot.w.
+  const yMax = yMin + (1 - topVal / 100) * ySpan;
+  const yMinDepth = yMin + (1 - bottomVal / 100) * ySpan;
+  ctx.fillStyle = BASE_COLORS[0]; ctx.fillRect(xMin, yMax, xSpan, 2);
+  ctx.fillStyle = BASE_COLORS[1]; ctx.fillRect(xMin, yMinDepth, xSpan, 2);
+
+  const yMinBound = Math.min(yMax, yMinDepth);
+  const yMaxBound = Math.max(yMax, yMinDepth);
+  const diff = yMinDepth - yMax;
+  const yMaxMod = (1 - sv("Max DepthAmplitude", 100) / 100) * diff + yMax;
+  const yMinMod = yMinDepth - (1 - sv("Min DepthAmplitude", 100) / 100) * diff;
+
+  const a = Math.max(1, riseVal), b = Math.max(1, fallVal);
+  const am = Math.max(1, sv("In SpeedAmplitude", 100) / 100 * a);
+  const bm = Math.max(1, sv("Out SpeedAmplitude", 100) / 100 * b);
+
+  let splitXf = xMin + (1 - (a / b) / ((a / b) + 1)) * xSpan;
+  splitXf = clamp(splitXf, xMin, xMin + xSpan);
+  let splitXm = xMin + (1 - (am / bm) / ((am / bm) + 1)) * xSpan;
+  splitXm = clamp(splitXm, xMin, xMin + xSpan);
+
+  const c = Math.max(1, curveIn), d = Math.max(1, curveOut);
+  const cm = Math.max(1, sv("In AccelAmplitude", 100) / 100 * c);
+  const dm = Math.max(1, sv("Out AccelAmplitude", 100) / 100 * d);
+
+  const rIn = 0.1 + 0.4 * (1 - c / 100);
+  const rOut = 0.1 + 0.4 * (1 - d / 100);
+  const rInMod = 0.1 + 0.4 * (1 - cm / 100);
+  const rOutMod = 0.1 + 0.4 * (1 - dm / 100);
+
+  const splitSample = Math.round((splitXf - xMin) / xSpan * (SAMPLE_MAIN - 1));
+  const splitSampleMod = Math.round((splitXm - xMin) / xSpan * (SAMPLE_MAIN - 1));
+  const riseDiff = (splitXf - xMin) * rIn;
+  const fallDiff = ((xMin + xSpan) - splitXf) * rOut;
+  const riseDiffMod = (splitXm - xMin) * rInMod;
+  const fallDiffMod = ((xMin + xSpan) - splitXm) * rOutMod;
+
+  const mainDots = [], modDots = [];
+  for (let i = 0; i < SAMPLE_MAIN; i++) {
+    let x, y;
+    if (i <= splitSample) {
+      const tl = splitSample > 0 ? i / splitSample : 0;
+      x = bezierMath(xMin, xMin + riseDiff, splitXf - riseDiff, splitXf, tl);
+      y = bezierMath(yMinDepth, yMinDepth, yMax, yMax, tl);
+    } else {
+      const fallCount = (SAMPLE_MAIN - 1) - splitSample;
+      const tr = fallCount > 0 ? (i - splitSample) / fallCount : 1;
+      x = bezierMath(splitXf, splitXf + fallDiff, (xMin + xSpan) - fallDiff, xMin + xSpan, tr);
+      y = bezierMath(yMax, yMax, yMinDepth, yMinDepth, tr);
+    }
+    y = clamp(y, yMinBound, yMaxBound);
+    mainDots.push([x, y]);
+
+    if ((i % 2) === 0) {
+      let xM, yM;
+      if (i <= splitSampleMod) {
+        const tl = splitSampleMod > 0 ? i / splitSampleMod : 0;
+        xM = bezierMath(xMin, xMin + riseDiffMod, splitXm - riseDiffMod, splitXm, tl);
+        yM = bezierMath(yMinMod, yMinMod, yMaxMod, yMaxMod, tl);
+      } else {
+        const fallCountMod = (SAMPLE_MAIN - 1) - splitSampleMod;
+        const tr = fallCountMod > 0 ? (i - splitSampleMod) / fallCountMod : 1;
+        xM = bezierMath(splitXm, splitXm + fallDiffMod, (xMin + xSpan) - fallDiffMod, xMin + xSpan, tr);
+        yM = bezierMath(yMaxMod, yMaxMod, yMinMod, yMinMod, tr);
+      }
+      yM = clamp(yM, yMinBound, yMaxBound);
+      modDots.push([xM, yM]);
+    }
+  }
+
+  // Continuous curved line through the main stroke samples.
+  if (mainDots.length > 1) {
+    ctx.strokeStyle = DOT_MAIN; ctx.lineWidth = 2; ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(mainDots[0][0], mainDots[0][1]);
+    for (let i = 1; i < mainDots.length; i++) ctx.lineTo(mainDots[i][0], mainDots[i][1]);
+    ctx.stroke();
+  }
+  modDots.forEach(([x, y]) => dot(x, y, DOT_MOD));
+
+  $("left-meter").style.height = topVal + "%";
+  $("right-meter").style.height = bottomVal + "%";
+}
+
+// Modifier screen: AP-mode.cpp updateModifierPreview() + drawSingleModifierTrace().
+function drawModGraph() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const { x: xMin, y: yMin, w: xSpan, h: ySpan } = plotBounds();
+  const n = BASE_NAMES.length;
+
+  let maxSteps = 4;
+  for (let c = 0; c < n; c++) {
+    let s = 0;
+    for (let m = 1; m <= 4; m++) s += sv(BASE_NAMES[c] + MODIFIER_NAMES[m], 0);
+    if (s > maxSteps) maxSteps = s;
+  }
+
+  const trace = (controlIndex, traceIndex, highlight) => {
+    if (controlIndex < 0 || traceIndex < 0 || traceIndex >= 6) return;
+    if (controlIndex >= n || maxSteps <= 0) return;
+
+    const name = BASE_NAMES[controlIndex];
+    const baseValueRatio = 1 - sv(name, 50) / 100;
+    const modValueRatio = 1 - sv(name + "Amplitude", 100) / 100;
+
+    let strokeRatio = 1 - baseValueRatio;
+    if (controlIndex < 2) strokeRatio = (sv("Max Depth", 50) - sv("Min Depth", 50)) / 100;
+
+    const baseY = yMin + ySpan * baseValueRatio;
+    let modY = baseY + ySpan * strokeRatio * modValueRatio;
+    if (controlIndex === 1) modY = baseY - ySpan * strokeRatio * modValueRatio;
+
+    const stepWidth = xSpan / maxSteps;
+    let startX = xMin - stepWidth * sv(name + "Offset", 0);
+
+    ctx.strokeStyle = BASE_COLORS[traceIndex % BASE_COLORS.length];
+    ctx.lineWidth = highlight ? 3 : 2;
+    ctx.beginPath();
+
+    let segmentIndex = 0, segment = 0, guard = 0, zeroStepGuard = 0;
+    while (startX < (xMin + xSpan) && guard < 96 && segmentIndex < 64) {
+      const stepIndex = Math.min(segment + 1, 5);
+      const step = Math.max(0, sv(name + MODIFIER_NAMES[stepIndex], 0)) * stepWidth;
+
+      if (step <= 0) {
+        segment = (segment + 1) % 4;
+        ++zeroStepGuard;
+        if (zeroStepGuard >= 8) break;
+        continue;
+      }
+      zeroStepGuard = 0;
+
+      const endX = startX + step;
+      let y0 = baseY, y1 = baseY;
+      if (segment === 0) { y0 = baseY; y1 = modY; }
+      else if (segment === 1) { y0 = modY; y1 = modY; }
+      else if (segment === 2) { y0 = modY; y1 = baseY; }
+
+      const cx0 = clamp(startX, xMin, xMin + xSpan);
+      const cx1 = clamp(endX, xMin, xMin + xSpan);
+      const cy0 = clamp(y0, yMin, yMin + ySpan);
+      const cy1 = clamp(y1, yMin, yMin + ySpan);
+      ctx.moveTo(cx0, cy0);
+      ctx.lineTo(cx1, cy1);
+
+      ++segmentIndex;
+      startX = endX;
+      segment = (segment + 1) % 4;
+      ++guard;
+    }
+    ctx.stroke();
+  };
+
+  for (let c = 0; c < n; c++) trace(c, c, false);
+  trace(activeBaseIndex, activeBaseIndex, true);
+
+  $("left-meter").style.height = baseVal(0) + "%";
+  $("right-meter").style.height = baseVal(1) + "%";
+}
+
+// ----- Standard-mode pattern preview (ports StrokeEngine/pattern.h) -----
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+function arduinoMap(x, inMin, inMax, outMin, outMax) {
+  return (x - inMin) * (outMax - outMin) / (inMax - inMin) + outMin;
+}
+
+function strokeRampCount(sensation) {
+  if (sensation < 0) return Math.round(arduinoMap(sensation, -100, 0, 2, 11));
+  return Math.round(arduinoMap(sensation, 0, 100, 11, 32));
+}
+
+function trapEase(t, x) {
+  // Symmetric trapezoidal position profile; x = acceleration fraction (0 < x <= 0.5).
+  if (x <= 0) return t;
+  const v = 1 / (1 - x);
+  if (t <= x) return 0.5 * v * (t * t / x);
+  if (t <= 1 - x) return v * (t - x / 2);
+  const u = 1 - t;
+  return 1 - 0.5 * v * (u * u / x);
+}
+
+function stdPatternPeriod(pattern, sensation) {
+  const rampN = Math.max(1, strokeRampCount(sensation));
+  switch (pattern) {
+    case 0: case 1: case 2: case 5: case 9: return 2;
+    case 3: return 4;
+    case 4: case 6: return 2 * rampN;
+    case 7: return 2 * (2 * rampN - 1);
+    case 8: return 24;
+    default: return 2;
+  }
+}
+
+function stdStrokeDurations(pattern, sensation, moves) {
+  const fast = 1 - 0.75 * Math.abs(sensation) / 100;
+  const slow = 2 - fast;
+  const inDur = sensation > 0 ? fast : slow;
+  const outDur = sensation > 0 ? slow : fast;
+  const durs = [];
+  for (let i = 0; i < moves; i++) {
+    if (pattern === 1 || pattern === 3) durs.push(i % 2 === 0 ? inDur : outDur);
+    else durs.push(1);
+  }
+  return durs;
+}
+
+function stdStrokeAccel(pattern, sensation) {
+  if (pattern === 2) {
+    if (sensation >= 0) return arduinoMap(sensation, 0, 100, 1 / 3, 0.5);
+    return arduinoMap(-sensation, 0, 100, 1 / 3, 0.05);
+  }
+  return 1 / 3;
+}
+
+// Returns the pattern's target positions (0..100) over `moves` moves,
+// mirroring StrokeEngine's nextTarget() for each pattern.
+function stdPatternTargets(pattern, depth, stroke, sensation, moves) {
+  const rand = mulberry32(0xC0FFEE);
+  const rampN = Math.max(1, strokeRampCount(sensation));
+  const targets = [];
+  let half = true;
+  let lastTarget = depth;
+
+  for (let i = 0; i < moves; i++) {
+    let pos = depth;
+    switch (pattern) {
+      case 0: { // SimpleStroke
+        const maxRange = Math.min(depth, stroke) / 2 * Math.abs(sensation / 100);
+        const r = maxRange * rand();
+        if (i % 2) { pos = depth - stroke; if (sensation < 0) pos += r; }
+        else { pos = depth; if (sensation > 0) pos -= r; }
+        break;
+      }
+      case 1: // TeasingPounding
+      case 2: // RoboStroke
+      case 5: // StopNGo (position envelope; pauses are timing-only)
+        pos = (i % 2) ? depth - stroke : depth;
+        break;
+      case 3: { // HalfnHalf
+        if (i === 0) half = true;
+        const s = half ? stroke / 2 : stroke;
+        if (i % 2) { pos = depth - stroke; half = !half; }
+        else pos = (depth - stroke) + s;
+        break;
+      }
+      case 4: { // Deeper
+        if (i % 2) pos = depth - stroke;
+        else {
+          const slope = Math.min(stroke, depth) / rampN;
+          const cycleIndex = (Math.floor(i / 2) % rampN) + 1;
+          pos = (depth - Math.min(depth, stroke)) + slope * cycleIndex;
+        }
+        break;
+      }
+      case 6: { // Insist
+        if (i % 2) pos = depth;
+        else {
+          const slope = Math.min(stroke, depth) / rampN;
+          const cycleIndex = (Math.floor(i / 2) % rampN) + 1;
+          pos = depth - slope * (rampN - cycleIndex);
+        }
+        break;
+      }
+      case 7: { // ProgressiveStroke
+        const segmentLength = Math.min(stroke, depth) / rampN;
+        const fullCycleIndex = Math.floor(i / 2) % (rampN * 2 - 1);
+        let position = fullCycleIndex % rampN;
+        if (fullCycleIndex > rampN - 1) {
+          position = rampN - position;
+          if (i % 2) position -= 2;
+        } else {
+          if (!(i % 2)) position += 1;
+        }
+        pos = depth - segmentLength * position;
+        break;
+      }
+      case 8: { // RandomStroke
+        const maxRange = Math.min(depth, stroke);
+        const maxStroke = maxRange * (sensation / 250 + 0.5);
+        let dist = maxRange;
+        for (let k = 0; k < 10 && dist >= maxStroke; k++) {
+          const target = maxRange * rand();
+          pos = depth - target;
+          dist = Math.abs(pos - lastTarget);
+        }
+        lastTarget = pos;
+        break;
+      }
+      case 9: { // PointStroke
+        const offset = stroke * (1 - ((sensation + 100) / 200));
+        pos = depth - offset;
+        break;
+      }
+      default:
+        pos = (i % 2) ? depth - stroke : depth;
+    }
+    targets.push(clamp(Math.round(pos), 0, 100));
+  }
+  return targets;
+}
+
+function drawStdGraph() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  const { x: xMin, y: yMin, w: xSpan, h: ySpan } = plotBounds();
+  const maxVal = clamp(stdValues.max, 0, 100);
+  const minVal = clamp(stdValues.min, 0, 100);
+  const yMax = yMin + (1 - maxVal / 100) * ySpan;
+  const yMinDepth = yMin + (1 - minVal / 100) * ySpan;
+
+  ctx.fillStyle = BASE_COLORS[0]; ctx.fillRect(xMin, yMax, xSpan, 2);
+  ctx.fillStyle = BASE_COLORS[1]; ctx.fillRect(xMin, yMinDepth, xSpan, 2);
+
+  const depth = maxVal;
+  const stroke = Math.max(0, maxVal - minVal);
+  const sensation = stdValues.sensation * 2 - 100;
+  const pattern = stdValues.pattern;
+
+  // Only draw the motion line for patterns we know how to render.
+  if (pattern >= 0 && pattern < STD_KNOWN_PATTERN_COUNT) {
+    ctx.strokeStyle = DOT_MAIN; ctx.lineWidth = 2; ctx.lineJoin = "round";
+    ctx.beginPath();
+
+    if (pattern === 9) { // PointStroke: flat line at the point
+      const offset = stroke * (1 - ((sensation + 100) / 200));
+      const pos = clamp(depth - offset, 0, 100);
+      const y = yMin + (1 - pos / 100) * ySpan;
+      ctx.moveTo(xMin, y);
+      ctx.lineTo(xMin + xSpan, y);
+    } else {
+      const period = stdPatternPeriod(pattern, sensation);
+      const targets = stdPatternTargets(pattern, depth, stroke, sensation, period);
+      const durations = stdStrokeDurations(pattern, sensation, targets.length);
+      const accelX = stdStrokeAccel(pattern, sensation);
+      const total = durations.reduce((a, b) => a + b, 0) || 1;
+      let pos = minVal;
+      let xAcc = 0;
+      let first = true;
+      for (let i = 0; i < targets.length; i++) {
+        const target = targets[i];
+        const dur = durations[i];
+        const x0 = xMin + (xAcc / total) * xSpan;
+        const x1 = xMin + ((xAcc + dur) / total) * xSpan;
+        const sub = Math.max(2, Math.round(40 / targets.length));
+        for (let j = 0; j <= sub; j++) {
+          const t = j / sub;
+          const p = pos + (target - pos) * trapEase(t, accelX);
+          const px = x0 + (x1 - x0) * t;
+          const py = yMin + (1 - p / 100) * ySpan;
+          if (first) { ctx.moveTo(px, py); first = false; }
+          else ctx.lineTo(px, py);
+        }
+        pos = target;
+        xAcc += dur;
+      }
+    }
+    ctx.stroke();
+  }
+
+  $("left-meter").style.height = maxVal + "%";
+  $("right-meter").style.height = minVal + "%";
+}
+
+function drawGraph() {
+  if (appMode === "std") drawStdGraph();
+  else if (viewMode === "mod") drawModGraph();
+  else drawMainGraph();
+}
+
+function resizeCanvas() {
+  if (focusedMode()) {
+    const wrap = document.querySelector(".visualizer-area");
+    if (wrap) {
+      const meters = [...wrap.querySelectorAll(".meter-col")];
+      const mw = meters.reduce((s, m) => s + m.offsetWidth, 0);
+      const avail = Math.max(120, Math.round(wrap.clientWidth - mw - 16));
+      canvas.width = avail;
+      canvas.height = 96;
+      canvas.style.width = avail + "px";
+      canvas.style.height = "96px";
+    }
+  } else {
+    canvas.width = 280;
+    canvas.height = 132;
+    canvas.style.width = "";
+    canvas.style.height = "";
+  }
+}
+
+// ---------- Funscript mode (video + streaming over BLE) ----------
+const funState = {
+  videoUrl: null, videoName: "", scriptName: "",
+  rawActions: [], actions: [],
+  maxSpeed: 100, maxDepth: 100, minDepth: 0, buffer: 100,
+  reverse: false, simplify: true,
+  offsetMs: 0,
+  lastSentPos: null, rampTo: null,
+  nextIdx: 0, playing: false, timer: null
+};
+try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.round(b); } catch (e) {}
+
+function buildFunControls() {
+  const wrap = $("fun-controls");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const title = document.createElement("div");
+  title.className = "fun-title";
+  title.style.cssText = "display:flex;align-items:center;justify-content:space-between;";
+  const titleLabel = document.createElement("span");
+  titleLabel.textContent = "Funscript";
+  title.appendChild(titleLabel);
+  const colBtn = document.createElement("button");
+  colBtn.type = "button";
+  colBtn.style.cssText = "background:#334155;color:#e2e8f0;border:1px solid var(--border-color);border-radius:4px;width:20px;height:20px;font-size:.7rem;cursor:pointer;padding:0;line-height:1;";
+  colBtn.textContent = funControlsCollapsed ? "▾" : "▴";
+  colBtn.title = funControlsCollapsed ? "Show video settings" : "Hide video settings";
+  colBtn.onclick = () => {
+    funControlsCollapsed = !funControlsCollapsed;
+    try { localStorage.setItem("ossm-fun-controls-collapsed", funControlsCollapsed ? "1" : "0"); } catch (e) {}
+    const b = $("funVideoSettings");
+    if (b) b.style.display = funControlsCollapsed ? "none" : "";
+    colBtn.textContent = funControlsCollapsed ? "▾" : "▴";
+    colBtn.title = funControlsCollapsed ? "Show video settings" : "Hide video settings";
+  };
+  title.appendChild(colBtn);
+  wrap.appendChild(title);
+
+  // Group the video-loading settings separately from the sliders so the top-left
+  // ▴/▾ button can hide them while keeping the sliders visible.
+  const settings = document.createElement("div");
+  settings.id = "funVideoSettings";
+  wrap.appendChild(settings);
+
+  const row1 = document.createElement("div");
+  row1.className = "fun-row";
+  const bv = document.createElement("button");
+  bv.type = "button"; bv.className = "fun-btn"; bv.textContent = "Load Video";
+  bv.onclick = () => $("funVideoInput").click();
+  const nv = document.createElement("span");
+  nv.className = "fun-file"; nv.id = "funVideoName"; nv.textContent = funState.videoName || "no video";
+  row1.appendChild(bv); row1.appendChild(nv);
+  settings.appendChild(row1);
+
+  const row2 = document.createElement("div");
+  row2.className = "fun-row";
+  const bs = document.createElement("button");
+  bs.type = "button"; bs.className = "fun-btn"; bs.textContent = "Load Funscript";
+  bs.onclick = () => $("funScriptInput").click();
+  const ns = document.createElement("span");
+  ns.className = "fun-file"; ns.id = "funScriptName";
+  ns.textContent = (funState.scriptName || "no script") + (funState.actions.length ? " (" + funState.actions.length + " pts)" : "");
+  row2.appendChild(bs); row2.appendChild(ns);
+  settings.appendChild(row2);
+
+  const row3 = document.createElement("div");
+  row3.className = "fun-row";
+  const phInput = document.createElement("input");
+  phInput.type = "text"; phInput.id = "funPhId"; phInput.placeholder = "Video URL or Pornhub ID";
+  phInput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;";
+  const phBtn = document.createElement("button");
+  phBtn.type = "button"; phBtn.className = "fun-btn"; phBtn.textContent = "Load URL";
+  phBtn.onclick = () => loadVideoUrl(phInput.value);
+  const foldBtn = document.createElement("button");
+  foldBtn.type = "button"; foldBtn.className = "fun-btn fun-fold"; foldBtn.textContent = "⚙";
+  foldBtn.title = "Show extractor settings";
+  foldBtn.onclick = () => {
+    const sec = $("funExtractorSection");
+    if (!sec) return;
+    const show = sec.style.display === "none";
+    sec.style.display = show ? "block" : "none";
+    foldBtn.classList.toggle("active", show);
+    foldBtn.title = show ? "Hide extractor settings" : "Show extractor settings";
+  };
+  row3.appendChild(phInput); row3.appendChild(phBtn); row3.appendChild(foldBtn);
+  settings.appendChild(row3);
+
+  const castRow = document.createElement("div");
+  castRow.className = "fun-row";
+  const castBtn = document.createElement("button");
+  castBtn.type = "button"; castBtn.className = "fun-btn"; castBtn.id = "funCastBtn";
+  castBtn.textContent = "Cast";
+  castBtn.onclick = toggleCast;
+  castRow.appendChild(castBtn);
+  const castInfo = document.createElement("span");
+  castInfo.className = "fun-file"; castInfo.id = "funCastInfo";
+  castRow.appendChild(castInfo);
+  settings.appendChild(castRow);
+  updateCastButton();
+
+  const sec = document.createElement("div");
+  sec.id = "funExtractorSection";
+  sec.style.display = "none";
+
+  const row4 = document.createElement("div");
+  row4.className = "fun-row";
+  row4.style.cssText = "margin-top:2px;";
+  const exInput = document.createElement("input");
+  exInput.type = "url"; exInput.id = "funExtractorUrl";
+  exInput.placeholder = "Your extractor URL (optional)";
+  exInput.value = getExtractorUrl();
+  exInput.autocomplete = "off"; exInput.spellcheck = false;
+  exInput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;";
+  exInput.onchange = () => {
+    const v = exInput.value.trim().replace(/\/+$/, "");
+    try { localStorage.setItem("ossm-extractor-url", v); } catch (e) {}
+    funLog(v ? "Extractor saved — using your own worker." : "Extractor cleared — using public proxies.");
+  };
+  row4.appendChild(exInput);
+  const exHelp = document.createElement("button");
+  exHelp.type = "button"; exHelp.className = "fun-help"; exHelp.textContent = "?";
+  exHelp.title = "What is this?";
+  exHelp.onclick = showExtractorHelp;
+  row4.appendChild(exHelp);
+  sec.appendChild(row4);
+  const hint = document.createElement("div");
+  hint.className = "fun-file";
+  hint.style.cssText = "font-size:.68rem;opacity:.75;margin-top:-4px;";
+  hint.textContent = "Optional: deploy video-extractor.js to your own free Cloudflare Worker, paste its URL above. Stored on this device only.";
+  sec.appendChild(hint);
+  const testRow = document.createElement("div");
+  testRow.className = "fun-row";
+  const testBtn = document.createElement("button");
+  testBtn.type = "button"; testBtn.className = "fun-btn"; testBtn.textContent = "Load test URL";
+  testBtn.title = "Loads a known-good test video (Big Buck Bunny) to verify casting.";
+  testBtn.onclick = () => {
+    const TEST_URL = "https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4";
+    phInput.value = TEST_URL;
+    loadVideoUrl(TEST_URL);
+  };
+  testRow.appendChild(testBtn);
+  const demoBtn = document.createElement("button");
+  demoBtn.type = "button"; demoBtn.className = "fun-btn"; demoBtn.id = "funDemoBtn";
+  demoBtn.textContent = demoMode ? "Demo ✓" : "Demo";
+  demoBtn.title = "Demo mode: test loading/playing without an OSSM connected.";
+  demoBtn.style.background = demoMode ? "#16a34a" : "";
+  demoBtn.onclick = () => {
+    setDemoMode(!demoMode);
+    funLog(demoMode ? "Demo mode on — no OSSM needed." : "Demo mode off.");
+  };
+  testRow.appendChild(demoBtn);
+  sec.appendChild(testRow);
+  settings.appendChild(sec);
+
+  const st = document.createElement("div");
+  st.className = "fun-status"; st.id = "funStatus";
+  settings.appendChild(st);
+
+  wrap.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }));
+  const maxDepthSlider = sliderEl("Max Depth", 1, 100, funState.maxDepth, "#ff0c00", v => {
+    funState.maxDepth = v;
+    if (funState.minDepth > v) { funState.minDepth = v; minDepthSlider.setValue(v); }
+    stdWrite("set:max:" + funState.maxDepth);
+    stdWrite("set:min:" + funState.minDepth);
+  });
+  const minDepthSlider = sliderEl("Min Depth", 0, 99, funState.minDepth, "#ff8100", v => {
+    const clamped = Math.min(v, funState.maxDepth);
+    funState.minDepth = clamped;
+    if (clamped !== v) minDepthSlider.setValue(clamped);
+    stdWrite("set:max:" + funState.maxDepth);
+    stdWrite("set:min:" + funState.minDepth);
+  });
+  wrap.appendChild(maxDepthSlider);
+  wrap.appendChild(minDepthSlider);
+
+  const bufG = document.createElement("div");
+  bufG.className = "slider-group";
+  bufG.title = "Latency buffer: higher = smoother but more lag; lower = tighter sync but more sensitive to BLE hiccups.";
+  bufG.innerHTML = `<div class="slider-row"><span class="slider-name">Buffer</span><span class="val-num" id="funBufferVal" style="background:#8b5cf6;color:#fff">${funState.buffer}ms</span><button type="button" class="step-btn minus" id="funBufferMinus">−</button><input type="range" id="funBufferRange" min="0" max="1000" value="${funState.buffer}" step="25"><button type="button" class="step-btn plus" id="funBufferPlus">+</button></div>`;
+  wrap.appendChild(bufG);
+  const bufRange = bufG.querySelector("#funBufferRange");
+  const bufMinus = bufG.querySelector("#funBufferMinus");
+  const bufPlus = bufG.querySelector("#funBufferPlus");
+  bufRange.addEventListener("input", () => setFunBuffer(parseInt(bufRange.value, 10)));
+  bufMinus.onclick = () => setFunBuffer(funState.buffer - 25);
+  bufPlus.onclick = () => setFunBuffer(funState.buffer + 25);
+
+  const offG = document.createElement("div");
+  offG.className = "slider-group";
+  offG.title = "Shift the funscript relative to the video (e.g. +4.0s if the script starts 4s before the video).";
+  offG.innerHTML = `<div class="slider-row"><span class="slider-name">Script offset</span><span class="val-num" id="funOffsetVal" style="background:#64748b;color:#fff">+0.0s</span><button type="button" class="step-btn minus" id="funOffsetMinus">−</button><input type="range" id="funOffsetRange" min="-10000" max="30000" value="0" step="100"><button type="button" class="step-btn plus" id="funOffsetPlus">+</button></div>`;
+  wrap.appendChild(offG);
+  const offRange = offG.querySelector("#funOffsetRange");
+  const offMinus = offG.querySelector("#funOffsetMinus");
+  const offPlus = offG.querySelector("#funOffsetPlus");
+  offRange.addEventListener("input", () => setFunOffset(parseInt(offRange.value, 10)));
+  offMinus.onclick = () => setFunOffset(funState.offsetMs - 100);
+  offPlus.onclick = () => setFunOffset(funState.offsetMs + 100);
+  updateOffsetUI();
+
+  const mkToggle = (label, checked, onChange) => {
+    const lab = document.createElement("label");
+    lab.className = "inline-toggle";
+    lab.innerHTML = `<span>${label}</span><span class="switch"><input type="checkbox" ${checked ? "checked" : ""}><span class="slider"></span></span>`;
+    lab.querySelector("input").onchange = e => onChange(e.target.checked);
+    settings.appendChild(lab);
+  };
+  mkToggle("Reverse Script", funState.reverse, v => { funState.reverse = v; rebuildFunscript(); });
+  mkToggle("Simplify Script", funState.simplify, v => { funState.simplify = v; rebuildFunscript(); });
+
+  // Move everything except the title into a body; only the video settings collapse.
+  const body = document.createElement("div");
+  body.id = "funControlsBody";
+  while (wrap.childElementCount > 1) body.appendChild(wrap.children[1]);
+  wrap.appendChild(body);
+  const vs = $("funVideoSettings");
+  if (vs) vs.style.display = funControlsCollapsed ? "none" : "";
+}
+
+function buildFunVideo() {
+  const wrap = $("fun-video");
+  if (!wrap) return;
+  const wide = window.innerWidth >= 700;
+  const shortLandscape = window.matchMedia && window.matchMedia("(orientation: landscape) and (max-height: 520px)").matches;
+  if (!wide && !shortLandscape) {
+    wrap.innerHTML = `<div class="fun-placeholder">📱↻ Rotate your phone or widen the window to use Funscript mode</div>`;
+    return;
+  }
+  if (!funState.videoUrl) {
+    wrap.innerHTML = `<div class="fun-placeholder">🎬 Load a video to start</div>`;
+    return;
+  }
+  let v = wrap.querySelector("video");
+  if (!v) {
+    wrap.innerHTML = ""; // clear the placeholder
+    v = document.createElement("video");
+    v.id = "funVideo";
+    v.controls = true;
+    v.playsInline = true;
+    v.addEventListener("play", () => {
+      if (!machineRunningState()) { v.pause(); funLog("Waiting for the OSSM to finish homing…"); return; }
+      funStartStreaming();
+    });
+    v.addEventListener("pause", funStopStreaming);
+    v.addEventListener("ended", funStopStreaming);
+    v.addEventListener("seeked", () => { if (funState.playing) syncFunToTime(v.currentTime * 1000); if (funPreviewShown) drawFunPreview(); });
+    wrap.appendChild(v);
+  }
+  if (funState.videoUrl && !/\.m3u8(\?|$)/i.test(funState.videoUrl) && v.src !== funState.videoUrl) v.src = funState.videoUrl;
+  setCastOverlay(castConnected);
+}
+
+function simplifyActions(acts, minDelta, minGap) {
+  if (!acts.length) return acts;
+  const out = [acts[0]];
+  let last = acts[0];
+  for (let i = 1; i < acts.length; i++) {
+    const a = acts[i];
+    if (i === acts.length - 1 || Math.abs(a.pos - last.pos) >= minDelta || (a.at - last.at) >= minGap) {
+      out.push(a); last = a;
+    }
+  }
+  return out;
+}
+function rebuildFunscript() {
+  let acts = funState.rawActions.map(a => ({ at: a.at, pos: a.pos }));
+  if (funState.reverse) acts = acts.map(a => ({ at: a.at, pos: 100 - a.pos }));
+  if (funState.simplify) acts = simplifyActions(acts, 0.6, 150);
+  funState.actions = acts;
+  funState.nextIdx = 0;
+  const ns = $("funScriptName");
+  if (ns) ns.textContent = (funState.scriptName || "no script") + (acts.length ? " (" + acts.length + " pts)" : "");
+  drawFunPreview();
+}
+function drawFunPreview() {
+  if (!funPreviewShown) return;
+  const c = $("funPreview");
+  if (!c) return;
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth || (c.parentElement ? c.parentElement.clientWidth : 300) || 300;
+  const h = 70;
+  c.width = Math.max(50, Math.round(w * dpr));
+  c.height = Math.round(h * dpr);
+  c.style.width = "100%";
+  c.style.height = h + "px";
+  const ctx = c.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#0f172a";
+  ctx.fillRect(0, 0, w, h);
+  const acts = funState.actions;
+  if (!acts.length) {
+    ctx.fillStyle = "#64748b"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
+    ctx.fillText("no script loaded", w / 2, h / 2 + 4);
+    return;
+  }
+  const dur = acts[acts.length - 1].at || 1;
+  ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 1.5; ctx.beginPath();
+  for (let i = 0; i < acts.length; i++) {
+    const x = (acts[i].at / dur) * (w - 2) + 1;
+    const y = h - (acts[i].pos / 100) * (h - 4) - 2;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  // current position marker
+  const t = currentPlaybackMs();
+  const px = (t / dur) * (w - 2) + 1;
+  if (px >= 1 && px <= w - 1) {
+    ctx.strokeStyle = "#fbbf24"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, h); ctx.stroke();
+  }
+}
+function currentPlaybackMs() {
+  if (castConnected) return castTimeNow() * 1000;
+  const v = $("funVideo");
+  return v ? v.currentTime * 1000 : 0;
+}
+function syncFunToTime(tMs) {
+  if (!funState.actions.length) return;
+  let idx = 0;
+  while (idx < funState.actions.length && funState.actions[idx].at + funState.offsetMs <= tMs + 400) idx++;
+  funState.nextIdx = idx;
+  if (funState.lastSentPos !== null && idx < funState.actions.length) {
+    funState.rampTo = Math.round(clamp(100 - funState.actions[idx].pos, 0, 100));
+  }
+}
+function setFunOffset(ms) {
+  funState.offsetMs = Math.max(-10000, Math.min(30000, Math.round(ms / 100) * 100));
+  if (funState.playing) syncFunToTime(currentPlaybackMs());
+  updateOffsetUI();
+}
+function updateOffsetUI() {
+  const v = $("funOffsetVal"), r = $("funOffsetRange");
+  if (v) { const s = funState.offsetMs / 1000; v.textContent = (s >= 0 ? "+" : "") + s.toFixed(1) + "s"; }
+  if (r) r.value = funState.offsetMs;
+}
+function setFunBuffer(v) {
+  funState.buffer = Math.max(0, Math.min(1000, Math.round(v / 25) * 25));
+  try { localStorage.setItem("ossm-fun-buffer", funState.buffer); } catch (e) {}
+  const bv = $("funBufferVal"), br = $("funBufferRange");
+  if (bv) bv.textContent = funState.buffer + "ms";
+  if (br) br.value = funState.buffer;
+  if (connected && stdCmd) stdWrite("set:buffer:" + funState.buffer);
+}
+
+function funLog(msg) {
+  log(msg);
+  const fs = $("funStatus"); if (fs) fs.textContent = msg;
+}
+function setFunVideo(url, name) {
+  if (funState.videoUrl && funState.videoUrl.startsWith("blob:")) URL.revokeObjectURL(funState.videoUrl);
+  funState.videoUrl = url;
+  funState.videoName = name;
+  const nv = $("funVideoName"); if (nv) nv.textContent = name;
+  buildFunVideo();
+  updateCastButton();
+}
+function getExtractorUrl() {
+  try { return (localStorage.getItem("ossm-extractor-url") || "").trim().replace(/\/+$/, ""); } catch (e) { return ""; }
+}
+function showExtractorHelp() {
+  const body = $("helpBody");
+  if (body) body.innerHTML = `<p><b>What it is</b><br>A tiny helper server (a free "Cloudflare Worker") that fetches a video page for you and returns the direct .mp4 / .m3u8 stream URL. Browsers cannot read other websites' pages directly (a security rule called CORS), so this helper does it on the server side.</p><p><b>Why use it</b><br>Without it, the app uses free public proxies, which are slower and less reliable. Your own worker makes URL loading fast and dependable, and keeps your traffic on your own free account instead of a shared one.</p><p><b>How to set it up</b> (free, about 5 minutes)</p><ol><li>Create a free account at <code>dash.cloudflare.com</code>.</li><li>Go to <b>Workers &amp; Pages → Create → Create Worker</b>.</li><li>Delete the sample code and paste the entire contents of <code>video-extractor.js</code> (included with this app), then click <b>Deploy</b>.</li><li>Copy the URL Cloudflare gives you (it ends in <code>.workers.dev</code>) and paste it into the field on this page.</li></ol><p><b>Privacy</b><br>The URL is stored only in this browser, on this device. Nothing is uploaded or shared, and it is 100% optional.</p>`;
+  const ov = $("helpOverlay");
+  if (ov) ov.style.display = "flex";
+}
+function hideExtractorHelp() {
+  const ov = $("helpOverlay");
+  if (ov) ov.style.display = "none";
+}
+
+function extractPhKey(raw) {
+  const km = raw.match(/[?&]viewkey=([^&#]+)/);
+  if (km) return km[1];
+  const parts = raw.split(/[\/?=&]/).filter(s => s && /^[a-z0-9]+$/i.test(s));
+  return parts.length ? parts[parts.length - 1] : raw;
+}
+async function callExtractor(url) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return { error: "Extractor status " + r.status };
+    return await r.json();
+  } catch (e) { return { error: "Extractor unreachable" }; }
+}
+function pageExtract(html) {
+  let m = html.match(/setVideoUrlHigh\s*\(\s*['"]([^'"]+\.mp4[^'"]*)['"]/i) || html.match(/setVideoHLS\s*\(\s*['"]([^'"]+\.m3u8[^'"]*)['"]/i) || html.match(/setVideoUrlLow\s*\(\s*['"]([^'"]+\.mp4[^'"]*)['"]/i);
+  if (m) return { url: m[1], type: /m3u8/i.test(m[1]) ? "hls" : "mp4" };
+  const flat = html.replace(/\\\//g, "/");
+  m = flat.match(/<source[^>]+src=["']([^"']+\.(?:mp4|m3u8)[^"']*)["']/i) || flat.match(/<video[^>]+src=["']([^"']+\.(?:mp4|m3u8)[^"']*)["']/i);
+  if (m) return { url: m[1], type: /m3u8/i.test(m[1]) ? "hls" : "mp4" };
+  m = flat.match(/"videoUrl"\s*:\s*"([^"]+\.mp4[^"]*)"/i) || flat.match(/"(?:mp4|src|hls|video_url|videoHLS|streams)"\s*:\s*"([^"]+\.(?:mp4|m3u8)[^"]*)"/i);
+  if (m) return { url: m[1], type: /m3u8/i.test(m[1]) ? "hls" : "mp4" };
+  m = flat.match(/https?:\/\/[^"'\\\s<>]+\.(?:mp4|m3u8)[^"'\\\s<>]*/i);
+  if (m) return { url: m[0], type: /m3u8/i.test(m[0]) ? "hls" : "mp4" };
+  return { error: "No direct video URL found." };
+}
+async function fallbackExtract(pageUrl) {
+  const proxies = ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest=", "https://corsproxy.io/?url="];
+  let html = "";
+  // Try reading the page directly first (works when the site allows CORS).
+  try {
+    html = await (await fetch(pageUrl)).text();
+  } catch (e) {}
+  if (html && html.length > 5000) return pageExtract(html);
+  for (const p of proxies) {
+    try {
+      html = await (await fetch(p + encodeURIComponent(pageUrl))).text();
+      if (html && html.length > 5000) break;
+    } catch (e) {}
+  }
+  if (!html || html.length <= 5000) return { error: "Could not fetch the page. Retry, or set your own extractor (⚙) for reliable loading." };
+  return pageExtract(html);
+}
+async function loadVideoUrl(input) {
+  const raw = (input || "").trim();
+  if (!raw) { funLog("Enter a video URL or Pornhub ID."); return; }
+  const pageUrl = /^https?:\/\//i.test(raw)
+    ? raw
+    : ("https://www.pornhub.com/view_video.php?viewkey=" + encodeURIComponent(extractPhKey(raw)));
+  let data = null;
+  if (/^https?:\/\/[^\s]+\.(?:mp4|m3u8|webm|m4v|mov|mkv|mpg|mpeg|ogv)(?:[?#].*)?$/i.test(raw)) {
+    // Already a direct video file URL — use it without extraction.
+    data = { url: raw, type: /\.m3u8(?:[?#]|$)/i.test(raw) ? "hls" : "mp4" };
+  } else {
+    funLog("Extracting video…");
+    const extractor = getExtractorUrl();
+    if (extractor) data = await callExtractor(extractor + "?url=" + encodeURIComponent(pageUrl));
+    if (!data || data.error) data = await fallbackExtract(pageUrl);
+  }
+  if (!data || data.error || !data.url) { funLog((data && data.error) || "Could not extract a video."); return; }
+  const videoUrl = absUrl(data.url);
+  let name = "Stream";
+  try { name = new URL(pageUrl).hostname; } catch (e) {}
+  if (/pornhub/i.test(pageUrl)) name = "Pornhub " + extractPhKey(pageUrl);
+  if (data.type === "hls") {
+    if (typeof Hls === "undefined") { funLog("HLS streams need internet (hls.js)."); return; }
+    funState.videoUrl = videoUrl;
+    funState.videoName = name;
+    const nv = $("funVideoName"); if (nv) nv.textContent = name;
+    buildFunVideo();
+    updateCastButton();
+    const v = $("funVideo");
+    if (v) {
+      if (funState.hls) funState.hls.destroy();
+      funState.hls = new Hls();
+      funState.hls.loadSource(videoUrl);
+      funState.hls.attachMedia(v);
+    }
+  } else {
+    setFunVideo(videoUrl, name);
+  }
+  funLog("Video loaded — press Start or play.");
+}
+
+function funStartStreaming() {
+  if (!funState.actions.length) { funLog("No funscript loaded."); return; }
+  if (!stdCmd && !demoMode) { funLog("Connect to the OSSM to stream."); return; }
+  if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
+  const wasPlaying = funState.playing;
+  funState.playing = true;
+  if (!wasPlaying) { funState.lastSentPos = null; funState.rampTo = null; syncFunToTime(currentPlaybackMs()); }
+  stdWrite("set:speed:" + funState.maxSpeed);
+  stdWrite("set:max:" + funState.maxDepth);
+  stdWrite("set:min:" + funState.minDepth);
+  stdWrite("set:buffer:" + funState.buffer);
+  if (funState.timer) clearInterval(funState.timer);
+  funState.timer = setInterval(funStreamTick, 50);
+  $("btnStart").textContent = "Stop";
+  $("btnStart").classList.add("stop");
+}
+function funStreamTick() {
+  if (!funState.playing) return;
+  if (funPreviewShown) drawFunPreview();
+  let t;
+  if (castConnected) t = castTimeNow() * 1000;
+  else { const v = $("funVideo"); if (!v) return; t = v.currentTime * 1000; }
+  const lead = 400;
+
+  // Safety ramp: after a jump (resume/seek/offset change), ease toward the target
+  // position in small steps instead of one sudden large move.
+  if (funState.rampTo !== null) {
+    const MAX_STEP = 8;
+    const cur = funState.lastSentPos !== null ? funState.lastSentPos : funState.rampTo;
+    const step = funState.rampTo - cur;
+    const next = Math.abs(step) <= MAX_STEP ? funState.rampTo : cur + Math.sign(step) * MAX_STEP;
+    const cmd = Math.round(clamp(next, 0, 100)) + ":100";
+    if (streamChar) streamWrite(cmd);
+    else stdWrite("stream:" + cmd);
+    funState.lastSentPos = next;
+    if (Math.abs(step) <= MAX_STEP) funState.rampTo = null;
+    return;
+  }
+
+  let sent = 0;
+  while (funState.nextIdx < funState.actions.length && sent < 2) {
+    const a = funState.actions[funState.nextIdx];
+    if (a.at + funState.offsetMs > t + lead) break;
+    const prev = funState.nextIdx > 0 ? funState.actions[funState.nextIdx - 1].at : 0;
+    const delta = Math.max(10, Math.round(a.at - prev));
+    const streamPos = Math.round(clamp(100 - a.pos, 0, 100));
+    if (streamChar) streamWrite(streamPos + ":" + delta);
+    else stdWrite("stream:" + streamPos + ":" + delta);
+    funState.lastSentPos = streamPos;
+    funState.nextIdx++;
+    sent++;
+  }
+}
+function funStopStreaming() {
+  funState.playing = false;
+  if (funState.timer) { clearInterval(funState.timer); funState.timer = null; }
+  updateStartButton();
+}
+function toggleVideoFullscreen() {
+  if (appMode !== "fun") return;
+  const v = $("funVideo");
+  if (!v) return;
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+  } else if (v.requestFullscreen) {
+    v.requestFullscreen().catch(() => {});
+  } else if (v.webkitRequestFullscreen) {
+    v.webkitRequestFullscreen();
+  }
+}
+
+// ---------- Chromecast (Google Cast SDK) ----------
+let castContext = null;
+let castAvailable = false, castConnected = false;
+let castSession = null, castMedia = null, castRemoteTime = 0;
+let castPausedLocal = false;
+let castTickTimer = null, castClockBaseMs = 0;
+let castConnectAt = 0, castFailNotified = false;
+let castWasPlaying = false;
+let castEnded = false;
+
+function initCast() {
+  const onReady = () => {
+    try {
+      castContext = cast.framework.CastContext.getInstance();
+      castContext.setOptions({
+        receiverApplicationId: chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID,
+        autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
+      });
+      castAvailable = true;
+      castContext.addEventListener(cast.framework.CastContextEventType.CAST_STATE_CHANGED, e => {
+        const wasConnected = castConnected;
+        castConnected = e.castState === cast.framework.CastState.CONNECTED;
+        castSession = castConnected ? castContext.getCurrentSession() : null;
+        if (castConnected) {
+          const v = $("funVideo");
+          castPausedLocal = !!(v && !v.paused);
+          if (castPausedLocal) v.pause();
+          castConnectAt = Date.now(); castFailNotified = false; castWasPlaying = false; castEnded = false;
+          loadCastMedia();
+          if (funState.actions.length && !funState.playing) funStartStreaming();
+          setCastOverlay(true);
+        } else {
+          castMedia = null; castRemoteTime = 0; castClockBaseMs = 0; castConnectAt = 0; castWasPlaying = false;
+          if (castTickTimer) { clearInterval(castTickTimer); castTickTimer = null; }
+          setCastOverlay(false);
+          if (wasConnected) fallbackToLocal();
+        }
+        updateCastButton();
+      });
+      updateCastButton();
+    } catch (err) {}
+  };
+  window.__onGCastApiAvailable = (isAvailable) => { if (isAvailable) onReady(); };
+  if (window.chrome && window.chrome.cast && window.chrome.cast.isAvailable) onReady();
+}
+function absUrl(u) {
+  if (!u) return u;
+  u = String(u).trim();
+  if (/^\/\//.test(u)) return "https:" + u;
+  return u;
+}
+function castableUrl() {
+  const u = absUrl(funState.videoUrl);
+  return u && /^https?:\/\//i.test(u) ? u : null;
+}
+function pollCastTime() {
+  if (!castConnected) return;
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  let media = null;
+  try { media = (session && session.getMediaSession) ? session.getMediaSession() : null; } catch (e) {}
+  if (media) {
+    castMedia = media;
+    try {
+      let est;
+      if (typeof media.getEstimatedTime === "function") est = media.getEstimatedTime();
+      if (typeof est !== "number" || !isFinite(est)) est = media.currentTime;
+      if (typeof est === "number" && isFinite(est)) {
+        const ps = media.playerState;
+        if (ps === "PLAYING" || ps === "BUFFERING") castWasPlaying = true;
+        if (castEnded) {
+          // Video already ended — keep the clock frozen until the user seeks/replays.
+          castRemoteTime = est;
+          castClockBaseMs = 0;
+        } else if (ps === "PAUSED") {
+          castRemoteTime = est;
+          castClockBaseMs = 0;
+        } else if (ps === "IDLE") {
+          // Media ended (or never started playing).
+          castRemoteTime = est;
+          castClockBaseMs = 0;
+          if (castWasPlaying && funState.playing) {
+            funStopStreaming();
+            funLog("Video ended.");
+          }
+          castEnded = true;
+        } else {
+          if (!castClockBaseMs) {
+            castRemoteTime = est;
+            castClockBaseMs = Date.now();
+          } else {
+            const jump = est - castRemoteTime;
+            if (jump > 1.0 || jump < -1.0) {
+              // Seek detected (large forward or backward jump): re-anchor and re-sync
+              // the funscript pointer so the OSSM jumps with the video.
+              castRemoteTime = est;
+              castClockBaseMs = Date.now();
+              if (funState.playing) {
+                syncFunToTime(est * 1000);
+                if (funPreviewShown) drawFunPreview();
+              }
+            } else if (jump > 0.1) {
+              // Normal advance: re-anchor.
+              castRemoteTime = est;
+              castClockBaseMs = Date.now();
+            }
+            // else: receiver stuck/behind — keep the running wall clock.
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  // Safety net: if the media duration is known and we've reached the end, stop.
+  if (funState.playing) {
+    const d = castDuration();
+    if (d > 0 && castTimeNow() >= d - 0.4) {
+      castClockBaseMs = 0;
+      castEnded = true;
+      funStopStreaming();
+      funLog("Video ended.");
+    }
+  }
+  // Watchdog: if the receiver never started playing, surface a clear error once.
+  if (castConnectAt && !castFailNotified && (Date.now() - castConnectAt > 6000)) {
+    if (!media || media.playerState === "IDLE") {
+      castFailNotified = true;
+      funLog("Cast failed to load the video — try another URL.");
+    }
+  }
+  updateCastSeekUI();
+}
+function castTimeNow() {
+  if (!castClockBaseMs) return castRemoteTime || 0;
+  return (castRemoteTime || 0) + (Date.now() - castClockBaseMs) / 1000;
+}
+function fmtCastTime(sec) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return (h > 0 ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0");
+}
+function castDuration() {
+  try {
+    const session = castSession || (castContext && castContext.getCurrentSession());
+    const media = session && session.getMediaSession ? session.getMediaSession() : null;
+    if (media) {
+      const info = media.media;
+      if (info && typeof info.duration === "number" && isFinite(info.duration) && info.duration > 0) return info.duration;
+      if (typeof media.duration === "number" && isFinite(media.duration) && media.duration > 0) return media.duration;
+    }
+  } catch (e) {}
+  const v = $("funVideo");
+  if (v && typeof v.duration === "number" && isFinite(v.duration) && v.duration > 0) return v.duration;
+  if (funState.actions.length) return (funState.actions[funState.actions.length - 1].at + funState.offsetMs) / 1000;
+  return 0;
+}
+function mkCastRequest(ctorName, props) {
+  try {
+    const C = chrome.cast && chrome.cast.media && chrome.cast.media[ctorName];
+    if (C) { const r = new C(); if (props) for (const k in props) r[k] = props[k]; return r; }
+  } catch (e) {}
+  return props || {};
+}
+function seekCast(seconds) {
+  if (!castConnected) return false;
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  if (!session) return false;
+  const target = Math.max(0, seconds || 0);
+  let media = null;
+  try { media = session.getMediaSession && session.getMediaSession(); } catch (e) {}
+  if (!media || typeof media.seek !== "function") { funLog("Seek unavailable (no media session)."); return false; }
+  try {
+    let resumeState;
+    try { resumeState = chrome.cast.media.ResumeState.PLAYBACK_START; } catch (e) { resumeState = "PLAYBACK_START"; }
+    const req = mkCastRequest("SeekRequest", { currentTime: target, resumeState: resumeState });
+    media.seek(req,
+      () => {
+        castRemoteTime = target; castClockBaseMs = Date.now();
+        castEnded = false;
+        if (funState.playing) { syncFunToTime(target * 1000); if (funPreviewShown) drawFunPreview(); }
+      },
+      (e) => { funLog("Seek failed: " + ((e && (e.description || e.code)) || "unknown")); }
+    );
+    return true;
+  } catch (e) {
+    funLog("Seek threw: " + ((e && e.message) || "unknown"));
+    return false;
+  }
+}
+function castPlayPause() {
+  if (!castConnected) return;
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  if (!session) return;
+  try {
+    const media = session.getMediaSession ? session.getMediaSession() : (castMedia || null);
+    if (!media) return;
+    const playing = media.playerState === "PLAYING" || media.playerState === "BUFFERING";
+    if (playing && media.pause) {
+      media.pause(mkCastRequest("PauseRequest"), () => {}, () => {});
+    } else if (!playing && media.play) {
+      castEnded = false;
+      media.play(mkCastRequest("PlayRequest"), () => {}, () => {});
+    }
+  } catch (e) {}
+}
+function stopCast() {
+  if (!castConnected || !castContext) return;
+  castPausedLocal = false;
+  try {
+    const s = castContext.getCurrentSession();
+    const m = s && s.getMediaSession && s.getMediaSession();
+    if (m && typeof m.stop === "function") m.stop(mkCastRequest("StopRequest"), () => {}, () => {});
+  } catch (e) {}
+  castContext.endCurrentSession(true);
+}
+function replayCast() {
+  castRemoteTime = 0; castClockBaseMs = Date.now(); castEnded = false;
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  let media = null;
+  try { media = session && session.getMediaSession ? session.getMediaSession() : null; } catch (e) {}
+  if (!media || media.playerState === "IDLE") {
+    loadCastMedia();
+  } else {
+    seekCast(0);
+  }
+  if (funState.actions.length && !funState.playing) funStartStreaming();
+}
+function updateCastSeekUI() {
+  const r = $("castSeek");
+  if (!r) return;
+  const d = castDuration();
+  if (d > 0) {
+    const max = Math.floor(d);
+    if (String(r.max) !== String(max)) r.max = max;
+  }
+  const t = castTimeNow();
+  if (!r.dataset.dragging) r.value = Math.max(0, Math.min(Math.floor(d || 0), Math.floor(t)));
+  const c = $("castTimeLabel");
+  if (c) c.textContent = fmtCastTime(t);
+  const dl = $("castDurLabel");
+  if (dl) dl.textContent = fmtCastTime(d);
+  const pp = $("castPlayPauseBtn");
+  if (pp) {
+    const session = castSession || (castContext && castContext.getCurrentSession());
+    let media = null;
+    try { media = session && session.getMediaSession ? session.getMediaSession() : null; } catch (e) {}
+    const playing = media && (media.playerState === "PLAYING" || media.playerState === "BUFFERING");
+    pp.textContent = playing ? "⏸ Pause" : "▶ Play";
+  }
+  if (funPreviewShown) drawFunPreview();
+}
+function setCastOverlay(show) {
+  const wrap = $("fun-video");
+  if (!wrap) return;
+  const v = wrap.querySelector("video");
+  if (v) v.style.display = show ? "none" : "";
+  let ov = wrap.querySelector(".fun-cast-overlay");
+  if (show) {
+    if (!ov) {
+      ov = document.createElement("div");
+      ov.className = "fun-cast-overlay";
+      ov.innerHTML = "<div style=\"font-size:1.5rem;\">📺</div>" +
+        "<div style=\"font-size:.95rem;color:#e2e8f0;font-weight:bold;\">Casting to TV</div>" +
+        "<div style=\"font-size:.75rem;color:#94a3b8;\">The OSSM follows the TV playback</div>" +
+        "<div style=\"display:flex;align-items:center;gap:8px;width:100%;max-width:420px;margin-top:10px;padding:0 12px;box-sizing:border-box;\">" +
+          "<span id=\"castTimeLabel\" style=\"font-size:.7rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap;\">0:00</span>" +
+          "<input type=\"range\" id=\"castSeek\" min=\"0\" max=\"100\" step=\"1\" value=\"0\" style=\"flex:1;min-width:0;\">" +
+          "<span id=\"castDurLabel\" style=\"font-size:.7rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap;\">0:00</span>" +
+        "</div>" +
+        "<div style=\"display:flex;align-items:center;justify-content:center;gap:8px;width:100%;max-width:420px;margin-top:12px;padding:0 12px;box-sizing:border-box;\">" +
+          "<button id=\"castBackBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:.8rem;cursor:pointer;\">⏪ 10s</button>" +
+          "<button id=\"castPlayPauseBtn\" type=\"button\" style=\"background:#2563eb;border:none;color:#fff;border-radius:6px;padding:6px 14px;font-size:.8rem;font-weight:bold;cursor:pointer;\">▶ Play</button>" +
+          "<button id=\"castReplayBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">↺</button>" +
+          "<button id=\"castFwdBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:.8rem;cursor:pointer;\">10s ⏩</button>" +
+        "</div>" +
+        "<button id=\"castStopBtn\" type=\"button\" style=\"background:#dc2626;border:none;color:#fff;border-radius:8px;padding:10px 20px;font-size:.85rem;font-weight:bold;cursor:pointer;margin-top:14px;\">Stop casting</button>";
+      wrap.appendChild(ov);
+      const r = ov.querySelector("#castSeek");
+      if (r) {
+        r.addEventListener("input", () => { r.dataset.dragging = "1"; const c = $("castTimeLabel"); if (c) c.textContent = fmtCastTime(parseFloat(r.value) || 0); });
+        r.addEventListener("change", () => { r.dataset.dragging = ""; seekCast(parseFloat(r.value) || 0); });
+      }
+      const backBtn = ov.querySelector("#castBackBtn");
+      if (backBtn) backBtn.onclick = () => seekCast(castTimeNow() - 10);
+      const fwdBtn = ov.querySelector("#castFwdBtn");
+      if (fwdBtn) fwdBtn.onclick = () => seekCast(castTimeNow() + 10);
+      const replayBtn = ov.querySelector("#castReplayBtn");
+      if (replayBtn) replayBtn.onclick = replayCast;
+      const ppBtn = ov.querySelector("#castPlayPauseBtn");
+      if (ppBtn) ppBtn.onclick = castPlayPause;
+      const stopBtn = ov.querySelector("#castStopBtn");
+      if (stopBtn) stopBtn.onclick = stopCast;
+      updateCastSeekUI();
+    }
+    ov.style.display = "flex";
+  } else if (ov) {
+    ov.style.display = "none";
+  }
+}
+function startCastPolling() {
+  castRemoteTime = 0; castClockBaseMs = Date.now(); // autoplay: clock starts now
+  if (castTickTimer) clearInterval(castTickTimer);
+  castTickTimer = setInterval(pollCastTime, 250);
+  pollCastTime();
+}
+function loadCastMedia() {
+  const url = castableUrl();
+  if (!url || !castContext) return;
+  const session = castContext.getCurrentSession();
+  if (!session) return;
+  const mime = /\.m3u8(\?|$)/i.test(url) ? "application/x-mpegURL" : "video/mp4";
+  const mi = new chrome.cast.media.MediaInfo(url, mime);
+  try {
+    const meta = new chrome.cast.media.GenericMediaMetadata();
+    meta.title = funState.videoName || "OSSM video";
+    mi.metadata = meta;
+  } catch (e) {}
+  const req = new chrome.cast.media.LoadRequest(mi);
+  req.autoplay = true;
+  // CAF v3 loadMedia may not return the media object (and may not return a promise),
+  // so start polling the media session independently of its return value.
+  try {
+    const r = session.loadMedia(req);
+    if (r && typeof r.then === "function") {
+      r.then(() => startCastPolling(), (err) => {
+        const msg = (err && (err.description || err.code)) || "unknown";
+        funLog("Cast failed (" + msg + ") — playing locally.");
+        if (castContext) castContext.endCurrentSession(true);
+      });
+    } else {
+      startCastPolling();
+    }
+  } catch (e) {
+    startCastPolling();
+  }
+  funLog("Casting to TV…");
+}
+function toggleCast() {
+  if (!castContext) return;
+  if (castConnected) castContext.endCurrentSession(true);
+  else castContext.requestSession().catch(() => {});
+}
+function fallbackToLocal() {
+  if (castPausedLocal) {
+    castPausedLocal = false;
+    const v = $("funVideo");
+    if (v && v.paused && funState.videoUrl) {
+      v.play().catch(() => {});
+      syncFunToTime(v.currentTime * 1000);
+    }
+  } else if (funState.playing) {
+    funStopStreaming();
+  }
+}
+function updateCastButton() {
+  const b = $("funCastBtn");
+  const info = $("funCastInfo");
+  if (!b) return;
+  const row = b.parentElement;
+  const castable = castableUrl();
+  if (!castable) { if (row) row.style.display = "none"; return; }
+  if (row) row.style.display = "";
+  if (!castAvailable) {
+    b.disabled = true; b.textContent = "Cast";
+    if (info) info.textContent = "Cast SDK unavailable";
+    return;
+  }
+  b.disabled = false;
+  b.textContent = castConnected ? "Stop cast" : "Cast";
+  if (info) info.textContent = castConnected ? "casting…" : "";
+}
+
+// ---------- Events ----------
+$("ble-button").onclick = connect;
+$("header-disconnect").onclick = disconnect;
+$("header-stop").onclick = emergencyStop;
+function toggleFunSettings() {
+  funSettingsHidden = !funSettingsHidden;
+  try { localStorage.setItem("ossm-fun-hidden", funSettingsHidden ? "1" : "0"); } catch (e) {}
+  const pc = document.querySelector(".phone-container");
+  if (pc) pc.classList.toggle("fun-settings-hidden", funSettingsHidden);
+  const btn = $("funSettingsToggle");
+  if (btn) { btn.textContent = funSettingsHidden ? "⤡" : "⤢"; btn.title = funSettingsHidden ? "Exit fullscreen (show settings)" : "Fullscreen video (hide settings)"; }
+  placeStartButton();
+}
+const fsBtn = $("funSettingsToggle");
+if (fsBtn) { fsBtn.textContent = funSettingsHidden ? "⤡" : "⤢"; fsBtn.onclick = toggleFunSettings; }
+function toggleFunPreview() {
+  funPreviewShown = !funPreviewShown;
+  try { localStorage.setItem("ossm-fun-preview-shown", funPreviewShown ? "1" : "0"); } catch (e) {}
+  const c = $("funPreview");
+  if (c) c.style.display = funPreviewShown ? "block" : "none";
+  const btn = $("funPreviewToggle");
+  if (btn) { btn.textContent = funPreviewShown ? "▾" : "▴"; btn.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
+  if (funPreviewShown) drawFunPreview();
+}
+const fpBtn = $("funPreviewToggle");
+if (fpBtn) { fpBtn.textContent = funPreviewShown ? "▾" : "▴"; fpBtn.onclick = toggleFunPreview; }
+function leaveStreamingIfNeeded() {
+  if (appMode !== "fun") return;
+  const v = $("funVideo");
+  if (v && !v.paused) { try { v.pause(); } catch (e) {} }
+  funState.playing = false;
+  if (funState.timer) { clearInterval(funState.timer); funState.timer = null; }
+  if (connected && stdCmd && /^streaming/.test(stdStateName || "")) stdWrite("go:menu");
+}
+let modeSwitchToken = 0;
+let modeSwitchTimer = null;
+function requestMode(command) {
+  if (!stdCmd) return;
+  const token = ++modeSwitchToken;
+  if (modeSwitchTimer) { clearInterval(modeSwitchTimer); modeSwitchTimer = null; }
+  stdWrite("go:menu"); // return to menu first — this works from any mode
+  // Wait until the device actually reports menu.idle before sending the mode command;
+  // otherwise the button press is ignored and the device stays stuck in the menu.
+  let attempts = 0;
+  modeSwitchTimer = setInterval(() => {
+    attempts++;
+    if (token !== modeSwitchToken || !connected || !stdCmd) { clearInterval(modeSwitchTimer); modeSwitchTimer = null; return; }
+    const s = stdStateName || "";
+    if (s === "menu" || s === "menu.idle" || attempts > 20) {
+      clearInterval(modeSwitchTimer); modeSwitchTimer = null;
+      stdWrite(command);
+    }
+  }, 100);
+}
+function enterStreamingMode() {
+  if (connected && stdCmd && !/^streaming/.test(stdStateName || "")) {
+    stdStateName = "";
+    requestMode("go:streaming");
+    funLog("Switching to streaming — homing…");
+  }
+  updateStartButton();
+}
+function enterStdMode() {
+  if (connected && stdCmd && stdStateName.indexOf("strokeEngine") !== 0) {
+    stdStateName = "";
+    requestMode("go:strokeEngine");
+  }
+  updateStartButton();
+}
+$("modeAp").onclick = () => { if (!apAvailable()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); };
+$("modeStd").onclick = () => { leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
+const mFun = $("modeFun");
+if (mFun) mFun.onclick = () => { leaveStreamingIfNeeded(); appMode = "fun"; if (window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
+const fEx = $("funExit");
+if (fEx) fEx.onclick = () => { leaveStreamingIfNeeded(); setDemoMode(false); appMode = apAvailable() ? "ap" : "std"; buildInterface(); if (appMode === "std") enterStdMode(); };
+function setDemoMode(on) {
+  if (demoMode === on) return;
+  demoMode = on;
+  const d = $("funDemoBtn");
+  if (d) { d.textContent = on ? "Demo ✓" : "Demo"; d.style.background = on ? "#16a34a" : ""; }
+  const hc = $("header-connect");
+  if (hc) { hc.textContent = on ? "DEMO" : "Connect"; hc.classList.toggle("demo", on); }
+  if (!on) { const v = $("funVideo"); if (v && !v.paused) v.pause(); }
+  updateStartButton();
+}
+const hconn = $("header-connect");
+if (hconn) hconn.onclick = () => { if (demoMode) { setDemoMode(false); funLog("Demo mode off."); } else connect(); };
+$("btnStart").onclick = toggleStart;
+const fvi = $("funVideoInput");
+if (fvi) fvi.addEventListener("change", e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  setFunVideo(URL.createObjectURL(f), f.name);
+});
+const fsi = $("funScriptInput");
+if (fsi) fsi.addEventListener("change", e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  funState.scriptName = f.name;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const j = JSON.parse(r.result);
+      funState.rawActions = (j.actions || [])
+        .filter(a => a && typeof a.at === "number" && typeof a.pos === "number")
+        .sort((a, b) => a.at - b.at);
+    } catch (err) { log("Funscript parse error: " + err.message); funState.rawActions = []; }
+    funState.offsetMs = 0;
+    rebuildFunscript();
+    updateOffsetUI();
+  };
+  r.readAsText(f);
+});
+$("btnSavePreset").onclick = () => {
+  const n = $("presetName").value.trim();
+  if (!n) return;
+  presetNames.push(n);
+  $("presetName").value = "";
+  writePreset(">" + n).catch(() => {});
+  renderPresets();
+};
+$("btnFactoryReset").onclick = () => {
+  presetNames = [];
+  writePreset("^").catch(() => {});
+  renderPresets();
+};
+$("btnResetValues").onclick = resetAllValues;
+
+// ---------- Gamepad + keyboard mapping ----------
+const BTN_NAMES = { 0:"A", 1:"B", 2:"X", 3:"Y", 4:"LB", 5:"RB", 6:"LT", 7:"RT", 8:"Back", 9:"Start", 10:"L3", 11:"R3", 12:"D-pad Up", 13:"D-pad Down", 14:"D-pad Left", 15:"D-pad Right", 16:"Home" };
+const STICK_NAMES = { 0:"Left stick", 2:"Right stick" };
+const KEY_LABELS = { "ArrowUp":"↑", "ArrowDown":"↓", "ArrowLeft":"←", "ArrowRight":"→", "Space":"Space", "Enter":"Enter", "ShiftLeft":"Shift", "ShiftRight":"Shift", "ControlLeft":"Ctrl", "ControlRight":"Ctrl", "AltLeft":"Alt", "AltRight":"Alt", "Backspace":"⌫", "Tab":"Tab", "Escape":"Esc" };
+const GP_ACTIONS = [
+  { id:"speedUp",   label:"Speed up",        mode:"both", repeat:true, help:"Stroke speed 0–100. BOTH modes: Standard = engine speed; Advanced = the Speed value at the bottom of the screen." },
+  { id:"speedDown", label:"Speed down",      mode:"both", repeat:true, help:"Stroke speed 0–100. BOTH modes: Standard = engine speed; Advanced = the Speed value at the bottom of the screen." },
+  { id:"maxUp",     label:"Max depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Max depth position (stroke goes deeper)." },
+  { id:"maxDown",   label:"Max depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Max depth position." },
+  { id:"minUp",     label:"Min depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Min depth position (stroke starts deeper)." },
+  { id:"minDown",   label:"Min depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Min depth position." },
+  { id:"sensationUp",   label:"Sensation up",   mode:"std", repeat:true, help:"Standard mode: increases sensation 0–100 (50 = neutral)." },
+  { id:"sensationDown", label:"Sensation down", mode:"std", repeat:true, help:"Standard mode: decreases sensation 0–100 (50 = neutral)." },
+  { id:"start",     label:"Start / Stop",    mode:"both", help:"Starts or stops the stroke engine. BOTH modes." },
+  { id:"mode",      label:"Mode toggle",     mode:"both", help:"Switches between the Standard and Advanced screens. BOTH modes." },
+  { id:"patternNext", label:"Pattern next (Std)", mode:"std", repeat:true, help:"Standard mode: next stroke pattern." },
+  { id:"patternPrev", label:"Pattern prev (Std)", mode:"std", repeat:true, help:"Standard mode: previous stroke pattern." },
+  { id:"navNext",   label:"Next base/modifier (AP)", mode:"ap", repeat:true, help:"Advanced mode: moves the highlight to the next base value (or modifier type)." },
+  { id:"navPrev",   label:"Prev base/modifier (AP)", mode:"ap", repeat:true, help:"Advanced mode: moves the highlight to the previous base value (or modifier type)." },
+  { id:"valueUp",   label:"Value +1 (AP)",   mode:"ap", repeat:true, help:"Advanced mode: increases the currently highlighted value by 1." },
+  { id:"valueDown", label:"Value -1 (AP)",   mode:"ap", repeat:true, help:"Advanced mode: decreases the currently highlighted value by 1." },
+  { id:"modEnter",  label:"Enter modifier (AP)", mode:"ap", help:"Advanced mode: opens the modifier controls for the highlighted base value." },
+  { id:"modBack",   label:"Back to main (AP)",  mode:"ap", help:"Advanced mode: closes the modifier controls and returns to the main list." },
+  { id:"presetNext", label:"Preset next (AP)", mode:"ap", repeat:true, help:"Advanced mode: next saved preset." },
+  { id:"presetPrev", label:"Preset prev (AP)", mode:"ap", repeat:true, help:"Advanced mode: previous saved preset." },
+  { id:"colLeft",  label:"Hide/show sliders (◀)",  mode:"both", help:"Landscape: toggles the left sliders column." },
+  { id:"colRight", label:"Hide/show settings (▶)", mode:"both", help:"Landscape: toggles the right settings column." },
+  { id:"fullscreen", label:"Video fullscreen", mode:"fun", help:"Funscript mode: toggles the video to/from fullscreen." },
+  { id:"estop", label:"Emergency stop", mode:"both", help:"Immediately force-stops the OSSM and returns it to the menu." }
+];
+const DEFAULT_BINDINGS = {
+  speedUp:     { src:"pad", kind:"stick", idx:0, dir:"up" },
+  speedDown:   { src:"pad", kind:"stick", idx:0, dir:"down" },
+  maxUp:       { src:"pad", kind:"stick", idx:0, dir:"left" },
+  maxDown:     { src:"pad", kind:"stick", idx:0, dir:"right" },
+  minUp:       { src:"pad", kind:"stick", idx:2, dir:"up" },
+  minDown:     { src:"pad", kind:"stick", idx:2, dir:"down" },
+  sensationUp:   { src:"pad", kind:"stick", idx:2, dir:"left" },
+  sensationDown: { src:"pad", kind:"stick", idx:2, dir:"right" },
+  start:       { src:"pad", kind:"btn", idx:0 },
+  mode:        { src:"pad", kind:"btn", idx:3 },
+  patternNext: { src:"pad", kind:"btn", idx:15 },
+  patternPrev: { src:"pad", kind:"btn", idx:14 },
+  navNext:     { src:"pad", kind:"btn", idx:15 },
+  navPrev:     { src:"pad", kind:"btn", idx:14 },
+  valueUp:     { src:"pad", kind:"btn", idx:12 },
+  valueDown:   { src:"pad", kind:"btn", idx:13 },
+  modEnter:    { src:"pad", kind:"btn", idx:2 },
+  modBack:     { src:"pad", kind:"btn", idx:1 },
+  presetNext:  { src:"pad", kind:"btn", idx:5 },
+  presetPrev:  { src:"pad", kind:"btn", idx:4 },
+  colLeft:     { src:"pad", kind:"btn", idx:10 },
+  colRight:    { src:"pad", kind:"btn", idx:11 },
+  fullscreen:  { src:"pad", kind:"btn", idx:9 },
+  estop:       { src:"pad", kind:"btn", idx:8 }
+};
+const DEFAULT_KB_BINDINGS = {
+  speedUp:       { src:"kb", kind:"btn", code:"ArrowUp", key:"↑" },
+  speedDown:     { src:"kb", kind:"btn", code:"ArrowDown", key:"↓" },
+  maxUp:         { src:"kb", kind:"btn", code:"KeyW", key:"w" },
+  maxDown:       { src:"kb", kind:"btn", code:"KeyS", key:"s" },
+  minUp:         { src:"kb", kind:"btn", code:"KeyE", key:"e" },
+  minDown:       { src:"kb", kind:"btn", code:"KeyD", key:"d" },
+  sensationUp:   { src:"kb", kind:"btn", code:"KeyR", key:"r" },
+  sensationDown: { src:"kb", kind:"btn", code:"KeyF", key:"f" },
+  start:         { src:"kb", kind:"btn", code:"Space", key:" " },
+  mode:          { src:"kb", kind:"btn", code:"KeyM", key:"m" },
+  patternNext:   { src:"kb", kind:"btn", code:"BracketRight", key:"]" },
+  patternPrev:   { src:"kb", kind:"btn", code:"BracketLeft", key:"[" },
+  navNext:       { src:"kb", kind:"btn", code:"Period", key:"." },
+  navPrev:       { src:"kb", kind:"btn", code:"Comma", key:"," },
+  valueUp:       { src:"kb", kind:"btn", code:"Equal", key:"=" },
+  valueDown:     { src:"kb", kind:"btn", code:"Minus", key:"-" },
+  modEnter:      { src:"kb", kind:"btn", code:"Enter", key:"Enter" },
+  modBack:       { src:"kb", kind:"btn", code:"Backspace", key:"⌫" },
+  presetNext:    { src:"kb", kind:"btn", code:"KeyN", key:"n" },
+  presetPrev:    { src:"kb", kind:"btn", code:"KeyB", key:"b" },
+  colLeft:       { src:"kb", kind:"btn", code:"KeyO", key:"o" },
+  colRight:      { src:"kb", kind:"btn", code:"KeyP", key:"p" },
+  fullscreen:    { src:"kb", kind:"btn", code:"KeyV", key:"v" },
+  estop:         { src:"kb", kind:"btn", code:"Escape", key:"Esc" }
+};
+
+function loadBindings() {
+  let pad = Object.assign({}, DEFAULT_BINDINGS);
+  let kb = Object.assign({}, DEFAULT_KB_BINDINGS);
+  try {
+    const raw = localStorage.getItem("ossm-input-bindings");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      for (const id in parsed) {
+        const b = parsed[id];
+        if (!b) continue;
+        if (b.src === "kb") kb[id] = b; else pad[id] = b;
+      }
+    }
+  } catch (e) {}
+  try {
+    const raw2 = localStorage.getItem("ossm-input-kb-bindings");
+    if (raw2) {
+      const p2 = JSON.parse(raw2);
+      for (const id in p2) kb[id] = p2[id];
+    }
+  } catch (e) {}
+  return { pad, kb };
+}
+function saveBindings() {
+  try { localStorage.setItem("ossm-input-bindings", JSON.stringify(bindings)); } catch (e) {}
+  try { localStorage.setItem("ossm-input-kb-bindings", JSON.stringify(kbBindings)); } catch (e) {}
+}
+
+let _loadedBindings = loadBindings();
+let bindings = _loadedBindings.pad;
+let kbBindings = _loadedBindings.kb;
+let bindViewSlot = "pad";
+try { const v = localStorage.getItem("ossm-bind-view"); if (v === "kb" || v === "pad") bindViewSlot = v; } catch (e) {}
+let gpIndex = null;
+let gpPrevButtons = [];
+let gpPrevAxes = [];
+let listeningFor = null;
+const gpRepeatState = {};
+const kbDown = {}, kbJust = {};
+
+function currentGamepad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  if (gpIndex !== null && pads[gpIndex] && pads[gpIndex].connected) return pads[gpIndex];
+  for (const p of pads) if (p && p.connected) return p;
+  return null;
+}
+function kbHeldCount() { return Object.keys(kbDown).length; }
+function keyLabel(code, key) {
+  if (KEY_LABELS[code]) return KEY_LABELS[code];
+  if (code && code.startsWith("Key")) return code.slice(3);
+  if (code && code.startsWith("Digit")) return code.slice(5);
+  return key || code || "?";
+}
+
+function describeBinding(b) {
+  if (!b) return "—";
+  if (b.src === "kb") return keyLabel(b.code, b.key);
+  if (b.kind === "btn" || b.kind === "trigger") return BTN_NAMES[b.idx] || ("Button " + b.idx);
+  if (b.kind === "axis") {
+    const axis = (b.idx % 2 === 0) ? "X" : "Y";
+    const stick = STICK_NAMES[b.idx - (b.idx % 2)] || ("Axis " + b.idx);
+    return stick + " " + axis;
+  }
+  if (b.kind === "stick") return (STICK_NAMES[b.idx] || ("Stick " + b.idx)) + " " + b.dir;
+  return "?";
+}
+
+function bindingKey(b) {
+  if (!b) return null;
+  if (b.src === "kb") return "kb:" + b.code;
+  if (b.kind === "btn" || b.kind === "trigger") return "pad:btn:" + b.idx;
+  if (b.kind === "stick") return "pad:stick:" + b.idx + ":" + b.dir;
+  if (b.kind === "axis") return "pad:axis:" + b.idx;
+  return "other:" + JSON.stringify(b);
+}
+
+function modesOverlap(a, b) {
+  return a.mode === b.mode || a.mode === "both" || b.mode === "both";
+}
+
+function dupIn(map, byKey, a) {
+  const k = bindingKey(map[a.id]);
+  if (!k) return false;
+  const arr = byKey[k];
+  if (!arr) return false;
+  for (const o of arr) if (o.id !== a.id && modesOverlap(a, o)) return true;
+  return false;
+}
+
+function buildBindingUI() {
+  const list = $("bind-list");
+  if (!list) return;
+  list.innerHTML = "";
+  const map = bindViewSlot === "kb" ? kbBindings : bindings;
+  const byKey = {};
+  for (const a of GP_ACTIONS) {
+    const k = bindingKey(map[a.id]);
+    if (k) (byKey[k] = byKey[k] || []).push(a);
+  }
+  for (const a of GP_ACTIONS) {
+    const dup = dupIn(map, byKey, a);
+    const row = document.createElement("div");
+    row.className = "bind-row" + (dup ? " bind-conflict" : "");
+    const label = document.createElement("span");
+    label.className = "bind-label";
+    label.textContent = a.label + (dup ? " ⚠" : "");
+    label.title = (a.help || "") + (dup ? "\n\n⚠ Same input is assigned to more than one action." : "");
+    const val = document.createElement("span");
+    val.className = "bind-val";
+    val.textContent = describeBinding(map[a.id]);
+    const btn = document.createElement("button");
+    btn.className = "bind-btn";
+    const listening = listeningFor && listeningFor.id === a.id && listeningFor.slot === bindViewSlot;
+    btn.textContent = listening ? "Listening…" : "Bind";
+    btn.onclick = () => startBind(a.id, bindViewSlot);
+    const clearBtn = document.createElement("button");
+    clearBtn.className = "bind-clear";
+    clearBtn.textContent = "✕";
+    clearBtn.title = "Clear this binding";
+    clearBtn.onclick = () => { map[a.id] = null; saveBindings(); buildBindingUI(); const bs = $("bind-status"); if (bs) bs.textContent = "Cleared."; };
+    row.appendChild(label); row.appendChild(val); row.appendChild(btn); row.appendChild(clearBtn);
+    list.appendChild(row);
+  }
+  const bp = $("bindViewPad"), bk = $("bindViewKb");
+  if (bp) bp.classList.toggle("active", bindViewSlot === "pad");
+  if (bk) bk.classList.toggle("active", bindViewSlot === "kb");
+}
+
+function startBind(actionId, slot) {
+  wizard.active = false;
+  hideWizard();
+  listeningFor = { id: actionId, slot };
+  const a = GP_ACTIONS.find(x => x.id === actionId);
+  const bs = $("bind-status");
+  const what = slot === "kb" ? "a key" : "a button or stick";
+  if (bs) bs.textContent = "Listening for \"" + (a ? a.label : actionId) + "\"… press " + what + ".";
+  buildBindingUI();
+}
+
+function stickAxisSign(b) {
+  const axOff = (b.dir === "up" || b.dir === "down") ? 1 : 0;
+  const sign = (b.dir === "up" || b.dir === "left") ? -1 : 1;
+  return [b.idx + axOff, sign];
+}
+
+function detectInput(slot) {
+  if (slot !== "pad") {
+    for (const code in kbJust) {
+      const k = kbDown[code];
+      if (k) return { src:"kb", kind:"btn", code, key:k.key };
+    }
+  }
+  if (slot === "kb") return null;
+  const gp = currentGamepad();
+  if (!gp) return null;
+  for (let i = 0; i < gp.buttons.length; i++) {
+    const cur = !!(gp.buttons[i] && gp.buttons[i].pressed);
+    if (cur && !gpPrevButtons[i]) return { src:"pad", kind:"btn", idx:i };
+  }
+  for (const stickIdx of [0, 2]) {
+    for (const dir of ["up", "down", "left", "right"]) {
+      const sa = stickAxisSign({ idx: stickIdx, dir });
+      const axIdx = sa[0], sign = sa[1];
+      const cur = gp.axes[axIdx] || 0;
+      const prev = gpPrevAxes[axIdx] || 0;
+      const on = sign > 0 ? cur > 0.6 : cur < -0.6;
+      const was = sign > 0 ? prev > 0.6 : prev < -0.6;
+      if (on && !was) return { src:"pad", kind:"stick", idx: stickIdx, dir };
+    }
+  }
+  return null;
+}
+
+function onBindingCaptured(d) {
+  const lf = listeningFor;
+  const id = lf.id;
+  const slot = d.src === "kb" ? "kb" : "pad";
+  listeningFor = null;
+  const map = slot === "kb" ? kbBindings : bindings;
+  map[id] = d;
+  const key = bindingKey(d);
+  const target = GP_ACTIONS.find(x => x.id === id);
+  const stolen = [];
+  for (const a of GP_ACTIONS) {
+    if (a.id === id) continue;
+    if (bindingKey(map[a.id]) === key && target && modesOverlap(target, a)) {
+      map[a.id] = null; stolen.push(a.label);
+    }
+  }
+  saveBindings();
+  buildBindingUI();
+  if (wizard.active) {
+    wizard.note = stolen.length ? ("⚠ That input was already used for " + stolen.join(", ") + " — it has been moved.") : "";
+    wizardAdvance();
+  } else {
+    const bs = $("bind-status");
+    if (bs) bs.textContent = stolen.length ? ("Bound. ⚠ Moved from: " + stolen.join(", ")) : "Bound.";
+  }
+}
+
+function gpSpeedStep(d) {
+  if (appMode === "fun") {
+    funState.maxSpeed = clamp(funState.maxSpeed + d * 4, 1, 100);
+    if (funState.playing) stdWrite("set:speed:" + funState.maxSpeed);
+    buildFunControls();
+    return;
+  }
+  if (appMode === "std") {
+    stdValues.speed = clamp(stdValues.speed + d * 4, 0, 100);
+    stdWrite("set:speed:" + stdValues.speed);
+  } else {
+    setSpeed(clamp(speed() + d * 4, 0, 100));
+  }
+}
+function gpStdStep(field, d) {
+  if (appMode !== "std") return;
+  const step = (field === "sensation") ? 3 : 2;
+  stdValues[field] = clamp(stdValues[field] + d * step, 0, 100);
+  if (field === "max" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
+  if (field === "min" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
+  stdWrite("set:" + field + ":" + stdValues[field]);
+}
+function gpCyclePattern(delta) {
+  if (appMode !== "std") return;
+  const n = stdPatterns.length || STD_KNOWN_PATTERN_COUNT;
+  stdValues.pattern = ((stdValues.pattern + delta) % n + n) % n;
+  stdWrite("set:pattern:" + stdValues.pattern);
+  buildInterface();
+}
+function gpToggleMode() {
+  if (apAvailable()) appMode = appMode === "ap" ? "std" : (appMode === "std" ? "fun" : "ap");
+  else appMode = appMode === "std" ? "fun" : "std";
+  buildInterface();
+}
+function gpNav(delta) {
+  if (viewMode === "mod") {
+    activeModifierIndex = clamp(activeModifierIndex + delta, 0, MODIFIER_NAMES.length - 1);
+  } else {
+    activeBaseIndex = clamp(activeBaseIndex + delta, 0, BASE_NAMES.length - 1);
+    modifierRowVisible = true;
+  }
+  buildInterface();
+}
+function gpValueStep(delta) {
+  const bi = clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
+  if (viewMode === "mod") {
+    const mi = clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1);
+    setModifier(bi, mi, Math.round(settingValue(BASE_NAMES[bi] + MODIFIER_NAMES[mi])) + delta);
+  } else {
+    setBase(bi, Math.round(settingValue(BASE_NAMES[bi])) + delta);
+  }
+}
+function gpModEnter() {
+  viewMode = "mod";
+  modifierRowVisible = true;
+  buildInterface();
+}
+function gpModBack() {
+  viewMode = "main";
+  buildInterface();
+}
+function gpPresetNav(delta) {
+  if (!presetNames.length) return;
+  const idx = presetNames.indexOf(presetSelection);
+  const next = ((idx + delta) % presetNames.length + presetNames.length) % presetNames.length;
+  presetSelection = presetNames[next];
+  writePreset(":" + presetSelection).catch(() => {});
+  renderPresets();
+  buildInterface();
+}
+function gpHandleDigital(id) {
+  switch (id) {
+    case "start": toggleStart(); break;
+    case "mode": gpToggleMode(); break;
+    case "speedUp": gpSpeedStep(1); break;
+    case "speedDown": gpSpeedStep(-1); break;
+    case "maxUp": gpStdStep("max", 1); break;
+    case "maxDown": gpStdStep("max", -1); break;
+    case "minUp": gpStdStep("min", 1); break;
+    case "minDown": gpStdStep("min", -1); break;
+    case "sensationUp": gpStdStep("sensation", 1); break;
+    case "sensationDown": gpStdStep("sensation", -1); break;
+    case "patternNext": gpCyclePattern(1); break;
+    case "patternPrev": gpCyclePattern(-1); break;
+    case "navNext": gpNav(1); break;
+    case "navPrev": gpNav(-1); break;
+    case "valueUp": gpValueStep(1); break;
+    case "valueDown": gpValueStep(-1); break;
+    case "modEnter": gpModEnter(); break;
+    case "modBack": gpModBack(); break;
+    case "presetNext": gpPresetNav(1); break;
+    case "presetPrev": gpPresetNav(-1); break;
+    case "colLeft": toggleColSide(1); break;
+    case "colRight": toggleColSide(3); break;
+    case "fullscreen": toggleVideoFullscreen(); break;
+    case "estop": emergencyStop(); break;
+  }
+}
+
+function bindingHeld(b, gp) {
+  if (!b) return false;
+  if (b.src === "kb") return !!kbDown[b.code];
+  if (!gp) return false;
+  if (b.kind === "btn" || b.kind === "trigger") return !!(gp.buttons[b.idx] && gp.buttons[b.idx].pressed);
+  if (b.kind === "stick") {
+    const sa = stickAxisSign(b);
+    const v = gp.axes[sa[0]] || 0;
+    return sa[1] > 0 ? v > 0.6 : v < -0.6;
+  }
+  return false;
+}
+function gpFire(held, id, handler, repeat) {
+  const now = performance.now();
+  const st = gpRepeatState[id] || (gpRepeatState[id] = { on:false, since:0, last:0 });
+  if (held && !st.on) { st.on = true; st.since = now; st.last = now; handler(); return; }
+  if (held && st.on) {
+    if (repeat && now - st.since > 400 && now - st.last > 90) { st.last = now; handler(); }
+    return;
+  }
+  st.on = false;
+}
+
+function gpPoll() {
+  const gp = currentGamepad();
+  const status = $("pad-status");
+  if (gp) {
+    padStateText = "🎮 " + gp.id;
+    if (status) { status.textContent = "🎮 Connected: " + gp.id; status.classList.add("active"); }
+  } else if (kbHeldCount()) {
+    padStateText = "⌨️ Keyboard";
+    if (status) { status.textContent = "⌨️ Keyboard input"; status.classList.add("active"); }
+  } else {
+    padStateText = "";
+    if (status) { status.textContent = "🎮 Press a button on the controller, or use the keyboard…"; status.classList.remove("active"); }
+  }
+  updateFocusStatus();
+
+  if (listeningFor) {
+    const d = detectInput(listeningFor.slot);
+    if (d) onBindingCaptured(d);
+    if (gp) { gpPrevButtons = gp.buttons.slice(); gpPrevAxes = (gp.axes || []).slice(); }
+    for (const k in kbJust) delete kbJust[k];
+    return;
+  }
+
+  for (const da of GP_ACTIONS) {
+    if (da.mode !== "both" && da.mode !== appMode) continue;
+    const held = bindingHeld(bindings[da.id], gp) || bindingHeld(kbBindings[da.id], null);
+    gpFire(held, da.id, () => gpHandleDigital(da.id), !!da.repeat);
+  }
+
+  const dbg = $("pad-debug");
+  if (dbg && dbg.open) {
+    let axes = "";
+    if (gp) axes = (gp.axes || []).map((a, i) => "ax" + i + "=" + a.toFixed(2)).join("  ");
+    const pressed = [];
+    if (gp) {
+      for (let i = 0; i < gp.buttons.length; i++) {
+        const b = gp.buttons[i];
+        if (b && (b.pressed || b.value > 0.1)) pressed.push("B" + i + (b.value > 0.1 ? "(" + b.value.toFixed(2) + ")" : ""));
+      }
+    }
+    const keys = Object.keys(kbDown).map(c => keyLabel(c, kbDown[c].key));
+    const aEl = $("pad-debug-axes");
+    if (aEl) aEl.textContent = "Axes: " + (axes || "—") + (keys.length ? "   |   Keys: " + keys.join(" ") : "");
+    const bEl = $("pad-debug-buttons");
+    if (bEl) bEl.textContent = "Pressed: " + (pressed.length ? pressed.join("  ") : "—");
+  }
+
+  if (gp) { gpPrevButtons = gp.buttons.slice(); gpPrevAxes = (gp.axes || []).slice(); }
+  for (const k in kbJust) delete kbJust[k];
+}
+
+window.addEventListener("gamepadconnected", (e) => { gpIndex = e.gamepad.index; });
+window.addEventListener("gamepaddisconnected", (e) => { if (gpIndex === e.gamepad.index) { gpIndex = null; gpPrevButtons = []; gpPrevAxes = []; } });
+
+// Keyboard input (PC browsers) — ignored while typing in form fields.
+window.addEventListener("keydown", (e) => {
+  const t = e.target && e.target.tagName;
+  if (t === "INPUT" || t === "TEXTAREA" || t === "SELECT") return;
+  if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  const code = e.code || ("Key" + (e.key || "").toUpperCase());
+  kbDown[code] = { key: e.key, code };
+  kbJust[code] = true;
+  const used = Object.values(kbBindings).some(b => b && b.code === code);
+  if (listeningFor || wizard.active || used) e.preventDefault();
+});
+window.addEventListener("keyup", (e) => { const code = e.code || ""; delete kbDown[code]; });
+window.addEventListener("blur", () => { for (const k in kbDown) delete kbDown[k]; for (const k in kbJust) delete kbJust[k]; });
+
+// ---- Setup wizard (guided, step-by-step input assignment) ----
+const wizard = { active: false, step: 0, order: [], note: null, slot: "pad" };
+function hideWizard() { const w = $("wizard"); if (w) w.style.display = "none"; }
+function wizardModeNote(a) {
+  if (a.mode === "both") return "Works in BOTH Standard and Advanced modes.";
+  if (a.mode === "std") return "Standard mode only.";
+  if (a.mode === "fun") return "Funscript mode only.";
+  return "Advanced mode only.";
+}
+function wizardGoTo(step) {
+  wizard.step = clamp(step, 0, wizard.order.length - 1);
+  listeningFor = { id: wizard.order[wizard.step], slot: wizard.slot };
+  wizardRender();
+}
+function wizardRender() {
+  const w = $("wizard");
+  if (!w) return;
+  if (!wizard.active) { w.style.display = "none"; return; }
+  w.style.display = "";
+  const id = wizard.order[wizard.step];
+  const a = GP_ACTIONS.find(x => x.id === id);
+  $("wizard-progress").textContent = "Step " + (wizard.step + 1) + " of " + wizard.order.length;
+  $("wizard-label").textContent = a ? a.label : id;
+  const defDesc = wizard.slot === "kb" ? describeBinding(DEFAULT_KB_BINDINGS[id]) : describeBinding(DEFAULT_BINDINGS[id]);
+  const how = wizard.slot === "kb" ? "Press a key" : "Press a button or move a stick";
+  $("wizard-prompt").textContent = how + " — default: " + (wizard.slot === "kb" ? "⌨ " : "🎮 ") + defDesc + ".";
+  $("wizard-help").textContent = (a ? a.help : "") + "  " + (a ? wizardModeNote(a) : "");
+  const note = $("wizard-note");
+  if (note) { note.style.display = wizard.note ? "" : "none"; note.textContent = wizard.note || ""; }
+  wizard.note = null;
+  const wvp = $("wizardViewPad"), wvk = $("wizardViewKb");
+  if (wvp) wvp.classList.toggle("active", wizard.slot === "pad");
+  if (wvk) wvk.classList.toggle("active", wizard.slot === "kb");
+  buildBindingUI();
+}
+function wizardAdvance() {
+  if (wizard.step >= wizard.order.length - 1) { wizardFinish(); return; }
+  wizardGoTo(wizard.step + 1);
+}
+function wizardBack() { if (wizard.step > 0) wizardGoTo(wizard.step - 1); }
+function wizardSkip() {
+  const id = wizard.order[wizard.step];
+  bindings[id] = null;
+  kbBindings[id] = null;
+  saveBindings();
+  buildBindingUI();
+  wizardAdvance();
+}
+function wizardCancel() {
+  wizard.active = false; listeningFor = null; hideWizard(); buildBindingUI();
+  const bs = $("bind-status"); if (bs) bs.textContent = "Setup cancelled.";
+}
+function wizardFinish() {
+  wizard.active = false; listeningFor = null; hideWizard(); buildBindingUI();
+  const bs = $("bind-status"); if (bs) bs.textContent = "✅ Setup complete — saved in this browser.";
+}
+function startWizard() {
+  wizard.active = true;
+  wizard.order = GP_ACTIONS.map(a => a.id);
+  wizard.slot = bindViewSlot;
+  const panel = $("bind-panel"); if (panel) panel.open = true;
+  listeningFor = null;
+  wizardGoTo(0);
+}
+
+const bw = $("btnWizard");
+if (bw) bw.onclick = startWizard;
+const wbk = $("wizard-back"); if (wbk) wbk.onclick = wizardBack;
+const wsk = $("wizard-skip"); if (wsk) wsk.onclick = wizardSkip;
+const wcn = $("wizard-cancel"); if (wcn) wcn.onclick = wizardCancel;
+const hc = $("helpClose"); if (hc) hc.onclick = hideExtractorHelp;
+const hov = $("helpOverlay"); if (hov) hov.addEventListener("click", e => { if (e.target === hov) hideExtractorHelp(); });
+const wvp2 = $("wizardViewPad");
+if (wvp2) wvp2.onclick = () => { wizard.slot = "pad"; if (listeningFor) listeningFor.slot = "pad"; wizardRender(); };
+const wvk2 = $("wizardViewKb");
+if (wvk2) wvk2.onclick = () => { wizard.slot = "kb"; if (listeningFor) listeningFor.slot = "kb"; wizardRender(); };
+
+const br = $("bind-reset");
+if (br) br.onclick = () => { wizard.active = false; listeningFor = null; hideWizard(); bindings = Object.assign({}, DEFAULT_BINDINGS); kbBindings = Object.assign({}, DEFAULT_KB_BINDINGS); saveBindings(); buildBindingUI(); };
+const bvp = $("bindViewPad");
+if (bvp) bvp.onclick = () => { bindViewSlot = "pad"; try { localStorage.setItem("ossm-bind-view", bindViewSlot); } catch (e) {} buildBindingUI(); };
+const bvk = $("bindViewKb");
+if (bvk) bvk.onclick = () => { bindViewSlot = "kb"; try { localStorage.setItem("ossm-bind-view", bindViewSlot); } catch (e) {} buildBindingUI(); };
+buildBindingUI();
+initCast();
+setInterval(gpPoll, 33);
+// Safety: range sliders only change when dragging the thumb, not when tapping the track
+// (prevents accidental value jumps while scrolling). preventDefault works for mouse;
+// the capture-phase input listener reverts jumps on mobile browsers that ignore it.
+// A deliberate double-tap on the track ramps the value up to the tapped position.
+let sliderTap = { el: null, x: 0, t: 0 };
+function rampSlider(el, target, fromVal) {
+  const min = parseFloat(el.min), max = parseFloat(el.max);
+  if (!isFinite(min) || !isFinite(max) || max <= min) return;
+  target = Math.round(clamp(target, min, max));
+  const group = el.closest(".slider-group");
+  const onSet = group && group._onSet;
+  const valNum = group && group.querySelector(".val-num");
+  const from = Math.round(fromVal);
+  if (from === target) { if (onSet) onSet(target); return; }
+  const dur = Math.min(600, 140 + Math.abs(target - from) * 12);
+  const t0 = performance.now();
+  el.dataset.ramping = "1";
+  let lastSent = from;
+  let lastSentAt = 0;
+  const step = (t) => {
+    const k = Math.min(1, (t - t0) / dur);
+    const eased = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const rv = Math.round(from + (target - from) * eased);
+    el.value = rv;
+    if (valNum) valNum.textContent = rv;
+    if (onSet && rv !== lastSent && t - lastSentAt > 30) { lastSent = rv; lastSentAt = t; onSet(rv); }
+    if (k < 1) requestAnimationFrame(step);
+    else {
+      el.value = target;
+      if (valNum) valNum.textContent = target;
+      if (onSet && target !== lastSent) onSet(target);
+      delete el.dataset.ramping;
+    }
+  };
+  requestAnimationFrame(step);
+}
+document.addEventListener("pointerdown", (e) => {
+  const el = e.target;
+  if (!el || el.tagName !== "INPUT" || el.type !== "range") return;
+  if (el.id === "castSeek") return; // allow tap-to-seek on the cast scrubber
+  const rect = el.getBoundingClientRect();
+  if (rect.width <= 0) return;
+  const min = parseFloat(el.min), max = parseFloat(el.max);
+  if (!isFinite(min) || !isFinite(max) || max <= min) return;
+  const valPct = (parseFloat(el.value) - min) / (max - min);
+  const clickPct = (e.clientX - rect.left) / rect.width;
+  const distPx = Math.abs(clickPct - valPct) * rect.width;
+  const now = performance.now();
+  const isDouble = sliderTap.el === el && now - sliderTap.t < 350 && Math.abs(e.clientX - sliderTap.x) < 30;
+  if (distPx > 16) {
+    if (isDouble) {
+      // Intentional double-tap on the track: ramp to that position.
+      sliderTap = { el: null, x: 0, t: 0 };
+      try { e.preventDefault(); } catch (err) {}
+      rampSlider(el, min + clickPct * (max - min), parseFloat(el.value));
+    } else {
+      // Single tap (usually from scrolling): guard against the jump.
+      sliderTap = { el, x: e.clientX, t: now };
+      el.dataset.guardValue = el.value;
+      try { e.preventDefault(); } catch (err) {}
+    }
+  } else {
+    sliderTap = { el: null, x: 0, t: 0 };
+  }
+}, { passive: false });
+
+document.addEventListener("input", (e) => {
+  const el = e.target;
+  if (!el || !el.dataset) return;
+  if (el.dataset.ramping === "1") return; // our ramp drives the value
+  if (el.dataset.guardValue !== undefined && el.value !== el.dataset.guardValue) {
+    el.value = el.dataset.guardValue;
+  }
+}, true);
+
+// During a double-tap ramp the browser may still fire a native change event;
+// suppress it so only the ramp's progressive updates reach the device.
+document.addEventListener("change", (e) => {
+  const el = e.target;
+  if (el && el.dataset && el.dataset.ramping === "1") e.stopPropagation();
+}, true);
+
+const clearSliderGuard = (e) => { if (e.target && e.target.dataset) delete e.target.dataset.guardValue; };
+document.addEventListener("pointerup", clearSliderGuard, true);
+document.addEventListener("pointercancel", clearSliderGuard, true);
+// Fallback state polling: keeps the Start button in sync even if BLE notify is flaky.
+setInterval(() => {
+  if (!connected || !stdState) return;
+  stdState.readValue().then(v => {
+    const before = stdStateName;
+    parseStdState(decode(v));
+    if (appMode === "ap") enforceModeAvailability();
+    else if (appMode === "std") { updateStartButton(); if (stdStateName !== before) buildInterface(); }
+    else if (appMode === "fun") updateStartButton();
+  }).catch(() => {});
+}, 500);
+
+// ---- Landscape sidebar toggles ----
+const landCols = (() => { try { return JSON.parse(localStorage.getItem("ossm-land-cols") || "{}"); } catch (e) { return {}; } })();
+function applyColToggles() {
+  const pc = document.querySelector(".phone-container");
+  if (!pc) return;
+  pc.classList.toggle("hide-left", !!landCols.hideLeft);
+  pc.classList.toggle("hide-right", !!landCols.hideRight);
+}
+function focusedMode() {
+  const wide = !!(window.matchMedia && window.matchMedia("(min-width: 700px)").matches);
+  const short = !!(window.matchMedia && window.matchMedia("(orientation: landscape) and (max-height: 520px)").matches);
+  return (wide || short) && !!landCols.hideLeft && !!landCols.hideRight;
+}
+function toggleColSide(col) {
+  if (col === 1) landCols.hideLeft = !landCols.hideLeft;
+  else landCols.hideRight = !landCols.hideRight;
+  try { localStorage.setItem("ossm-land-cols", JSON.stringify(landCols)); } catch (e) {}
+  applyColToggles();
+  buildInterface();
+}
+applyColToggles();
+const tcl = $("toggleColLeft");
+if (tcl) tcl.onclick = () => toggleColSide(1);
+const tcr = $("toggleColRight");
+if (tcr) tcr.onclick = () => toggleColSide(3);
+
+buildInterface();
+window.addEventListener("resize", () => { if (focusedMode()) { resizeCanvas(); drawGraph(); } });
+
+const BUILD_TIME = "__BUILD_TIME__";
+(function renderBuildInfo() {
+  const el = $("buildInfo");
+  if (el) el.textContent = BUILD_TIME.indexOf("__") === 0 ? "Local build" : "Build: " + BUILD_TIME;
+})();
+</script>
+<script>
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.protocol === 'http:')) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+</script>
+</body>
+</html>

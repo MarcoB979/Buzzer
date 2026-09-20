@@ -1,0 +1,15 @@
+{
+  "name": "Sparkmote OSSM Remote",
+  "short_name": "Sparkmote",
+  "description": "Sparkmote — the BLE web remote for the OSSM: Standard, Advanced Penetration and Funscript modes.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0a0a12",
+  "theme_color": "#0a0a12",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
