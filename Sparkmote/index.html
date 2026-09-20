@@ -1884,6 +1884,7 @@ function resizeCanvas() {
 // ---------- Funscript mode (video + streaming over BLE) ----------
 const funState = {
   videoUrl: null, videoName: "", scriptName: "",
+  castUrl: null, uploading: false, localFile: null,
   rawActions: [], actions: [],
   maxSpeed: 100, maxDepth: 100, minDepth: 0, buffer: 100,
   reverse: false, simplify: true,
@@ -2009,8 +2010,39 @@ function buildFunControls() {
   const hint = document.createElement("div");
   hint.className = "fun-file";
   hint.style.cssText = "font-size:.68rem;opacity:.75;margin-top:-4px;";
-  hint.textContent = "Optional: deploy video-extractor.js to your own free Cloudflare Worker, paste its URL above. Stored on this device only.";
+  hint.textContent = "Optional: deploy video-extractor.js to your own free Cloudflare Worker (with an R2 bucket) to enable casting local video files. Paste its URL above. Stored on this device only.";
   sec.appendChild(hint);
+  const appIdRow = document.createElement("div");
+  appIdRow.className = "fun-row";
+  appIdRow.style.cssText = "margin-top:2px;";
+  const appIdInput = document.createElement("input");
+  appIdInput.type = "text";
+  appIdInput.id = "funCastAppId";
+  appIdInput.placeholder = "Custom receiver App ID (for local-file cast)";
+  appIdInput.value = getCastAppId();
+  appIdInput.autocomplete = "off";
+  appIdInput.spellcheck = false;
+  appIdInput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;";
+  appIdInput.onchange = () => {
+    const v = appIdInput.value.trim();
+    try { localStorage.setItem("ossm-cast-app-id", v); } catch (e) {}
+    funLog(v ? "Custom receiver saved — local files now cast directly, no upload." : "Custom receiver cleared.");
+    updateCastButton();
+  };
+  appIdRow.appendChild(appIdInput);
+  const appIdHelp = document.createElement("button");
+  appIdHelp.type = "button";
+  appIdHelp.className = "fun-help";
+  appIdHelp.textContent = "?";
+  appIdHelp.title = "What is this?";
+  appIdHelp.onclick = showExtractorHelp;
+  appIdRow.appendChild(appIdHelp);
+  sec.appendChild(appIdRow);
+  const appIdHint = document.createElement("div");
+  appIdHint.className = "fun-file";
+  appIdHint.style.cssText = "font-size:.68rem;opacity:.75;margin-top:-4px;";
+  appIdHint.textContent = "Free forever: register a Custom Receiver at cast.google.com/publish pointing to your repo's receiver.html, paste its App ID here. Local videos then stream phone → TV over WiFi — no upload, no storage, no cost.";
+  sec.appendChild(appIdHint);
   const testRow = document.createElement("div");
   testRow.className = "fun-row";
   const testBtn = document.createElement("button");
@@ -2233,6 +2265,9 @@ function setFunVideo(url, name) {
   if (funState.videoUrl && funState.videoUrl.startsWith("blob:")) URL.revokeObjectURL(funState.videoUrl);
   funState.videoUrl = url;
   funState.videoName = name;
+  funState.castUrl = null;
+  funState.uploading = false;
+  funState.localFile = null;
   const nv = $("funVideoName"); if (nv) nv.textContent = name;
   buildFunVideo();
   updateCastButton();
@@ -2240,9 +2275,57 @@ function setFunVideo(url, name) {
 function getExtractorUrl() {
   try { return (localStorage.getItem("ossm-extractor-url") || "").trim().replace(/\/+$/, ""); } catch (e) { return ""; }
 }
+function workerBaseUrl() {
+  const u = getExtractorUrl();
+  if (!u) return null;
+  return /^https?:\/\//i.test(u) ? u : ("https://" + u);
+}
+function uploadToWorker(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const base = workerBaseUrl();
+    if (!base) return reject(new Error("No Worker URL configured."));
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", base.replace(/\/+$/, "") + "/upload/" + encodeURIComponent(file.name));
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.upload.onprogress = e => { if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100)); };
+    xhr.onload = () => {
+      let j = null;
+      try { j = JSON.parse(xhr.responseText); } catch (e) {}
+      if (xhr.status >= 200 && xhr.status < 300 && j && j.url) resolve(j.url);
+      else reject(new Error((j && j.error) || ("Upload failed (HTTP " + xhr.status + "). Redeploy the worker with an R2 bucket.")));
+    };
+    xhr.onerror = () => reject(new Error("Upload network error."));
+    xhr.send(file);
+  });
+}
+async function maybeUploadLocalForCast(file) {
+  funState.castUrl = null;
+  if (!workerBaseUrl()) {
+    funState.uploading = false;
+    funLog("Local video loaded. To cast local files, set your Worker URL (⚙) — it needs an R2 bucket.");
+    updateCastButton();
+    return;
+  }
+  funState.uploading = true;
+  updateCastButton();
+  funLog("Uploading for casting… 0%");
+  try {
+    const url = await uploadToWorker(file, pct => {
+      const s = $("funCastInfo"); if (s) s.textContent = "uploading " + pct + "%";
+    });
+    funState.castUrl = url;
+    funState.uploading = false;
+    updateCastButton();
+    funLog("Ready to cast — press Cast.");
+  } catch (e) {
+    funState.uploading = false;
+    updateCastButton();
+    funLog("Cast upload failed: " + (e && e.message ? e.message : e) + " (local playback still works).");
+  }
+}
 function showExtractorHelp() {
   const body = $("helpBody");
-  if (body) body.innerHTML = `<p><b>What it is</b><br>A tiny helper server (a free "Cloudflare Worker") that fetches a video page for you and returns the direct .mp4 / .m3u8 stream URL. Browsers cannot read other websites' pages directly (a security rule called CORS), so this helper does it on the server side.</p><p><b>Why use it</b><br>Without it, the app uses free public proxies, which are slower and less reliable. Your own worker makes URL loading fast and dependable, and keeps your traffic on your own free account instead of a shared one.</p><p><b>How to set it up</b> (free, about 5 minutes)</p><ol><li>Create a free account at <code>dash.cloudflare.com</code>.</li><li>Go to <b>Workers &amp; Pages → Create → Create Worker</b>.</li><li>Delete the sample code and paste the entire contents of <code>video-extractor.js</code> (included with this app), then click <b>Deploy</b>.</li><li>Copy the URL Cloudflare gives you (it ends in <code>.workers.dev</code>) and paste it into the field on this page.</li></ol><p><b>Privacy</b><br>The URL is stored only in this browser, on this device. Nothing is uploaded or shared, and it is 100% optional.</p>`;
+  if (body) body.innerHTML = `<p><b>What it is</b><br>A tiny helper server (a free "Cloudflare Worker") that fetches a video page for you and returns the direct .mp4 / .m3u8 stream URL. Browsers cannot read other websites' pages directly (a security rule called CORS), so this helper does it on the server side.</p><p><b>Why use it</b><br>Without it, the app uses free public proxies, which are slower and less reliable. Your own worker makes URL loading fast and dependable, and keeps your traffic on your own free account instead of a shared one.</p><p><b>How to set it up</b> (free, about 5 minutes)</p><ol><li>Create a free account at <code>dash.cloudflare.com</code>.</li><li>Go to <b>Workers &amp; Pages → Create → Create Worker</b>.</li><li>Delete the sample code and paste the entire contents of <code>video-extractor.js</code> (included with this app), then click <b>Deploy</b>.</li><li>Copy the URL Cloudflare gives you (it ends in <code>.workers.dev</code>) and paste it into the field on this page.</li></ol><p><b>Privacy</b><br>The URL is stored only in this browser, on this device. Nothing is uploaded or shared, and it is 100% optional.</p><p><b>Cast local video files — free, no upload</b><br>Register a free <b>Custom Receiver</b> at <code>cast.google.com/publish</code>, set its URL to <code>https://&lt;your-name&gt;.github.io/Spark-Mote/receiver.html</code>, and paste the App ID into the field on this page. Then local videos stream directly from your phone to the TV over WiFi — no upload, no storage, no cost. Also add your Chromecast's serial number under <b>Cast Receiver Devices</b> in the console so it can run your receiver.</p><p><b>Alternative (your worker)</b><br>The same worker can also turn a local video into a public URL: bind a free Cloudflare <b>R2 bucket</b> named <code>BUCKET</code> and redeploy <code>video-extractor.js</code>. Videos are uploaded and become castable; uploads stay in R2 until you delete them.</p>`;
   const ov = $("helpOverlay");
   if (ov) ov.style.display = "flex";
 }
@@ -2318,6 +2401,8 @@ async function loadVideoUrl(input) {
     if (typeof Hls === "undefined") { funLog("HLS streams need internet (hls.js)."); return; }
     funState.videoUrl = videoUrl;
     funState.videoName = name;
+    funState.castUrl = null;
+    funState.uploading = false;
     const nv = $("funVideoName"); if (nv) nv.textContent = name;
     buildFunVideo();
     updateCastButton();
@@ -2415,6 +2500,11 @@ let castTickTimer = null, castClockBaseMs = 0;
 let castConnectAt = 0, castFailNotified = false;
 let castWasPlaying = false;
 let castEnded = false;
+let castMode = "media";
+let webrtcPc = null, webrtcChannel = null;
+let webrtcDuration = 0, webrtcPlaying = false;
+let localCastFile = null, castMsgListener = null;
+const CAST_NS = "urn:x-cast:com.sparkmote.local";
 
 function initCast() {
   const onReady = () => {
@@ -2434,11 +2524,13 @@ function initCast() {
           castPausedLocal = !!(v && !v.paused);
           if (castPausedLocal) v.pause();
           castConnectAt = Date.now(); castFailNotified = false; castWasPlaying = false; castEnded = false;
-          loadCastMedia();
+          if (castMode === "webrtc") startWebrtcCast();
+          else loadCastMedia();
           if (funState.actions.length && !funState.playing) funStartStreaming();
           setCastOverlay(true);
         } else {
           castMedia = null; castRemoteTime = 0; castClockBaseMs = 0; castConnectAt = 0; castWasPlaying = false;
+          cleanupWebrtc();
           if (castTickTimer) { clearInterval(castTickTimer); castTickTimer = null; }
           setCastOverlay(false);
           if (wasConnected) fallbackToLocal();
@@ -2458,11 +2550,140 @@ function absUrl(u) {
   return u;
 }
 function castableUrl() {
+  if (funState.castUrl && /^https?:\/\//i.test(funState.castUrl)) return funState.castUrl;
   const u = absUrl(funState.videoUrl);
   return u && /^https?:\/\//i.test(u) ? u : null;
 }
+function getCastAppId() {
+  try { return (localStorage.getItem("ossm-cast-app-id") || "").trim(); } catch (e) { return ""; }
+}
+function setReceiverApp(appId) {
+  try { castContext.setOptions({ receiverApplicationId: appId, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED }); } catch (e) {}
+}
+function sendCastMsg(obj) {
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  if (session) { try { session.sendMessage(CAST_NS, obj); } catch (e) {} }
+}
+function detachCastListener() {
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  if (session && castMsgListener) { try { session.removeMessageListener(CAST_NS, castMsgListener); } catch (e) {} }
+  castMsgListener = null;
+}
+function cleanupWebrtc() {
+  detachCastListener();
+  if (webrtcChannel) { try { webrtcChannel.close(); } catch (e) {} }
+  if (webrtcPc) { try { webrtcPc.close(); } catch (e) {} }
+  webrtcChannel = null; webrtcPc = null;
+  webrtcDuration = 0; webrtcPlaying = false; localCastFile = null;
+}
+function startWebrtcCast() {
+  const session = castContext.getCurrentSession();
+  if (!session || !localCastFile) { funLog("No local video to cast."); return; }
+  detachCastListener();
+  castMsgListener = session.addMessageListener(CAST_NS, onCastMessage);
+  funLog("Connecting to TV…");
+}
+function guessMime(name, type) {
+  if (type) return type;
+  const ext = (String(name || "").match(/\.([a-z0-9]+)$/i) || [])[1] || "";
+  if (/webm/i.test(ext)) return "video/webm";
+  if (/mp4|m4v|mov/i.test(ext)) return "video/mp4";
+  return "";
+}
+function beginWebrtcSignaling() {
+  if (webrtcPc || !localCastFile) return;
+  sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type) });
+  try {
+    webrtcPc = new RTCPeerConnection({ iceServers: [] });
+  } catch (e) {
+    funLog("WebRTC unavailable on this browser: " + (e && e.message));
+    return;
+  }
+  webrtcPc.onicecandidate = e => { if (e.candidate) sendCastMsg({ type: "ice", candidate: e.candidate }); };
+  try {
+    webrtcChannel = webrtcPc.createDataChannel("media", { ordered: true });
+    webrtcChannel.binaryType = "arraybuffer";
+    webrtcChannel.bufferedAmountLowThreshold = 256 * 1024;
+    webrtcChannel.onopen = () => { funLog("Streaming to TV…"); sendFileOverChannel(localCastFile); };
+    webrtcChannel.onerror = () => funLog("Data channel error.");
+  } catch (e) {
+    funLog("Data channel failed: " + (e && e.message));
+  }
+  webrtcPc.createOffer()
+    .then(o => webrtcPc.setLocalDescription(o))
+    .then(() => sendCastMsg({ type: "offer", sdp: webrtcPc.localDescription.sdp }))
+    .catch(e => funLog("WebRTC offer failed: " + (e && e.message)));
+}
+function onCastMessage(ns, message) {
+  const m = message || {};
+  if (m.type === "ready") { beginWebrtcSignaling(); return; }
+  if (m.type === "answer") {
+    if (webrtcPc) webrtcPc.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => {});
+    return;
+  }
+  if (m.type === "ice") {
+    if (webrtcPc && m.candidate) webrtcPc.addIceCandidate(m.candidate).catch(() => {});
+    return;
+  }
+  if (m.type === "status") {
+    if (typeof m.t === "number" && isFinite(m.t)) {
+      castRemoteTime = m.t;
+      castClockBaseMs = m.playing ? Date.now() : 0;
+    }
+    webrtcPlaying = !!m.playing;
+    if (typeof m.duration === "number" && isFinite(m.duration) && m.duration > 0) webrtcDuration = m.duration;
+    return;
+  }
+  if (m.type === "error") { funLog("TV: " + (m.msg || "unknown error")); }
+}
+async function sendFileOverChannel(file) {
+  const ch = webrtcChannel;
+  if (!ch) return;
+  const waitLow = () => new Promise(r => {
+    if (ch.bufferedAmount <= 256 * 1024) return r();
+    const h = () => { ch.removeEventListener("bufferedamountlow", h); r(); };
+    ch.addEventListener("bufferedamountlow", h);
+  });
+  try {
+    const stream = file.stream ? file.stream() : null;
+    if (stream) {
+      const reader = stream.getReader();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!ch || ch.readyState !== "open") break;
+        await waitLow();
+        ch.send(value);
+      }
+    } else {
+      const CHUNK = 64 * 1024;
+      let off = 0;
+      while (off < file.size) {
+        if (!ch || ch.readyState !== "open") break;
+        await waitLow();
+        const buf = await file.slice(off, Math.min(off + CHUNK, file.size)).arrayBuffer();
+        ch.send(buf);
+        off += buf.byteLength;
+      }
+    }
+    funLog("Video sent to TV.");
+  } catch (e) {
+    funLog("Send failed: " + (e && e.message));
+  }
+}
 function pollCastTime() {
   if (!castConnected) return;
+  if (castMode === "webrtc") {
+    if (funState.playing) {
+      const d = castDuration();
+      if (d > 0 && castTimeNow() >= d - 0.4) {
+        castClockBaseMs = 0; castEnded = true;
+        funStopStreaming(); funLog("Video ended.");
+      }
+    }
+    updateCastSeekUI();
+    return;
+  }
   const session = castSession || (castContext && castContext.getCurrentSession());
   let media = null;
   try { media = (session && session.getMediaSession) ? session.getMediaSession() : null; } catch (e) {}
@@ -2548,6 +2769,7 @@ function fmtCastTime(sec) {
   return (h > 0 ? h + ":" + String(m).padStart(2, "0") : m) + ":" + String(s).padStart(2, "0");
 }
 function castDuration() {
+  if (castMode === "webrtc" && webrtcDuration > 0) return webrtcDuration;
   try {
     const session = castSession || (castContext && castContext.getCurrentSession());
     const media = session && session.getMediaSession ? session.getMediaSession() : null;
@@ -2571,9 +2793,15 @@ function mkCastRequest(ctorName, props) {
 }
 function seekCast(seconds) {
   if (!castConnected) return false;
+  const target = Math.max(0, seconds || 0);
+  if (castMode === "webrtc") {
+    castRemoteTime = target; castClockBaseMs = Date.now(); castEnded = false;
+    sendCastMsg({ type: "seek", t: target });
+    if (funState.playing) { syncFunToTime(target * 1000); if (funPreviewShown) drawFunPreview(); }
+    return true;
+  }
   const session = castSession || (castContext && castContext.getCurrentSession());
   if (!session) return false;
-  const target = Math.max(0, seconds || 0);
   let media = null;
   try { media = session.getMediaSession && session.getMediaSession(); } catch (e) {}
   if (!media || typeof media.seek !== "function") { funLog("Seek unavailable (no media session)."); return false; }
@@ -2597,6 +2825,10 @@ function seekCast(seconds) {
 }
 function castPlayPause() {
   if (!castConnected) return;
+  if (castMode === "webrtc") {
+    sendCastMsg({ type: webrtcPlaying ? "pause" : "play" });
+    return;
+  }
   const session = castSession || (castContext && castContext.getCurrentSession());
   if (!session) return;
   try {
@@ -2614,6 +2846,8 @@ function castPlayPause() {
 function stopCast() {
   if (!castConnected || !castContext) return;
   castPausedLocal = false;
+  if (castMode === "webrtc") sendCastMsg({ type: "stop" });
+  cleanupWebrtc();
   try {
     const s = castContext.getCurrentSession();
     const m = s && s.getMediaSession && s.getMediaSession();
@@ -2623,6 +2857,12 @@ function stopCast() {
 }
 function replayCast() {
   castRemoteTime = 0; castClockBaseMs = Date.now(); castEnded = false;
+  if (castMode === "webrtc") {
+    sendCastMsg({ type: "seek", t: 0 });
+    sendCastMsg({ type: "play" });
+    if (funState.actions.length && !funState.playing) funStartStreaming();
+    return;
+  }
   const session = castSession || (castContext && castContext.getCurrentSession());
   let media = null;
   try { media = session && session.getMediaSession ? session.getMediaSession() : null; } catch (e) {}
@@ -2649,10 +2889,15 @@ function updateCastSeekUI() {
   if (dl) dl.textContent = fmtCastTime(d);
   const pp = $("castPlayPauseBtn");
   if (pp) {
-    const session = castSession || (castContext && castContext.getCurrentSession());
-    let media = null;
-    try { media = session && session.getMediaSession ? session.getMediaSession() : null; } catch (e) {}
-    const playing = media && (media.playerState === "PLAYING" || media.playerState === "BUFFERING");
+    let playing = false;
+    if (castMode === "webrtc") {
+      playing = webrtcPlaying;
+    } else {
+      const session = castSession || (castContext && castContext.getCurrentSession());
+      let media = null;
+      try { media = session && session.getMediaSession ? session.getMediaSession() : null; } catch (e) {}
+      playing = media && (media.playerState === "PLAYING" || media.playerState === "BUFFERING");
+    }
     pp.textContent = playing ? "⏸ Pause" : "▶ Play";
   }
   if (funPreviewShown) drawFunPreview();
@@ -2716,7 +2961,8 @@ function loadCastMedia() {
   if (!url || !castContext) return;
   const session = castContext.getCurrentSession();
   if (!session) return;
-  const mime = /\.m3u8(\?|$)/i.test(url) ? "application/x-mpegURL" : "video/mp4";
+  const mime = /\.m3u8(\?|$)/i.test(url) ? "application/x-mpegURL"
+    : /\.webm(\?|$)/i.test(url) ? "video/webm" : "video/mp4";
   const mi = new chrome.cast.media.MediaInfo(url, mime);
   try {
     const meta = new chrome.cast.media.GenericMediaMetadata();
@@ -2745,8 +2991,18 @@ function loadCastMedia() {
 }
 function toggleCast() {
   if (!castContext) return;
-  if (castConnected) castContext.endCurrentSession(true);
-  else castContext.requestSession().catch(() => {});
+  if (castConnected) { castContext.endCurrentSession(true); return; }
+  const localFile = funState.localFile;
+  const appId = getCastAppId();
+  if (localFile && appId) {
+    castMode = "webrtc";
+    localCastFile = localFile;
+    setReceiverApp(appId);
+  } else {
+    castMode = "media";
+    setReceiverApp(chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID);
+  }
+  castContext.requestSession().catch(() => {});
 }
 function fallbackToLocal() {
   if (castPausedLocal) {
@@ -2766,16 +3022,28 @@ function updateCastButton() {
   if (!b) return;
   const row = b.parentElement;
   const castable = castableUrl();
-  if (!castable) { if (row) row.style.display = "none"; return; }
+  const localFile = funState.localFile;
+  const canWebrtc = localFile && !!getCastAppId();
+  if (!castable && !canWebrtc && !localFile) { if (row) row.style.display = "none"; return; }
   if (row) row.style.display = "";
   if (!castAvailable) {
     b.disabled = true; b.textContent = "Cast";
     if (info) info.textContent = "Cast SDK unavailable";
     return;
   }
-  b.disabled = false;
-  b.textContent = castConnected ? "Stop cast" : "Cast";
-  if (info) info.textContent = castConnected ? "casting…" : "";
+  if (castable || canWebrtc) {
+    b.disabled = false;
+    b.textContent = castConnected ? "Stop cast" : "Cast";
+    if (info) info.textContent = castConnected ? "casting…" : "";
+  } else if (funState.uploading) {
+    b.disabled = true;
+    b.textContent = "Cast";
+    if (info) info.textContent = "uploading…";
+  } else {
+    b.disabled = true;
+    b.textContent = "Cast";
+    if (info) info.textContent = "set App ID (⚙) to cast local files";
+  }
 }
 
 // ---------- Events ----------
@@ -2871,6 +3139,10 @@ if (fvi) fvi.addEventListener("change", e => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
   setFunVideo(URL.createObjectURL(f), f.name);
+  funState.localFile = f;
+  // Custom receiver (WebRTC) is the free, no-upload path; R2 upload is the fallback.
+  if (!getCastAppId()) maybeUploadLocalForCast(f);
+  else updateCastButton();
 });
 const fsi = $("funScriptInput");
 if (fsi) fsi.addEventListener("change", e => {
