@@ -2018,15 +2018,15 @@ function buildFunControls() {
   const appIdInput = document.createElement("input");
   appIdInput.type = "text";
   appIdInput.id = "funCastAppId";
-  appIdInput.placeholder = "Custom receiver App ID (for local-file cast)";
-  appIdInput.value = getCastAppId();
+  appIdInput.placeholder = "Override receiver App ID (optional)";
+  appIdInput.value = (function(){ try { return (localStorage.getItem("ossm-cast-app-id") || "").trim(); } catch (e) { return ""; } })();
   appIdInput.autocomplete = "off";
   appIdInput.spellcheck = false;
   appIdInput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;";
   appIdInput.onchange = () => {
     const v = appIdInput.value.trim();
     try { localStorage.setItem("ossm-cast-app-id", v); } catch (e) {}
-    funLog(v ? "Custom receiver saved — local files now cast directly, no upload." : "Custom receiver cleared.");
+    funLog(v ? "Receiver override saved." : "Receiver override cleared — using the built-in receiver.");
     updateCastButton();
   };
   appIdRow.appendChild(appIdInput);
@@ -2041,7 +2041,7 @@ function buildFunControls() {
   const appIdHint = document.createElement("div");
   appIdHint.className = "fun-file";
   appIdHint.style.cssText = "font-size:.68rem;opacity:.75;margin-top:-4px;";
-  appIdHint.textContent = "Free forever: register a Custom Receiver at cast.google.com/publish pointing to your repo's receiver.html, paste its App ID here. Local videos then stream phone → TV over WiFi — no upload, no storage, no cost.";
+  appIdHint.textContent = "Nothing to do for visitors: the app uses its built-in receiver, so they just press Cast. This field is only for testing your own receiver while developing.";
   sec.appendChild(appIdHint);
   const testRow = document.createElement("div");
   testRow.className = "fun-row";
@@ -2325,7 +2325,7 @@ async function maybeUploadLocalForCast(file) {
 }
 function showExtractorHelp() {
   const body = $("helpBody");
-  if (body) body.innerHTML = `<p><b>What it is</b><br>A tiny helper server (a free "Cloudflare Worker") that fetches a video page for you and returns the direct .mp4 / .m3u8 stream URL. Browsers cannot read other websites' pages directly (a security rule called CORS), so this helper does it on the server side.</p><p><b>Why use it</b><br>Without it, the app uses free public proxies, which are slower and less reliable. Your own worker makes URL loading fast and dependable, and keeps your traffic on your own free account instead of a shared one.</p><p><b>How to set it up</b> (free, about 5 minutes)</p><ol><li>Create a free account at <code>dash.cloudflare.com</code>.</li><li>Go to <b>Workers &amp; Pages → Create → Create Worker</b>.</li><li>Delete the sample code and paste the entire contents of <code>video-extractor.js</code> (included with this app), then click <b>Deploy</b>.</li><li>Copy the URL Cloudflare gives you (it ends in <code>.workers.dev</code>) and paste it into the field on this page.</li></ol><p><b>Privacy</b><br>The URL is stored only in this browser, on this device. Nothing is uploaded or shared, and it is 100% optional.</p><p><b>Cast local video files — free, no upload</b><br>Register a free <b>Custom Receiver</b> at <code>cast.google.com/publish</code>, set its URL to <code>https://&lt;your-name&gt;.github.io/Spark-Mote/receiver.html</code>, and paste the App ID into the field on this page. Then local videos stream directly from your phone to the TV over WiFi — no upload, no storage, no cost. Also add your Chromecast's serial number under <b>Cast Receiver Devices</b> in the console so it can run your receiver.</p><p><b>Alternative (your worker)</b><br>The same worker can also turn a local video into a public URL: bind a free Cloudflare <b>R2 bucket</b> named <code>BUCKET</code> and redeploy <code>video-extractor.js</code>. Videos are uploaded and become castable; uploads stay in R2 until you delete them.</p>`;
+  if (body) body.innerHTML = `<p><b>What it is</b><br>A tiny helper server (a free "Cloudflare Worker") that fetches a video page for you and returns the direct .mp4 / .m3u8 stream URL. Browsers cannot read other websites' pages directly (a security rule called CORS), so this helper does it on the server side.</p><p><b>Why use it</b><br>Without it, the app uses free public proxies, which are slower and less reliable. Your own worker makes URL loading fast and dependable, and keeps your traffic on your own free account instead of a shared one.</p><p><b>How to set it up</b> (free, about 5 minutes)</p><ol><li>Create a free account at <code>dash.cloudflare.com</code>.</li><li>Go to <b>Workers &amp; Pages → Create → Create Worker</b>.</li><li>Delete the sample code and paste the entire contents of <code>video-extractor.js</code> (included with this app), then click <b>Deploy</b>.</li><li>Copy the URL Cloudflare gives you (it ends in <code>.workers.dev</code>) and paste it into the field on this page.</li></ol><p><b>Privacy</b><br>The URL is stored only in this browser, on this device. Nothing is uploaded or shared, and it is 100% optional.</p><p><b>Cast local video files — free, no upload</b><br>Local videos stream directly from the phone to the TV over WiFi — no upload, no storage, no cost. The app ships with a built-in receiver, so visitors just press Cast. (To run the receiver while developing: register a free <b>Custom Receiver</b> at <code>cast.google.com/publish</code> with the URL <code>https://&lt;your-name&gt;.github.io/Spark-Mote/receiver.html</code>, add your Chromecast's serial number under <b>Cast Receiver Devices</b>, and put that App ID in the field above. Once you <b>publish</b> the receiver, the serial-number step is no longer needed and every visitor can cast with one press.)</p><p><b>Alternative (your worker)</b><br>The same worker can also turn a local video into a public URL: bind a free Cloudflare <b>R2 bucket</b> named <code>BUCKET</code> and redeploy <code>video-extractor.js</code>. Videos are uploaded and become castable; uploads stay in R2 until you delete them.</p>`;
   const ov = $("helpOverlay");
   if (ov) ov.style.display = "flex";
 }
@@ -2505,6 +2505,9 @@ let webrtcPc = null, webrtcChannel = null;
 let webrtcDuration = 0, webrtcPlaying = false;
 let localCastFile = null, castMsgListener = null;
 const CAST_NS = "urn:x-cast:com.sparkmote.local";
+// Paste your PUBLISHED Custom Receiver Application ID here (cast.google.com/publish).
+// Once set, every visitor casts local files with a single press — zero setup on their side.
+const DEFAULT_CAST_APP_ID = "5EB0A88B";
 
 function initCast() {
   const onReady = () => {
@@ -2555,7 +2558,11 @@ function castableUrl() {
   return u && /^https?:\/\//i.test(u) ? u : null;
 }
 function getCastAppId() {
-  try { return (localStorage.getItem("ossm-cast-app-id") || "").trim(); } catch (e) { return ""; }
+  try {
+    const v = (localStorage.getItem("ossm-cast-app-id") || "").trim();
+    if (v) return v;
+  } catch (e) {}
+  return DEFAULT_CAST_APP_ID;
 }
 function setReceiverApp(appId) {
   try { castContext.setOptions({ receiverApplicationId: appId, autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED }); } catch (e) {}

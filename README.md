@@ -29,13 +29,18 @@ cannot be cast with the default receiver. Sparkmote solves this by streaming the
 file **directly from your phone to the TV over WiFi** with a custom receiver —
 free forever, no upload, no storage, no server.
 
+### One-time developer setup (visitors need nothing)
+
 1. Register a **Custom Receiver** at <https://cast.google.com/publish> (free).
 2. Set its URL to `https://<your-name>.github.io/Spark-Mote/receiver.html`.
-3. Copy the **Application ID** and paste it into the ⚙ field in Funscript mode.
-4. Under **Cast Receiver Devices**, add your Chromecast's serial number so it can
-   run the receiver while you test.
+3. Copy the **Application ID** and paste it into `DEFAULT_CAST_APP_ID` in
+   `index.html` (or into the ⚙ field while testing).
+4. **Publish** the receiver in the console. Once published, it works on every
+   Chromecast with no serial-number registration — visitors just press **Cast**.
 
-Now when you load a local video, the **Cast** button streams it straight to the TV.
+> While developing a draft receiver, add your Chromecast's serial number under
+> **Cast Receiver Devices**; that step is only needed before publishing.
+
 Only formats the TV can decode (MP4/H.264, WebM) will play; `.mkv`/`.avi` play
 locally but cannot be cast.
 
