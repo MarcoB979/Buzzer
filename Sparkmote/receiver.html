@@ -34,7 +34,7 @@ let chunks = [], received = 0, totalSize = 0, mime = "";
 let finished = false, answered = false, answering = false;
 
 function send(obj) {
-  try { context.sendCustomMessage(NS, undefined, JSON.stringify(obj)); } catch (e) {
+  try { context.sendCustomMessage(NS, undefined, obj); } catch (e) {
     setStatus("Message send failed: " + (e && e.message));
   }
 }
@@ -106,8 +106,10 @@ function cleanupPeer() {
 
 function onMessage(event) {
   let m = event && (event.data !== undefined ? event.data : event.message);
-  if (typeof m === "string") { try { m = JSON.parse(m); } catch (e) { return; } }
-  m = m || {};
+  if (typeof m === "string") {
+    try { m = JSON.parse(m); if (typeof m === "string") m = JSON.parse(m); } catch (e) { return; }
+  }
+  m = (m && typeof m === "object") ? m : {};
   try {
     if (m.type === "hello") {
       // Ignore duplicate hellos once data is already flowing.
