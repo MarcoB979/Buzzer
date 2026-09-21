@@ -2734,6 +2734,7 @@ async function sendFileOverChannel(file) {
   const ch = webrtcChannel;
   if (!ch) return;
   const CHUNK = 16 * 1024;
+  const SLICE = 256 * 1024;
   const waitLow = () => new Promise(r => {
     if (!ch || ch.readyState !== "open") return r();
     if (ch.bufferedAmount <= 256 * 1024) return r();
@@ -2743,50 +2744,22 @@ async function sendFileOverChannel(file) {
   let sent = 0, lastProg = 0;
   const progress = (force) => {
     const now = Date.now();
-    if (force || now - lastProg >= 1000) {
-      lastProg = now;
-      funLog("Sending… " + Math.round(sent / 1048576) + " MB");
-    }
+    if (force || now - lastProg >= 1000) { lastProg = now; funLog("Sending… " + Math.round(sent / 1048576) + " MB"); }
   };
   try {
-    const stream = file.stream ? file.stream() : null;
-    if (stream) {
-      const reader = stream.getReader();
-      let carry = new Uint8Array(0);
-      for (;;) {
-        if (!ch || ch.readyState !== "open") break;
-        if (carry.byteLength >= CHUNK) {
-          await waitLow();
-          const piece = carry.slice(0, CHUNK);
-          carry = carry.slice(CHUNK);
-          ch.send(piece);
-          sent += piece.byteLength;
-          progress();
-          continue;
-        }
-        const { done, value } = await reader.read();
-        if (done) break;
-        const merged = new Uint8Array(carry.byteLength + value.byteLength);
-        merged.set(carry, 0);
-        merged.set(value, carry.byteLength);
-        carry = merged;
-      }
-      if (carry.byteLength > 0) {
-        await waitLow();
-        ch.send(carry);
-        sent += carry.byteLength;
-        progress(true);
-      }
-    } else {
-      for (let off = 0; off < file.size; off += CHUNK) {
+    for (let off = 0; off < file.size; off += SLICE) {
+      if (!ch || ch.readyState !== "open") break;
+      const view = new Uint8Array(await file.slice(off, Math.min(off + SLICE, file.size)).arrayBuffer());
+      for (let i = 0; i < view.byteLength; i += CHUNK) {
         if (!ch || ch.readyState !== "open") break;
         await waitLow();
-        const buf = await file.slice(off, Math.min(off + CHUNK, file.size)).arrayBuffer();
-        ch.send(buf);
-        sent += buf.byteLength;
+        const piece = view.slice(i, Math.min(i + CHUNK, view.byteLength));
+        ch.send(piece);
+        sent += piece.byteLength;
         progress();
       }
     }
+    if (ch && ch.readyState === "open") { try { ch.close(); } catch (e) {} }
     if (sent >= file.size) funLog("Video sent to TV (" + Math.round(sent / 1048576) + " MB).");
     else funLog("Send stopped early (" + Math.round(sent / 1048576) + " of " + Math.round(file.size / 1048576) + " MB).");
   } catch (e) {

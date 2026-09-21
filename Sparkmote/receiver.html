@@ -65,17 +65,26 @@ function createPeer() {
     channel = e.channel;
     channel.binaryType = "arraybuffer";
     channel.onmessage = onData;
+    channel.onclose = () => {
+      if (received > 0 && !finished) finish();
+      else if (received === 0) setStatus("Connection closed.");
+    };
     setStatus("Receiving…");
   };
 }
 
+let lastStatusUpdate = 0;
 function onData(ev) {
   if (typeof ev.data === "string") return; // reserved for future metadata
   const len = ev.data.byteLength || 0;
   chunks.push(ev.data);
   received += len;
-  if (totalSize > 0) setStatus("Receiving… " + Math.min(100, Math.round(received / totalSize * 100)) + "%");
-  else setStatus("Receiving… " + Math.round(received / 1048576) + " MB");
+  const now = Date.now();
+  if (now - lastStatusUpdate > 200) {
+    lastStatusUpdate = now;
+    if (totalSize > 0) setStatus("Receiving… " + Math.min(100, Math.round(received / totalSize * 100)) + "%");
+    else setStatus("Receiving… " + Math.round(received / 1048576) + " MB");
+  }
   if (totalSize > 0 && received >= totalSize) finish();
 }
 
@@ -118,7 +127,7 @@ function onMessage(event) {
       totalSize = m.size || 0;
       mime = m.mime || "";
       received = 0; chunks = []; finished = false;
-      setStatus("Connecting…");
+      setStatus("Connecting… " + (totalSize > 0 ? Math.round(totalSize / 1048576) + " MB" : ""));
     } else if (m.type === "offer") {
       if (answered && pc) { send({ type: "answer", sdp: pc.localDescription ? pc.localDescription.sdp : "" }); return; }
       if (answering) return;
