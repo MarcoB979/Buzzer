@@ -3328,7 +3328,14 @@ if (fvi) fvi.addEventListener("change", e => {
   setFunVideo(URL.createObjectURL(f), f.name);
   funState.localFile = f;
   funState.fileMeta = null;
-  probeFile(f).then(meta => { funState.fileMeta = meta; });
+  probeFile(f).then(meta => {
+    funState.fileMeta = meta;
+    const kind = meta.container === "webm" ? "WebM — streams instantly"
+      : meta.fragmented ? "fragmented MP4 — streams instantly"
+      : meta.container === "mp4" ? "regular MP4 — full upload before it plays"
+      : "unknown format — full upload before it plays";
+    funLog("Video type: " + kind);
+  });
   // Custom receiver (WebRTC) is the free, no-upload path; R2 upload is the fallback.
   if (!getCastAppId()) maybeUploadLocalForCast(f);
   else updateCastButton();
