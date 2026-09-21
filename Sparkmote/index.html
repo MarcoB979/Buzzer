@@ -9,6 +9,7 @@
 <link rel="apple-touch-icon" href="icon.svg" />
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20"></script>
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
+<script>window.__castApiAvailable=false;window.__onGCastApiAvailable=function(a){window.__castApiAvailable=!!a;};</script>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -2550,6 +2551,7 @@ const DEFAULT_CAST_APP_ID = "5EB0A88B";
 
 function initCast() {
   const onReady = () => {
+    if (castAvailable) return;
     try {
       castContext = cast.framework.CastContext.getInstance();
       castContext.setOptions({
@@ -2583,7 +2585,16 @@ function initCast() {
     } catch (err) {}
   };
   window.__onGCastApiAvailable = (isAvailable) => { if (isAvailable) onReady(); };
+  if (window.__castApiAvailable) onReady();
   if (window.chrome && window.chrome.cast && window.chrome.cast.isAvailable) onReady();
+  // Retry for a few seconds in case the SDK loads slowly (fixes intermittent
+  // "Cast SDK unavailable").
+  let tries = 0;
+  const retry = setInterval(() => {
+    if (castAvailable) { clearInterval(retry); return; }
+    if (window.chrome && window.chrome.cast && window.chrome.cast.isAvailable) onReady();
+    if (++tries >= 24) clearInterval(retry);
+  }, 250);
 }
 function absUrl(u) {
   if (!u) return u;
