@@ -2877,11 +2877,15 @@ async function sendBufferOverChannel(ch, buf) {
     const h = () => { ch.removeEventListener("bufferedamountlow", h); r(); };
     ch.addEventListener("bufferedamountlow", h);
   });
+  let sent = 0;
   for (let i = 0; i < view.byteLength; i += CHUNK) {
     if (!ch || ch.readyState !== "open") break;
     await waitLow();
-    ch.send(view.slice(i, Math.min(i + CHUNK, view.byteLength)));
+    const piece = view.slice(i, Math.min(i + CHUNK, view.byteLength));
+    ch.send(piece);
+    sent += piece.byteLength;
   }
+  return sent;
 }
 // On-the-fly remux of regular MP4 -> fragmented MP4 (MP4Box.js) so the TV can
 // start playing within seconds instead of waiting for a full upload.
@@ -2893,7 +2897,7 @@ async function streamRemuxedFile(file) {
 
   const SLICE = 4 * 1024 * 1024;
   const segQueue = [];
-  let pumping = false, failed = false, readyInfo = null, sentStreamInfo = false;
+  let pumping = false, failed = false, readyInfo = null, sentStreamInfo = false, sentBytes = 0;
 
   const pump = async () => {
     if (pumping) return;
@@ -2901,7 +2905,7 @@ async function streamRemuxedFile(file) {
     try {
       while (segQueue.length && !failed) {
         const buf = segQueue.shift();
-        await sendBufferOverChannel(ch, buf);
+        sentBytes += await sendBufferOverChannel(ch, buf);
       }
     } finally { pumping = false; }
   };
@@ -2929,6 +2933,8 @@ async function streamRemuxedFile(file) {
     if ((t.video || t.audio) && t.codec) { codecs.push(String(t.codec).replace(/\s/g, "")); trackIds.push(t.id); }
   }
   if (!trackIds.length) { funLog("No playable tracks — sending full file…"); await sendFileOverChannel(file); return; }
+  const hasVideo = (readyInfo.tracks || []).some(t => t.video && t.codec);
+  if (!hasVideo) { funLog("Could not detect video codec — sending full file…"); await sendFileOverChannel(file); return; }
   const mimeStr = "video/mp4; codecs=\"" + codecs.join(",") + "\"";
   // Set up segmentation first, so any failure falls back to a clean raw send.
   let initBuf = null;
@@ -2950,14 +2956,15 @@ async function streamRemuxedFile(file) {
   // Phase 2: feed the rest and stream the resulting fMP4 segments.
   let lastProg = 0;
   while (off < file.size && !failed) {
+    if (!castConnected || !ch || ch.readyState !== "open") { failed = true; break; }
     const end = Math.min(off + SLICE, file.size);
     const buf = await file.slice(off, end).arrayBuffer();
     buf.fileStart = off;
     try { fileBox.appendBuffer(buf); fileBox.flush(); } catch (e) { failed = true; break; }
     off = end;
     const now = Date.now();
-    if (now - lastProg >= 2000) { lastProg = now; funLog("Streaming… " + Math.round(off / 1048576) + " MB"); }
-    while (segQueue.length > 6 && !failed) await sleepMs(100);
+    if (now - lastProg >= 2000) { lastProg = now; funLog("Sending… " + Math.round(sentBytes / 1048576) + " MB"); }
+    while (segQueue.length > 6 && !failed && castConnected) await sleepMs(100);
     await sleepMs(0);
   }
   if (!failed) { try { fileBox.flush(); } catch (e) {} }
