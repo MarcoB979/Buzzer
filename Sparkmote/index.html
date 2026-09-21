@@ -840,11 +840,17 @@ async function stdWrite(cmd) {
   try { await stdCmd.writeValueWithoutResponse(data); }
   catch (e) { try { await stdCmd.writeValueWithResponse(data); } catch (e2) { log("Std write failed: " + e2.message); } }
 }
-async function streamWrite(data) {
-  if (!streamChar) return;
-  const enc = encode(data);
-  try { await streamChar.writeValueWithoutResponse(enc); }
-  catch (e) { try { await streamChar.writeValueWithResponse(enc); } catch (e2) {} }
+let streamFallbackNotified = false;
+function writeStream(cmd) {
+  if (streamChar) {
+    const enc = encode(cmd);
+    streamChar.writeValueWithoutResponse(enc).catch(() => {
+      if (!streamFallbackNotified) { streamFallbackNotified = true; log("BLE: using acknowledged writes (slower)."); }
+      streamChar.writeValueWithResponse(enc).catch(e => log("Stream write failed: " + (e && e.message)));
+    });
+  } else if (stdCmd) {
+    stdWrite("stream:" + cmd);
+  }
 }
 
 async function refreshStdPatterns() {
@@ -1886,13 +1892,14 @@ const funState = {
   videoUrl: null, videoName: "", scriptName: "",
   castUrl: null, uploading: false, localFile: null,
   rawActions: [], actions: [],
-  maxSpeed: 100, maxDepth: 100, minDepth: 0, buffer: 100,
+  maxSpeed: 100, maxDepth: 100, minDepth: 0, buffer: 100, sensation: 50,
   reverse: false, simplify: true,
   offsetMs: 0,
   lastSentPos: null, rampTo: null,
   nextIdx: 0, playing: false, timer: null
 };
 try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.round(b); } catch (e) {}
+try { const s = parseFloat(localStorage.getItem("ossm-fun-sensation")); if (isFinite(s) && s >= 0 && s <= 100) funState.sensation = Math.round(s); } catch (e) {}
 
 function buildFunControls() {
   const wrap = $("fun-controls");
@@ -2100,6 +2107,12 @@ function buildFunControls() {
   bufMinus.onclick = () => setFunBuffer(funState.buffer - 25);
   bufPlus.onclick = () => setFunBuffer(funState.buffer + 25);
 
+  wrap.appendChild(sliderEl("Smoothness", 0, 100, funState.sensation, "#38bdf8", v => {
+    funState.sensation = v;
+    try { localStorage.setItem("ossm-fun-sensation", String(v)); } catch (e) {}
+    stdWrite("set:sensation:" + v);
+  }));
+
   const offG = document.createElement("div");
   offG.className = "slider-group";
   offG.title = "Shift the funscript relative to the video (e.g. +4.0s if the script starts 4s before the video).";
@@ -2183,6 +2196,8 @@ function rebuildFunscript() {
   if (funState.simplify) acts = simplifyActions(acts, 0.6, 150);
   funState.actions = acts;
   funState.nextIdx = 0;
+  funState.lastSentPos = null;
+  funState.rampTo = null;
   const ns = $("funScriptName");
   if (ns) ns.textContent = (funState.scriptName || "no script") + (acts.length ? " (" + acts.length + " pts)" : "");
   drawFunPreview();
@@ -2229,13 +2244,35 @@ function currentPlaybackMs() {
   const v = $("funVideo");
   return v ? v.currentTime * 1000 : 0;
 }
+function interpFunPos(tMs) {
+  const acts = funState.actions;
+  if (!acts.length) return 0;
+  const t = tMs - funState.offsetMs;
+  if (t <= acts[0].at) return acts[0].pos;
+  const last = acts[acts.length - 1];
+  if (t >= last.at) return last.pos;
+  let lo = 0, hi = acts.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (acts[mid].at <= t) lo = mid; else hi = mid;
+  }
+  const a = acts[lo], b = acts[hi];
+  const span = (b.at - a.at) || 1;
+  return a.pos + (b.pos - a.pos) * ((t - a.at) / span);
+}
 function syncFunToTime(tMs) {
   if (!funState.actions.length) return;
+  const acts = funState.actions;
+  if (tMs <= acts[0].at + funState.offsetMs) {
+    funState.nextIdx = 0;
+    funState.rampTo = null;
+    return;
+  }
   let idx = 0;
-  while (idx < funState.actions.length && funState.actions[idx].at + funState.offsetMs <= tMs + 400) idx++;
+  while (idx < acts.length - 1 && acts[idx].at + funState.offsetMs <= tMs) idx++;
   funState.nextIdx = idx;
-  if (funState.lastSentPos !== null && idx < funState.actions.length) {
-    funState.rampTo = Math.round(clamp(100 - funState.actions[idx].pos, 0, 100));
+  if (funState.lastSentPos !== null && idx < acts.length) {
+    funState.rampTo = Math.round(clamp(interpFunPos(tMs), 0, 100));
   }
 }
 function setFunOffset(ms) {
@@ -2425,13 +2462,14 @@ function funStartStreaming() {
   if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
   const wasPlaying = funState.playing;
   funState.playing = true;
-  if (!wasPlaying) { funState.lastSentPos = null; funState.rampTo = null; syncFunToTime(currentPlaybackMs()); }
+  if (!wasPlaying) syncFunToTime(currentPlaybackMs());
   stdWrite("set:speed:" + funState.maxSpeed);
   stdWrite("set:max:" + funState.maxDepth);
   stdWrite("set:min:" + funState.minDepth);
   stdWrite("set:buffer:" + funState.buffer);
+  stdWrite("set:sensation:" + funState.sensation);
   if (funState.timer) clearInterval(funState.timer);
-  funState.timer = setInterval(funStreamTick, 50);
+  funState.timer = setInterval(funStreamTick, 20);
   $("btnStart").textContent = "Stop";
   $("btnStart").classList.add("stop");
 }
@@ -2441,7 +2479,6 @@ function funStreamTick() {
   let t;
   if (castConnected) t = castTimeNow() * 1000;
   else { const v = $("funVideo"); if (!v) return; t = v.currentTime * 1000; }
-  const lead = 400;
 
   // Safety ramp: after a jump (resume/seek/offset change), ease toward the target
   // position in small steps instead of one sudden large move.
@@ -2450,24 +2487,25 @@ function funStreamTick() {
     const cur = funState.lastSentPos !== null ? funState.lastSentPos : funState.rampTo;
     const step = funState.rampTo - cur;
     const next = Math.abs(step) <= MAX_STEP ? funState.rampTo : cur + Math.sign(step) * MAX_STEP;
-    const cmd = Math.round(clamp(next, 0, 100)) + ":100";
-    if (streamChar) streamWrite(cmd);
-    else stdWrite("stream:" + cmd);
+    writeStream(Math.round(clamp(next, 0, 100)) + ":100");
     funState.lastSentPos = next;
     if (Math.abs(step) <= MAX_STEP) funState.rampTo = null;
     return;
   }
 
+  // Reference-player model: when playback crosses action i, command the position
+  // of action i+1 over the time until action i+1. Just-in-time (no lookahead) —
+  // the firmware's latency buffer smooths BLE jitter.
+  const acts = funState.actions;
+  const off = funState.offsetMs;
   let sent = 0;
-  while (funState.nextIdx < funState.actions.length && sent < 2) {
-    const a = funState.actions[funState.nextIdx];
-    if (a.at + funState.offsetMs > t + lead) break;
-    const prev = funState.nextIdx > 0 ? funState.actions[funState.nextIdx - 1].at : 0;
-    const delta = Math.max(10, Math.round(a.at - prev));
-    const streamPos = Math.round(clamp(100 - a.pos, 0, 100));
-    if (streamChar) streamWrite(streamPos + ":" + delta);
-    else stdWrite("stream:" + streamPos + ":" + delta);
-    funState.lastSentPos = streamPos;
+  while (funState.nextIdx < acts.length - 1 && sent < 4) {
+    const cur = acts[funState.nextIdx];
+    if (cur.at + off > t) break;
+    const nxt = acts[funState.nextIdx + 1];
+    const dur = Math.max(10, Math.round(nxt.at - cur.at));
+    writeStream(Math.round(clamp(nxt.pos, 0, 100)) + ":" + dur);
+    funState.lastSentPos = nxt.pos;
     funState.nextIdx++;
     sent++;
   }
