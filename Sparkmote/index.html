@@ -2702,6 +2702,7 @@ function onCastMessage(ns, message) {
     webrtcGotAnswer = true;
     if (webrtcRetryTimer) { clearInterval(webrtcRetryTimer); webrtcRetryTimer = null; }
     if (webrtcPc) webrtcPc.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => {});
+    funLog("TV answered — opening stream…");
     return;
   }
   if (m.type === "ice") {

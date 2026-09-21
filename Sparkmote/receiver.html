@@ -31,7 +31,7 @@ const statusEl = document.getElementById("status");
 
 let pc = null, channel = null;
 let chunks = [], received = 0, totalSize = 0, mime = "";
-let finished = false, answered = false;
+let finished = false, answered = false, answering = false;
 
 function send(obj) {
   try { context.sendCustomMessage(NS, "*", obj); } catch (e) {}
@@ -55,7 +55,10 @@ function createPeer() {
   cleanupPeer();
   chunks = []; received = 0; totalSize = 0; finished = false; answered = false;
   try { pc = new RTCPeerConnection({ iceServers: [] }); }
-  catch (e) { send({ type: "error", msg: "WebRTC unavailable: " + (e && e.message) }); return; }
+  catch (e) { setStatus("WebRTC not supported on this TV"); send({ type: "error", msg: "WebRTC unavailable: " + (e && e.message) }); return; }
+  pc.oniceconnectionstatechange = () => {
+    if (pc && pc.iceConnectionState === "failed") setStatus("ICE failed — are phone & TV on the same WiFi?");
+  };
   pc.ondatachannel = e => {
     channel = e.channel;
     channel.binaryType = "arraybuffer";
@@ -111,13 +114,18 @@ function onMessage(event) {
       setStatus("Connecting…");
     } else if (m.type === "offer") {
       if (answered && pc) { send({ type: "answer", sdp: pc.localDescription ? pc.localDescription.sdp : "" }); return; }
+      if (answering) return;
+      answering = true;
+      setStatus("Negotiating…");
       createPeer();
-      pc.setRemoteDescription({ type: "offer", sdp: m.sdp })
-        .then(() => pc.createAnswer())
-        .then(a => pc.setLocalDescription(a))
-        .then(() => waitIceComplete(pc, 1500))
-        .then(() => { answered = true; send({ type: "answer", sdp: pc.localDescription.sdp }); })
-        .catch(e => send({ type: "error", msg: "Signaling failed: " + (e && e.message) }));
+      const localPc = pc;
+      if (!localPc) { answering = false; return; }
+      localPc.setRemoteDescription({ type: "offer", sdp: m.sdp })
+        .then(() => localPc.createAnswer())
+        .then(a => localPc.setLocalDescription(a))
+        .then(() => waitIceComplete(localPc, 1500))
+        .then(() => { answered = true; answering = false; send({ type: "answer", sdp: localPc.localDescription.sdp }); })
+        .catch(e => { answering = false; send({ type: "error", msg: "Signaling failed: " + (e && e.message) }); });
     } else if (m.type === "seek") {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
       pushStatus();
