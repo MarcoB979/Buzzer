@@ -3136,17 +3136,16 @@ function setCastOverlay(show) {
           "<input type=\"range\" id=\"castSeek\" min=\"0\" max=\"100\" step=\"1\" value=\"0\" style=\"flex:1;min-width:0;\">" +
           "<span id=\"castDurLabel\" style=\"font-size:.7rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap;\">0:00</span>" +
         "</div>" +
-        "<div style=\"display:flex;align-items:center;justify-content:center;gap:8px;width:100%;max-width:420px;margin-top:12px;padding:0 12px;box-sizing:border-box;\">" +
-          "<button id=\"castVolDownBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">🔉 −</button>" +
-          "<button id=\"castMuteBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">🔊</button>" +
-          "<span id=\"castVolLabel\" style=\"font-size:.75rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:46px;text-align:center;\">100%</span>" +
-          "<button id=\"castVolUpBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">🔊 +</button>" +
-        "</div>" +
-        "<div style=\"display:flex;align-items:center;justify-content:center;gap:8px;width:100%;max-width:420px;margin-top:12px;padding:0 12px;box-sizing:border-box;\">" +
-          "<button id=\"castBackBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:.8rem;cursor:pointer;\">⏪ 10s</button>" +
-          "<button id=\"castPlayPauseBtn\" type=\"button\" style=\"background:#2563eb;border:none;color:#fff;border-radius:6px;padding:6px 14px;font-size:.8rem;font-weight:bold;cursor:pointer;\">▶ Play</button>" +
-          "<button id=\"castReplayBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">↺</button>" +
-          "<button id=\"castFwdBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:.8rem;cursor:pointer;\">10s ⏩</button>" +
+        "<div style=\"display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px;width:100%;max-width:420px;margin-top:12px;padding:0 12px;box-sizing:border-box;\">" +
+          "<button id=\"castBackBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">⏪ 10s</button>" +
+          "<button id=\"castPlayPauseBtn\" type=\"button\" style=\"background:#2563eb;border:none;color:#fff;border-radius:6px;padding:6px 10px;font-size:.78rem;font-weight:bold;cursor:pointer;\">▶ Play</button>" +
+          "<button id=\"castReplayBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">↺</button>" +
+          "<button id=\"castFwdBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">10s ⏩</button>" +
+          "<span style=\"width:1px;height:16px;background:#334155;\"></span>" +
+          "<button id=\"castVolDownBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">−</button>" +
+          "<button id=\"castMuteBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">🔊</button>" +
+          "<span id=\"castVolLabel\" style=\"font-size:.72rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:32px;text-align:center;\">100%</span>" +
+          "<button id=\"castVolUpBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">+</button>" +
         "</div>" +
         "<button id=\"castStopBtn\" type=\"button\" style=\"background:#dc2626;border:none;color:#fff;border-radius:8px;padding:10px 20px;font-size:.85rem;font-weight:bold;cursor:pointer;margin-top:14px;\">Stop casting</button>";
       wrap.appendChild(ov);
