@@ -129,7 +129,8 @@ function initMediaSource() {
         for (const b of p) appendMse(b);
       } catch (e) {
         mseMode = false; sourceBuffer = null;
-        setStatus("Codec unsupported — buffering full file…");
+        setStatus("Buffering full file…");
+        send({ type: "error", msg: "MSE setup failed: " + ((e && e.message) || "unknown") + " (" + mseMime + ")" });
       }
     });
   } catch (e) {
@@ -260,13 +261,19 @@ function onMessage(event) {
     } else if (m.type === "stream-info") {
       const wasMse = mseMode;
       const mimeStr = m.mime || "";
-      if (mimeStr && window.MediaSource && MediaSource.isTypeSupported(mimeStr)) {
+      let mseOk = false, canPlay = "";
+      try { mseOk = !!(mimeStr && window.MediaSource && MediaSource.isTypeSupported(mimeStr)); } catch (e) {}
+      try { canPlay = video.canPlayType(mimeStr) || ""; } catch (e) {}
+      if (mseOk) {
         mseMime = mimeStr; mseMode = true; sbError = false; firstAppendTime = 0;
         totalSize = 0; // size unknown for a remuxed stream — completion via channel close
         if (!wasMse && chunks.length) {
           for (const b of chunks) { if (sourceBuffer) appendMse(b); else pendingMse.push(b); }
         }
         setStatus("Streaming…");
+      } else if (canPlay) {
+        send({ type: "error", msg: "TV can't stream this codec — buffering full file instead." });
+        setStatus("Buffering full file…");
       } else {
         setStatus("Codec not supported by the TV.");
         send({ type: "error", fatal: true, msg: "Codec not supported by the TV." });
