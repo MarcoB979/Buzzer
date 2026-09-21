@@ -32,17 +32,9 @@ const statusEl = document.getElementById("status");
 let pc = null, channel = null;
 let chunks = [], received = 0, totalSize = 0, mime = "";
 let finished = false, answered = false, answering = false;
-let senderId = null;
-function resolveSenderId() {
-  if (senderId) return senderId;
-  try {
-    const s = context.getSenders && context.getSenders();
-    if (s && s.length && s[0] && s[0].id) { senderId = s[0].id; return senderId; }
-  } catch (e) {}
-  return "*";
-}
+
 function send(obj) {
-  try { context.sendCustomMessage(NS, resolveSenderId(), JSON.stringify(obj)); } catch (e) {
+  try { context.sendCustomMessage(NS, undefined, JSON.stringify(obj)); } catch (e) {
     setStatus("Message send failed: " + (e && e.message));
   }
 }
@@ -113,7 +105,6 @@ function cleanupPeer() {
 }
 
 function onMessage(event) {
-  if (event && event.senderId) senderId = event.senderId;
   let m = event && (event.data !== undefined ? event.data : event.message);
   if (typeof m === "string") { try { m = JSON.parse(m); } catch (e) { return; } }
   m = m || {};
