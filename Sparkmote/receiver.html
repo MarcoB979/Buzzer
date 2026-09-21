@@ -32,10 +32,14 @@ const statusEl = document.getElementById("status");
 let pc = null, channel = null;
 let chunks = [], received = 0, totalSize = 0, mime = "";
 let finished = false, answered = false, answering = false;
-let mseMode = false, mseMime = "", mseStarted = false;
-let mediaSource = null, sourceBuffer = null;
-let sbQueue = [], pendingMse = [], sbBusy = false, sbError = false;
+let mseMode = false, mseStarted = false;
+let mediaSource = null;
+let mseTracks = {};   // trackId -> { mime, sb, queue: [], busy }
+let pendingSegs = []; // { id, buffer } received before SourceBuffers are ready
+let sbError = false;
 let firstAppendTime = 0;
+let currentTrackId = 1;
+let expectStreamInfo = false;
 
 function send(obj) {
   try { context.sendCustomMessage(NS, undefined, obj); } catch (e) {
@@ -85,7 +89,11 @@ function createPeer() {
 
 let lastStatusUpdate = 0;
 function onData(ev) {
-  if (typeof ev.data === "string") return; // reserved for future metadata
+  if (typeof ev.data === "string") {
+    const mm = String(ev.data).match(/^T:(\d+)$/);
+    if (mm) currentTrackId = parseInt(mm[1], 10);
+    return;
+  }
   const len = ev.data.byteLength || 0;
   // Keep chunks for the blob fallback only until MSE playback has actually started.
   if (!(mseMode && mseStarted)) chunks.push(ev.data);
@@ -100,12 +108,14 @@ function onData(ev) {
   }
   if (mseMode) {
     if (!mediaSource) initMediaSource();
-    if (sourceBuffer) appendMse(ev.data);
-    else pendingMse.push(ev.data);
+    const t = mseTracks[currentTrackId];
+    if (t && t.sb) trackAppend(t, ev.data);
+    else pendingSegs.push({ id: currentTrackId, buffer: ev.data });
     maybeStartMsePlayback();
     if (totalSize > 0 && received >= totalSize) completePlayback();
-  } else if (totalSize > 0 && received >= totalSize) {
-    finish();
+  } else {
+    if (expectStreamInfo) pendingSegs.push({ id: currentTrackId, buffer: ev.data });
+    if (totalSize > 0 && received >= totalSize) finish();
   }
 }
 function initMediaSource() {
@@ -118,48 +128,58 @@ function initMediaSource() {
     };
     video.onerror = () => { setStatus("This file format cannot be played by the TV."); send({ type: "error", msg: "Unsupported video format on TV." }); };
     mediaSource.addEventListener("sourceopen", () => {
-      try {
-        sourceBuffer = mediaSource.addSourceBuffer(mseMime);
-        sourceBuffer.addEventListener("updateend", () => { sbBusy = false; pumpMse(); });
-        sourceBuffer.addEventListener("error", () => {
-          if (mseStarted) setStatus("Playback error on TV.");
-          else fallbackToBlob("MSE codec error");
-        });
-        const p = pendingMse; pendingMse = [];
-        for (const b of p) appendMse(b);
-      } catch (e) {
-        mseMode = false; sourceBuffer = null;
-        setStatus("Buffering full file…");
-        send({ type: "error", msg: "MSE setup failed: " + ((e && e.message) || "unknown") + " (" + mseMime + ")" });
+      let ok = true;
+      for (const id in mseTracks) {
+        const t = mseTracks[id];
+        try {
+          t.sb = mediaSource.addSourceBuffer(t.mime);
+          t.sb.addEventListener("updateend", () => { t.busy = false; trackPump(t); });
+          t.sb.addEventListener("error", () => { if (!mseStarted) fallbackToBlob("MSE codec error"); else setStatus("Playback error on TV."); });
+        } catch (e) {
+          ok = false;
+          send({ type: "error", msg: "MSE setup failed: " + ((e && e.message) || "unknown") + " (" + t.mime + ")" });
+        }
+      }
+      if (!ok) { fallbackToBlob("MSE setup failed"); return; }
+      const p = pendingSegs; pendingSegs = [];
+      for (const seg of p) {
+        const t = mseTracks[seg.id];
+        if (t && t.sb) trackAppend(t, seg.buffer);
       }
     });
   } catch (e) {
-    mseMode = false;
-    setStatus("Buffering full file…");
+    fallbackToBlob("MediaSource unavailable");
   }
 }
-function appendMse(buf) {
-  sbQueue.push(buf);
-  pumpMse();
+function trackAppend(track, buf) {
+  track.queue.push(buf);
+  trackPump(track);
 }
-function pumpMse() {
-  if (sbBusy || !sourceBuffer || sbQueue.length === 0) return;
-  sbBusy = true;
-  const buf = sbQueue.shift();
+function trackPump(track) {
+  if (track.busy || !track.sb || track.queue.length === 0) return;
+  track.busy = true;
+  const buf = track.queue.shift();
   try {
-    sourceBuffer.appendBuffer(buf);
+    track.sb.appendBuffer(buf);
   } catch (e) {
-    sbBusy = false;
-    sbQueue.unshift(buf);
-    setTimeout(pumpMse, 200);
+    track.busy = false;
+    track.queue.unshift(buf);
+    setTimeout(() => trackPump(track), 200);
   }
 }
 function maybeStartMsePlayback() {
-  if (mseStarted || !sourceBuffer || !mediaSource) return;
+  if (mseStarted || !mediaSource) return;
+  const ids = Object.keys(mseTracks);
+  if (!ids.length) return;
+  for (const id of ids) if (!mseTracks[id].sb) return;
   if (!firstAppendTime) firstAppendTime = Date.now();
   try {
-    const b = sourceBuffer.buffered;
-    if (b.length > 0 && b.end(0) - video.currentTime >= 0.5) {
+    let minEnd = Infinity, hasRange = false;
+    for (const id of ids) {
+      const b = mseTracks[id].sb.buffered;
+      if (b && b.length > 0) { hasRange = true; minEnd = Math.min(minEnd, b.end(b.length - 1)); }
+    }
+    if (hasRange && minEnd - video.currentTime >= 0.5) {
       mseStarted = true;
       chunks = []; // no longer need the whole-file fallback copy
       video.play().catch(() => {});
@@ -170,8 +190,8 @@ function maybeStartMsePlayback() {
 function fallbackToBlob(reason) {
   if (!mseMode) return;
   mseMode = false; sbError = true; mseStarted = false;
-  if (sourceBuffer) { try { sourceBuffer.abort(); } catch (e) {} }
-  sourceBuffer = null; sbQueue = []; pendingMse = []; sbBusy = false;
+  for (const id in mseTracks) { const t = mseTracks[id]; if (t.sb) { try { t.sb.abort(); } catch (e) {} } }
+  mseTracks = {}; pendingSegs = [];
   if (mediaSource) { try { if (mediaSource.readyState === "open") mediaSource.endOfStream(); } catch (e) {} }
   mediaSource = null;
   try { video.removeAttribute("src"); video.load(); } catch (e) {}
@@ -182,8 +202,9 @@ function completePlayback() {
   if (finished) return;
   if (!mseMode || !mseStarted) { finish(); return; }
   finished = true;
+  const anyBusy = () => Object.keys(mseTracks).some(id => mseTracks[id].busy || mseTracks[id].queue.length > 0);
   const tryEnd = () => {
-    if (sbBusy || sbQueue.length > 0) { setTimeout(tryEnd, 150); return; }
+    if (anyBusy()) { setTimeout(tryEnd, 150); return; }
     try { if (mediaSource && mediaSource.readyState === "open") mediaSource.endOfStream(); } catch (e) {}
     try { video.play().catch(() => {}); } catch (e) {}
     setStatus("Ready");
@@ -230,15 +251,23 @@ function onMessage(event) {
       totalSize = m.size || 0;
       mime = m.mime || "";
       received = 0; chunks = []; finished = false;
-      mseMode = false; mseMime = ""; mseStarted = false; sbError = false; firstAppendTime = 0;
+      mseMode = false; mseStarted = false; sbError = false; firstAppendTime = 0;
+      mseTracks = {}; pendingSegs = []; currentTrackId = 1; expectStreamInfo = false;
       const meta = m.meta || {};
+      expectStreamInfo = !!(meta.remux);
       // Progressive MSE only for truly streamable containers: WebM or fragmented MP4.
-      // Regular (non-fragmented) MP4 cannot be streamed over MSE, so use the blob path.
+      // Regular (non-fragmented) MP4 is remuxed by the phone (see stream-info).
       const streamable = meta.codecs && (meta.container === "webm" || meta.fragmented);
       if (streamable) {
         const container = meta.container === "webm" ? "video/webm" : "video/mp4";
         const mimeStr = container + "; codecs=\"" + meta.codecs + "\"";
-        try { if (window.MediaSource && MediaSource.isTypeSupported(mimeStr)) { mseMime = mimeStr; mseMode = true; } } catch (e) {}
+        try {
+          if (window.MediaSource && MediaSource.isTypeSupported(mimeStr)) {
+            mseMode = true;
+            mseTracks = { 1: { mime: mimeStr, sb: null, queue: [], busy: false } };
+            currentTrackId = 1;
+          }
+        } catch (e) {}
       }
       setStatus(mseMode ? "Streaming…" : "Uploading to TV…");
     } else if (m.type === "offer") {
@@ -259,24 +288,33 @@ function onMessage(event) {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
       pushStatus();
     } else if (m.type === "stream-info") {
-      const wasMse = mseMode;
-      const mimeStr = m.mime || "";
-      let mseOk = false, canPlay = "";
-      try { mseOk = !!(mimeStr && window.MediaSource && MediaSource.isTypeSupported(mimeStr)); } catch (e) {}
-      try { canPlay = video.canPlayType(mimeStr) || ""; } catch (e) {}
-      if (mseOk) {
-        mseMime = mimeStr; mseMode = true; sbError = false; firstAppendTime = 0;
+      const tracks = (m.tracks && m.tracks.length) ? m.tracks : [];
+      const byId = {};
+      let allOk = tracks.length > 0;
+      for (const t of tracks) {
+        const codec = String(t.codec || "").replace(/\s/g, "");
+        byId[t.id] = { mime: "video/mp4; codecs=\"" + codec + "\"", sb: null, queue: [], busy: false };
+        let sup = false;
+        try { sup = !!(window.MediaSource && MediaSource.isTypeSupported(byId[t.id].mime)); } catch (e) {}
+        if (!sup) allOk = false;
+      }
+      if (allOk) {
+        mseMode = true; sbError = false; firstAppendTime = 0;
         totalSize = 0; // size unknown for a remuxed stream — completion via channel close
-        if (!wasMse && chunks.length) {
-          for (const b of chunks) { if (sourceBuffer) appendMse(b); else pendingMse.push(b); }
-        }
+        mseTracks = byId;
         setStatus("Streaming…");
-      } else if (canPlay) {
-        send({ type: "error", msg: "TV can't stream this codec — buffering full file instead." });
-        setStatus("Buffering full file…");
       } else {
-        setStatus("Codec not supported by the TV.");
-        send({ type: "error", fatal: true, msg: "Codec not supported by the TV." });
+        let combined = "";
+        try { combined = tracks.map(t => String(t.codec || "").replace(/\s/g, "")).join(","); } catch (e) {}
+        let canPlay = "";
+        try { canPlay = video.canPlayType("video/mp4; codecs=\"" + combined + "\"") || ""; } catch (e) {}
+        if (canPlay) {
+          send({ type: "error", msg: "TV can't stream this codec — buffering full file instead." });
+          setStatus("Buffering full file…");
+        } else {
+          setStatus("Codec not supported by the TV.");
+          send({ type: "error", fatal: true, msg: "Codec not supported by the TV." });
+        }
       }
     } else if (m.type === "volume") {
       try { video.volume = Math.max(0, Math.min(1, Number(m.v) || 0)); } catch (e) {}
@@ -292,9 +330,10 @@ function onMessage(event) {
       video.pause();
       try { video.removeAttribute("src"); video.load(); } catch (e) {}
       chunks = []; received = 0; totalSize = 0; finished = false;
-      mseMode = false; mseMime = ""; mseStarted = false; sbError = false; firstAppendTime = 0;
+      mseMode = false; mseStarted = false; sbError = false; firstAppendTime = 0;
+      mseTracks = {}; pendingSegs = []; currentTrackId = 1; expectStreamInfo = false;
       if (mediaSource) { try { if (mediaSource.readyState === "open") mediaSource.endOfStream(); } catch (e) {} }
-      mediaSource = null; sourceBuffer = null; sbQueue = []; pendingMse = []; sbBusy = false;
+      mediaSource = null;
       cleanupPeer();
       setStatus("Waiting for a video…");
     }
