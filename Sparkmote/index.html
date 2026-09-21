@@ -962,6 +962,7 @@ function machineStateLabel() {
   return s || "Preparing…";
 }
 function updateStartButton() {
+  updateHeaderStopButton();
   const b = $("btnStart");
   if (!b) return;
   const isFun = appMode === "fun";
@@ -975,6 +976,21 @@ function updateStartButton() {
     b.disabled = true;
     b.textContent = machineStateLabel();
     b.classList.remove("stop");
+  }
+}
+function updateHeaderStopButton() {
+  const hs = $("header-stop");
+  if (!hs) return;
+  const s = stdStateName || "";
+  const inMenu = appMode === "fun" && connected && (s.indexOf("menu") === 0 || s === "idle");
+  if (inMenu) {
+    hs.textContent = "HOME";
+    hs.title = "Force homing (go to streaming)";
+    hs.onclick = () => { enterStreamingMode(); };
+  } else {
+    hs.textContent = "STOP";
+    hs.title = "Emergency stop";
+    hs.onclick = emergencyStop;
   }
 }
 function emergencyStop() {
@@ -2965,7 +2981,7 @@ async function streamRemuxedFile(file) {
     try { fileBox.appendBuffer(buf); fileBox.flush(); } catch (e) { failed = true; break; }
     off = end;
     const now = Date.now();
-    if (now - lastProg >= 2000) { lastProg = now; funLog("Sending… " + Math.round(sentBytes / 1048576) + " MB"); }
+    if (now - lastProg >= 2000) { lastProg = now; funLog("Sending… " + Math.min(99, Math.round(sentBytes / file.size * 100)) + "%"); }
     while (segQueue.length > 6 && !failed && castConnected) await sleepMs(100);
     await sleepMs(0);
   }

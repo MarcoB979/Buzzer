@@ -102,7 +102,7 @@ function onData(ev) {
   if (now - lastStatusUpdate > 200) {
     lastStatusUpdate = now;
     if (mseMode) {
-      setStatus((mseStarted ? "Streaming… " : "Buffering… ") + (totalSize > 0 ? Math.min(100, Math.round(received / totalSize * 100)) + "%" : Math.round(received / 1048576) + " MB"));
+      setStatus((mseStarted ? "Streaming… " : "Buffering… ") + (totalSize > 0 ? Math.min(99, Math.round(received / totalSize * 100)) + "%" : Math.round(received / 1048576) + " MB"));
     } else if (totalSize > 0) setStatus("Uploading to TV: " + Math.round(received / 1048576) + " MB of " + Math.round(totalSize / 1048576) + " MB");
     else setStatus("Uploading to TV: " + Math.round(received / 1048576) + " MB");
   }
@@ -112,10 +112,10 @@ function onData(ev) {
     if (t && t.sb) trackAppend(t, ev.data);
     else pendingSegs.push({ id: currentTrackId, buffer: ev.data });
     maybeStartMsePlayback();
-    if (totalSize > 0 && received >= totalSize) completePlayback();
+    if (!expectStreamInfo && totalSize > 0 && received >= totalSize) completePlayback();
   } else {
     if (expectStreamInfo) pendingSegs.push({ id: currentTrackId, buffer: ev.data });
-    if (totalSize > 0 && received >= totalSize) finish();
+    if (!expectStreamInfo && totalSize > 0 && received >= totalSize) finish();
   }
 }
 function initMediaSource() {
@@ -196,7 +196,7 @@ function fallbackToBlob(reason) {
   mediaSource = null;
   try { video.removeAttribute("src"); video.load(); } catch (e) {}
   setStatus("Buffering whole file…" + (reason ? " (" + reason + ")" : ""));
-  if (totalSize > 0 && received >= totalSize) finish();
+  if (!expectStreamInfo && totalSize > 0 && received >= totalSize) finish();
 }
 function completePlayback() {
   if (finished) return;
@@ -300,7 +300,8 @@ function onMessage(event) {
       }
       if (allOk) {
         mseMode = true; sbError = false; firstAppendTime = 0;
-        totalSize = 0; // size unknown for a remuxed stream — completion via channel close
+        // Keep totalSize from hello (original file size) for the % progress;
+        // completion for a remuxed stream is via channel close, not byte count.
         mseTracks = byId;
         setStatus("Streaming…");
       } else {
