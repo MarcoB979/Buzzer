@@ -2675,6 +2675,7 @@ function beginWebrtcSignaling() {
     webrtcChannel.bufferedAmountLowThreshold = 256 * 1024;
     webrtcChannel.onopen = () => { funLog("Streaming to TV…"); sendFileOverChannel(localCastFile); };
     webrtcChannel.onerror = () => funLog("Data channel error.");
+    webrtcChannel.onclose = () => funLog("Data channel closed.");
   } catch (e) {
     funLog("Data channel failed: " + (e && e.message));
   }
@@ -2732,36 +2733,54 @@ function onCastMessage(ns, message) {
 async function sendFileOverChannel(file) {
   const ch = webrtcChannel;
   if (!ch) return;
+  const CHUNK = 16 * 1024;
   const waitLow = () => new Promise(r => {
+    if (!ch || ch.readyState !== "open") return r();
     if (ch.bufferedAmount <= 256 * 1024) return r();
     const h = () => { ch.removeEventListener("bufferedamountlow", h); r(); };
     ch.addEventListener("bufferedamountlow", h);
   });
+  let sent = 0;
   try {
     const stream = file.stream ? file.stream() : null;
     if (stream) {
       const reader = stream.getReader();
+      let carry = new Uint8Array(0);
       for (;;) {
+        if (!ch || ch.readyState !== "open") break;
+        if (carry.byteLength >= CHUNK) {
+          await waitLow();
+          const piece = carry.slice(0, CHUNK);
+          carry = carry.slice(CHUNK);
+          ch.send(piece);
+          sent += piece.byteLength;
+          continue;
+        }
         const { done, value } = await reader.read();
         if (done) break;
-        if (!ch || ch.readyState !== "open") break;
+        const merged = new Uint8Array(carry.byteLength + value.byteLength);
+        merged.set(carry, 0);
+        merged.set(value, carry.byteLength);
+        carry = merged;
+      }
+      if (carry.byteLength > 0) {
         await waitLow();
-        ch.send(value);
+        ch.send(carry);
+        sent += carry.byteLength;
       }
     } else {
-      const CHUNK = 64 * 1024;
-      let off = 0;
-      while (off < file.size) {
+      for (let off = 0; off < file.size; off += CHUNK) {
         if (!ch || ch.readyState !== "open") break;
         await waitLow();
         const buf = await file.slice(off, Math.min(off + CHUNK, file.size)).arrayBuffer();
         ch.send(buf);
-        off += buf.byteLength;
+        sent += buf.byteLength;
       }
     }
-    funLog("Video sent to TV.");
+    if (sent >= file.size) funLog("Video sent to TV (" + Math.round(sent / 1048576) + " MB).");
+    else funLog("Send stopped early (" + Math.round(sent / 1048576) + " of " + Math.round(file.size / 1048576) + " MB).");
   } catch (e) {
-    funLog("Send failed: " + (e && e.message));
+    funLog("Send failed: " + (e && ((e.name ? e.name + ": " : "") + e.message)));
   }
 }
 function pollCastTime() {
