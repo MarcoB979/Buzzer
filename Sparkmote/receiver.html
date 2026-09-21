@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sparkmote Receiver</title>
-<script src="https://www.gstatic.com/cast/sdk/libs/receiver/2.0.0/cast_receiver.js"></script>
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
 <style>
   html, body { margin:0; padding:0; background:#000; width:100%; height:100%; overflow:hidden; }
   video { width:100vw; height:100vh; object-fit:contain; background:#000; }
@@ -21,6 +21,10 @@
 // (signaled through the Cast custom-message channel) and plays it on the TV.
 // No upload, no server, no storage — the bytes go straight phone → TV over WiFi.
 const NS = "urn:x-cast:com.sparkmote.local";
+if (!window.cast || !cast.framework) {
+  statusEl.textContent = "Receiver SDK failed to load.";
+  throw new Error("Cast receiver SDK unavailable");
+}
 const context = cast.framework.CastReceiverContext.getInstance();
 const video = document.getElementById("v");
 const statusEl = document.getElementById("status");

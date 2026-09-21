@@ -3073,7 +3073,9 @@ function toggleCast() {
     castMode = "media";
     setReceiverApp(chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID);
   }
-  castContext.requestSession().catch(() => {});
+  castContext.requestSession().catch(e => {
+    funLog("Cast failed: " + (e && (e.description || e.message || e.code) || "unknown"));
+  });
 }
 function fallbackToLocal() {
   if (castPausedLocal) {
