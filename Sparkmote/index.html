@@ -2704,7 +2704,7 @@ function parseMp4Codecs(buf) {
   return "";
 }
 async function probeFile(file) {
-  const meta = { container: "unknown", moovFront: false, codecs: "" };
+  const meta = { container: "unknown", moovFront: false, fragmented: false, codecs: "" };
   try {
     const head = new Uint8Array(await file.slice(0, Math.min(512 * 1024, file.size)).arrayBuffer());
     if (head.length >= 4 && head[0] === 0x1A && head[1] === 0x45 && head[2] === 0xDF && head[3] === 0xA3) {
@@ -2720,9 +2720,11 @@ async function probeFile(file) {
       const moovIdx = findBytes(head, [0x6D, 0x6F, 0x6F, 0x76]); // "moov"
       const mdatIdx = findBytes(head, [0x6D, 0x64, 0x61, 0x74]); // "mdat"
       meta.moovFront = moovIdx >= 0 && (mdatIdx < 0 || moovIdx < mdatIdx);
-      if (meta.moovFront) {
+      meta.fragmented = findBytes(head, [0x6D, 0x6F, 0x6F, 0x66]) >= 0; // "moof" (fragmented MP4)
+      if (meta.moovFront || meta.fragmented) {
         const big = new Uint8Array(await file.slice(0, Math.min(6 * 1024 * 1024, file.size)).arrayBuffer());
         meta.codecs = parseMp4Codecs(big);
+        if (!meta.fragmented) meta.fragmented = findBytes(big, [0x6D, 0x6F, 0x6F, 0x66]) >= 0;
       }
       return meta;
     }
@@ -2837,7 +2839,14 @@ async function sendFileOverChannel(file) {
         progress();
       }
     }
-    if (ch && ch.readyState === "open") { try { ch.close(); } catch (e) {} }
+    if (ch && ch.readyState === "open") {
+      // Let the DataChannel flush before closing so the tail isn't dropped.
+      const deadline = Date.now() + 10000;
+      while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+      try { ch.close(); } catch (e) {}
+    }
     if (sent >= file.size) funLog("Casting to TV…");
     else funLog("Send stopped early (" + Math.round(sent / 1048576) + " of " + Math.round(file.size / 1048576) + " MB).");
   } catch (e) {
