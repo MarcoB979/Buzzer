@@ -166,6 +166,29 @@
   .phone-container.fun .col-left { display: none; }
   .phone-container.fun .col-right { display: none; }
   .phone-container.fun .conn-dot { display: none !important; }
+  /* Force screen: apply the funscript landscape layout even in portrait (foldables). */
+  body.force-fun { padding: 4px; }
+  body.force-fun .phone-container.fun {
+    display: grid;
+    grid-template-columns: 250px 1fr 0;
+    gap: 8px;
+    align-items: stretch;
+    height: calc(100vh - 8px);
+    max-width: 100%;
+    border-radius: 0;
+    border-width: 2px;
+    padding: 8px;
+  }
+  body.force-fun .phone-container.fun .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  body.force-fun .phone-container.fun .col-left { display: flex; max-height: calc(100vh - 8px); overflow: hidden; }
+  body.force-fun .phone-container.fun .col-right { display: none; }
+  body.force-fun .phone-container.fun .col-center { max-height: calc(100vh - 20px); }
+  body.force-fun .phone-container.fun .col-toggle { display: none; }
+  body.force-fun .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  body.force-fun .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
+  body.force-fun .phone-container.fun .fun-video { flex: 1 1 auto; min-height: 0; }
+  body.force-fun .phone-container.fun.fun-settings-hidden { grid-template-columns: 1fr 0; }
+  body.force-fun .phone-container.fun.fun-settings-hidden .col-left { display: none; }
   .fun-status { font-size: .72rem; color: #fbbf24; margin-top: 8px; min-height: 1em; word-break: break-word; }
   .fun-settings-toggle { display: none; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; padding: 0; }
   .fun-preview-wrap { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
@@ -365,7 +388,7 @@
 </head>
 <body>
 <div class="phone-container">
-  <input type="file" id="funVideoInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg" style="display:none;">
+  <input type="file" id="funVideoInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg,application/octet-stream" style="display:none;">
   <input type="file" id="funScriptInput" accept=".funscript,.json,application/json" style="display:none;">
   <div class="col col-left" id="col-left">
     <div class="fun-controls" id="fun-controls" style="display:none;"></div>
@@ -769,6 +792,7 @@ async function connect() {
 
 function onDisconnected() {
   connected = false; running = false; stdRunning = false; stdStateName = ""; streamChar = null;
+  if (castConnected) { try { stopCast(); } catch (e) {} }
   firmwareKind = "unknown";
   updateFocusStatus();
   $("ble-panel").style.display = "";
@@ -1105,6 +1129,7 @@ function buildInterface() {
   }
   if (!isFun) { buildSpeed(); resizeCanvas(); drawGraph(); }
   placeStartButton();
+  applyFunLayout();
 }
 
 function buildTabs() {
@@ -2146,13 +2171,25 @@ function buildFunControls() {
   if (vs) vs.style.display = funControlsCollapsed ? "none" : "";
 }
 
+let forceFunLayout = false;
+try { forceFunLayout = localStorage.getItem("ossm-fun-force") === "1"; } catch (e) {}
+function applyFunLayout() {
+  document.body.classList.toggle("force-fun", !!(forceFunLayout && appMode === "fun"));
+}
 function buildFunVideo() {
   const wrap = $("fun-video");
   if (!wrap) return;
   const wide = window.innerWidth >= 700;
   const shortLandscape = window.matchMedia && window.matchMedia("(orientation: landscape) and (max-height: 520px)").matches;
-  if (!wide && !shortLandscape) {
-    wrap.innerHTML = `<div class="fun-placeholder">📱↻ Rotate your phone or widen the window to use Funscript mode</div>`;
+  if (!forceFunLayout && !wide && !shortLandscape) {
+    wrap.innerHTML = `<div class="fun-placeholder">📱↻ Rotate your phone or widen the window to use Funscript mode<br><button type="button" class="fun-btn" id="funForceBtn" style="margin-top:12px;">Force screen</button></div>`;
+    const fb = $("funForceBtn");
+    if (fb) fb.onclick = () => {
+      forceFunLayout = true;
+      try { localStorage.setItem("ossm-fun-force", "1"); } catch (e) {}
+      applyFunLayout();
+      buildFunVideo();
+    };
     return;
   }
   if (!funState.videoUrl) {
@@ -3212,6 +3249,7 @@ const fpBtn = $("funPreviewToggle");
 if (fpBtn) { fpBtn.textContent = funPreviewShown ? "▾" : "▴"; fpBtn.onclick = toggleFunPreview; }
 function leaveStreamingIfNeeded() {
   if (appMode !== "fun") return;
+  if (castConnected) { try { stopCast(); } catch (e) {} }
   const v = $("funVideo");
   if (v && !v.paused) { try { v.pause(); } catch (e) {} }
   funState.playing = false;
@@ -3256,9 +3294,11 @@ function enterStdMode() {
 $("modeAp").onclick = () => { if (!apAvailable()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); };
 $("modeStd").onclick = () => { leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
 const mFun = $("modeFun");
-if (mFun) mFun.onclick = () => { leaveStreamingIfNeeded(); appMode = "fun"; if (window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
+if (mFun) mFun.onclick = () => { leaveStreamingIfNeeded(); appMode = "fun"; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
 const fEx = $("funExit");
 if (fEx) fEx.onclick = () => { leaveStreamingIfNeeded(); setDemoMode(false); appMode = apAvailable() ? "ap" : "std"; buildInterface(); if (appMode === "std") enterStdMode(); };
+window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
+window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
 function setDemoMode(on) {
   if (demoMode === on) return;
   demoMode = on;
