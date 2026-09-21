@@ -258,6 +258,10 @@ function onMessage(event) {
     } else if (m.type === "seek") {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
       pushStatus();
+    } else if (m.type === "volume") {
+      try { video.volume = Math.max(0, Math.min(1, Number(m.v) || 0)); } catch (e) {}
+    } else if (m.type === "mute") {
+      try { video.muted = !!m.m; } catch (e) {}
     } else if (m.type === "play") {
       video.play().catch(() => {});
       pushStatus();
