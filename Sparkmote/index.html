@@ -2642,6 +2642,7 @@ function startWebrtcCast() {
   castMsgListener = session.addMessageListener(CAST_NS, onCastMessage);
   funLog("Connecting to TV…");
   beginWebrtcSignaling();
+  startCastPolling();
 }
 function guessMime(name, type) {
   if (type) return type;
@@ -2675,7 +2676,6 @@ function beginWebrtcSignaling() {
     webrtcChannel.bufferedAmountLowThreshold = 256 * 1024;
     webrtcChannel.onopen = () => { funLog("Streaming to TV…"); sendFileOverChannel(localCastFile); };
     webrtcChannel.onerror = () => funLog("Data channel error.");
-    webrtcChannel.onclose = () => funLog("Data channel closed.");
   } catch (e) {
     funLog("Data channel failed: " + (e && e.message));
   }
@@ -2760,7 +2760,7 @@ async function sendFileOverChannel(file) {
       }
     }
     if (ch && ch.readyState === "open") { try { ch.close(); } catch (e) {} }
-    if (sent >= file.size) funLog("Video sent to TV (" + Math.round(sent / 1048576) + " MB).");
+    if (sent >= file.size) funLog("Casting to TV…");
     else funLog("Send stopped early (" + Math.round(sent / 1048576) + " of " + Math.round(file.size / 1048576) + " MB).");
   } catch (e) {
     funLog("Send failed: " + (e && ((e.name ? e.name + ": " : "") + e.message)));
