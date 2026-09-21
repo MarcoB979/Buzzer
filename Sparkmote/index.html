@@ -2504,6 +2504,7 @@ let castMode = "media";
 let webrtcPc = null, webrtcChannel = null;
 let webrtcDuration = 0, webrtcPlaying = false;
 let localCastFile = null, castMsgListener = null;
+let webrtcRetryTimer = null, webrtcGotAnswer = false;
 const CAST_NS = "urn:x-cast:com.sparkmote.local";
 // Paste your PUBLISHED Custom Receiver Application ID here (cast.google.com/publish).
 // Once set, every visitor casts local files with a single press — zero setup on their side.
@@ -2578,10 +2579,11 @@ function detachCastListener() {
 }
 function cleanupWebrtc() {
   detachCastListener();
+  if (webrtcRetryTimer) { clearInterval(webrtcRetryTimer); webrtcRetryTimer = null; }
   if (webrtcChannel) { try { webrtcChannel.close(); } catch (e) {} }
   if (webrtcPc) { try { webrtcPc.close(); } catch (e) {} }
   webrtcChannel = null; webrtcPc = null;
-  webrtcDuration = 0; webrtcPlaying = false; localCastFile = null;
+  webrtcDuration = 0; webrtcPlaying = false; localCastFile = null; webrtcGotAnswer = false;
 }
 function startWebrtcCast() {
   const session = castContext.getCurrentSession();
@@ -2589,6 +2591,7 @@ function startWebrtcCast() {
   detachCastListener();
   castMsgListener = session.addMessageListener(CAST_NS, onCastMessage);
   funLog("Connecting to TV…");
+  beginWebrtcSignaling();
 }
 function guessMime(name, type) {
   if (type) return type;
@@ -2596,6 +2599,15 @@ function guessMime(name, type) {
   if (/webm/i.test(ext)) return "video/webm";
   if (/mp4|m4v|mov/i.test(ext)) return "video/mp4";
   return "";
+}
+function waitIceComplete(pc, timeoutMs) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    if (pc.iceGatheringState === "complete") { finish(); return; }
+    try { pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") finish(); }); } catch (e) {}
+    setTimeout(finish, timeoutMs);
+  });
 }
 function beginWebrtcSignaling() {
   if (webrtcPc || !localCastFile) return;
@@ -2606,7 +2618,7 @@ function beginWebrtcSignaling() {
     funLog("WebRTC unavailable on this browser: " + (e && e.message));
     return;
   }
-  webrtcPc.onicecandidate = e => { if (e.candidate) sendCastMsg({ type: "ice", candidate: e.candidate }); };
+  webrtcGotAnswer = false;
   try {
     webrtcChannel = webrtcPc.createDataChannel("media", { ordered: true });
     webrtcChannel.binaryType = "arraybuffer";
@@ -2616,15 +2628,29 @@ function beginWebrtcSignaling() {
   } catch (e) {
     funLog("Data channel failed: " + (e && e.message));
   }
+  const sendOffer = () => {
+    if (webrtcGotAnswer || !webrtcPc) return;
+    if (webrtcPc.localDescription && webrtcPc.localDescription.sdp) sendCastMsg({ type: "offer", sdp: webrtcPc.localDescription.sdp });
+  };
   webrtcPc.createOffer()
     .then(o => webrtcPc.setLocalDescription(o))
-    .then(() => sendCastMsg({ type: "offer", sdp: webrtcPc.localDescription.sdp }))
+    .then(() => waitIceComplete(webrtcPc, 1500))
+    .then(sendOffer)
     .catch(e => funLog("WebRTC offer failed: " + (e && e.message)));
+  // Re-send hello+offer until the receiver answers (handles the "receiver not ready yet" race).
+  if (webrtcRetryTimer) clearInterval(webrtcRetryTimer);
+  webrtcRetryTimer = setInterval(() => {
+    if (webrtcGotAnswer) { clearInterval(webrtcRetryTimer); webrtcRetryTimer = null; return; }
+    sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type) });
+    sendOffer();
+  }, 800);
 }
 function onCastMessage(ns, message) {
   const m = message || {};
   if (m.type === "ready") { beginWebrtcSignaling(); return; }
   if (m.type === "answer") {
+    webrtcGotAnswer = true;
+    if (webrtcRetryTimer) { clearInterval(webrtcRetryTimer); webrtcRetryTimer = null; }
     if (webrtcPc) webrtcPc.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => {});
     return;
   }
