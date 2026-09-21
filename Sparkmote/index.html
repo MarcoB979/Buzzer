@@ -1944,6 +1944,65 @@ const funState = {
 try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.round(b); } catch (e) {}
 try { const s = parseFloat(localStorage.getItem("ossm-fun-sensation")); if (isFinite(s) && s >= 0 && s <= 100) funState.sensation = Math.round(s); } catch (e) {}
 
+function getFavorites() {
+  try {
+    const a = JSON.parse(localStorage.getItem("ossm-fun-favorites") || "[]");
+    return Array.isArray(a) ? a.filter(x => typeof x === "string" && x.trim()).slice(0, 25) : [];
+  } catch (e) { return []; }
+}
+function saveFavorites(list) {
+  try { localStorage.setItem("ossm-fun-favorites", JSON.stringify((list || []).slice(0, 25))); } catch (e) {}
+}
+function renderFavorites() {
+  const list = $("funFavList");
+  if (!list) return;
+  list.innerHTML = "";
+  const favs = getFavorites();
+  if (!favs.length) {
+    const h = document.createElement("div");
+    h.className = "fun-file";
+    h.style.cssText = "font-size:.68rem;opacity:.7;";
+    h.textContent = "No favorites yet — load a URL and press ⭐.";
+    list.appendChild(h);
+    return;
+  }
+  for (const url of favs) {
+    const row = document.createElement("div");
+    row.className = "fun-row";
+    row.style.cssText = "gap:4px;margin-bottom:4px;";
+    const link = document.createElement("button");
+    link.type = "button";
+    link.className = "fun-btn";
+    link.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:#1e293b;color:#7dd3fc;";
+    link.textContent = url;
+    link.title = "Load " + url;
+    link.onclick = () => {
+      const ph = $("funPhId");
+      if (ph) ph.value = url;
+      loadVideoUrl(url);
+    };
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "fun-btn";
+    del.style.cssText = "background:#1e293b;color:#f87171;padding:6px 8px;";
+    del.textContent = "🗑";
+    del.title = "Remove from favorites";
+    del.onclick = () => {
+      saveFavorites(getFavorites().filter(u => u !== url));
+      renderFavorites();
+      const star = $("funFavBtn");
+      const ph = $("funPhId");
+      if (star && ph) {
+        const inFav = getFavorites().includes(ph.value.trim());
+        star.textContent = inFav ? "★" : "☆";
+        star.style.color = inFav ? "#facc15" : "";
+      }
+    };
+    row.appendChild(link); row.appendChild(del);
+    list.appendChild(row);
+  }
+}
+
 function buildFunControls() {
   const wrap = $("fun-controls");
   if (!wrap) return;
@@ -2005,6 +2064,34 @@ function buildFunControls() {
   const phBtn = document.createElement("button");
   phBtn.type = "button"; phBtn.className = "fun-btn"; phBtn.textContent = "Load URL";
   phBtn.onclick = () => loadVideoUrl(phInput.value);
+  const favBtn = document.createElement("button");
+  favBtn.type = "button"; favBtn.className = "fun-btn fun-fold"; favBtn.id = "funFavBtn";
+  favBtn.textContent = "☆";
+  favBtn.title = "Add / remove current URL from favorites";
+  const updateFavStar = () => {
+    const cur = phInput.value.trim();
+    const favs = getFavorites();
+    favBtn.textContent = favs.includes(cur) ? "★" : "☆";
+    favBtn.style.color = favs.includes(cur) ? "#facc15" : "";
+  };
+  phInput.addEventListener("input", updateFavStar);
+  favBtn.onclick = () => {
+    const cur = phInput.value.trim();
+    if (!cur) { funLog("Enter a video URL first, then press ⭐."); return; }
+    let favs = getFavorites();
+    if (favs.includes(cur)) {
+      favs = favs.filter(u => u !== cur);
+      saveFavorites(favs);
+      funLog("Removed from favorites.");
+    } else {
+      if (favs.length >= 25) { funLog("Favorites list is full (25 max)."); return; }
+      favs.unshift(cur);
+      saveFavorites(favs);
+      funLog("Added to favorites ⭐");
+    }
+    updateFavStar();
+    renderFavorites();
+  };
   const foldBtn = document.createElement("button");
   foldBtn.type = "button"; foldBtn.className = "fun-btn fun-fold"; foldBtn.textContent = "⚙";
   foldBtn.title = "Show extractor settings";
@@ -2016,7 +2103,7 @@ function buildFunControls() {
     foldBtn.classList.toggle("active", show);
     foldBtn.title = show ? "Hide extractor settings" : "Show extractor settings";
   };
-  row3.appendChild(phInput); row3.appendChild(phBtn); row3.appendChild(foldBtn);
+  row3.appendChild(phInput); row3.appendChild(phBtn); row3.appendChild(favBtn); row3.appendChild(foldBtn);
   settings.appendChild(row3);
 
   const castRow = document.createElement("div");
@@ -2115,7 +2202,20 @@ function buildFunControls() {
   };
   testRow.appendChild(demoBtn);
   sec.appendChild(testRow);
+
+  const favSec = document.createElement("div");
+  favSec.style.cssText = "margin-top:6px;border-top:1px solid var(--border-color);padding-top:6px;";
+  const favTitle = document.createElement("div");
+  favTitle.className = "fun-file";
+  favTitle.style.cssText = "font-size:.7rem;color:#facc15;margin-bottom:4px;";
+  favTitle.textContent = "⭐ Favorites";
+  favSec.appendChild(favTitle);
+  const favList = document.createElement("div");
+  favList.id = "funFavList";
+  favSec.appendChild(favList);
+  sec.appendChild(favSec);
   settings.appendChild(sec);
+  renderFavorites();
 
   const st = document.createElement("div");
   st.className = "fun-status"; st.id = "funStatus";
@@ -3459,22 +3559,27 @@ function requestMode(command) {
   const token = ++modeSwitchToken;
   if (modeSwitchTimer) { clearInterval(modeSwitchTimer); modeSwitchTimer = null; }
   stdWrite("go:menu"); // return to menu first — this works from any mode
-  // Wait until the device actually reports menu before sending the mode command.
-  // The device can ignore "go:menu" while it is still homing, so re-send it
-  // periodically and only send the target command once we are truly in the menu.
+  // Wait for the device to report menu before sending the mode command.
+  // If go:menu was dropped (e.g. the device was still homing), re-send it once,
+  // then send the command anyway — kept short so homing starts quickly.
   let attempts = 0;
+  let resent = false;
   modeSwitchTimer = setInterval(() => {
     attempts++;
     if (token !== modeSwitchToken || !connected || !stdCmd) { clearInterval(modeSwitchTimer); modeSwitchTimer = null; return; }
     const s = stdStateName || "";
-    if (s === "menu" || s === "menu.idle" || s === "idle") {
+    if (s === "menu" || s === "menu.idle") {
       clearInterval(modeSwitchTimer); modeSwitchTimer = null;
       stdWrite(command);
-    } else if (attempts % 10 === 0) {
-      stdWrite("go:menu"); // re-send in case it was dropped while homing
-    } else if (attempts > 120) {
-      clearInterval(modeSwitchTimer); modeSwitchTimer = null;
-      stdWrite(command); // last resort if the device never reports menu
+    } else if (attempts >= 20) {
+      if (!resent) {
+        resent = true;
+        attempts = 15; // give the re-sent go:menu ~0.5s to reach the menu
+        stdWrite("go:menu");
+      } else {
+        clearInterval(modeSwitchTimer); modeSwitchTimer = null;
+        stdWrite(command);
+      }
     }
   }, 100);
 }
