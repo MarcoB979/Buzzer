@@ -27,10 +27,19 @@ const statusEl = document.getElementById("status");
 
 let pc = null, channel = null;
 let chunks = [], received = 0, totalSize = 0, mime = "";
-let finished = false;
+let finished = false, answered = false;
 
 function send(obj) {
-  try { context.sendCustomMessage(NS, undefined, obj); } catch (e) {}
+  try { context.sendCustomMessage(NS, "*", obj); } catch (e) {}
+}
+function waitIceComplete(pc, timeoutMs) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    if (pc.iceGatheringState === "complete") { finish(); return; }
+    try { pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") finish(); }); } catch (e) {}
+    setTimeout(finish, timeoutMs);
+  });
 }
 function setStatus(s) { statusEl.textContent = s; }
 function pushStatus() {
@@ -40,10 +49,9 @@ setInterval(pushStatus, 250);
 
 function createPeer() {
   cleanupPeer();
-  chunks = []; received = 0; totalSize = 0; finished = false;
+  chunks = []; received = 0; totalSize = 0; finished = false; answered = false;
   try { pc = new RTCPeerConnection({ iceServers: [] }); }
   catch (e) { send({ type: "error", msg: "WebRTC unavailable: " + (e && e.message) }); return; }
-  pc.onicecandidate = e => { if (e.candidate) send({ type: "ice", candidate: e.candidate }); };
   pc.ondatachannel = e => {
     channel = e.channel;
     channel.binaryType = "arraybuffer";
@@ -91,19 +99,21 @@ function onMessage(event) {
   const m = (event && (event.data !== undefined ? event.data : event.message)) || {};
   try {
     if (m.type === "hello") {
+      // Ignore duplicate hellos once data is already flowing.
+      if (received > 0 || (channel && channel.readyState === "open")) return;
       totalSize = m.size || 0;
       mime = m.mime || "";
       received = 0; chunks = []; finished = false;
       setStatus("Connecting…");
     } else if (m.type === "offer") {
+      if (answered && pc) { send({ type: "answer", sdp: pc.localDescription ? pc.localDescription.sdp : "" }); return; }
       createPeer();
       pc.setRemoteDescription({ type: "offer", sdp: m.sdp })
         .then(() => pc.createAnswer())
         .then(a => pc.setLocalDescription(a))
-        .then(() => send({ type: "answer", sdp: pc.localDescription.sdp }))
+        .then(() => waitIceComplete(pc, 1500))
+        .then(() => { answered = true; send({ type: "answer", sdp: pc.localDescription.sdp }); })
         .catch(e => send({ type: "error", msg: "Signaling failed: " + (e && e.message) }));
-    } else if (m.type === "ice" && m.candidate && pc) {
-      pc.addIceCandidate(m.candidate).catch(() => {});
     } else if (m.type === "seek") {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
       pushStatus();
