@@ -32,9 +32,10 @@ const statusEl = document.getElementById("status");
 let pc = null, channel = null;
 let chunks = [], received = 0, totalSize = 0, mime = "";
 let finished = false, answered = false, answering = false;
+let senderId = "*";
 
 function send(obj) {
-  try { context.sendCustomMessage(NS, "*", obj); } catch (e) {}
+  try { context.sendCustomMessage(NS, senderId, obj); } catch (e) {}
 }
 function waitIceComplete(pc, timeoutMs) {
   return new Promise(resolve => {
@@ -103,6 +104,7 @@ function cleanupPeer() {
 }
 
 function onMessage(event) {
+  if (event && event.senderId) senderId = event.senderId;
   const m = (event && (event.data !== undefined ? event.data : event.message)) || {};
   try {
     if (m.type === "hello") {
@@ -124,7 +126,7 @@ function onMessage(event) {
         .then(() => localPc.createAnswer())
         .then(a => localPc.setLocalDescription(a))
         .then(() => waitIceComplete(localPc, 1500))
-        .then(() => { answered = true; answering = false; send({ type: "answer", sdp: localPc.localDescription.sdp }); })
+        .then(() => { answered = true; answering = false; send({ type: "answer", sdp: localPc.localDescription.sdp }); setStatus("Answered — connecting…"); })
         .catch(e => { answering = false; send({ type: "error", msg: "Signaling failed: " + (e && e.message) }); });
     } else if (m.type === "seek") {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
