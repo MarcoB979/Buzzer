@@ -2896,7 +2896,7 @@ async function streamRemuxedFile(file) {
   try { fileBox = MP4Box.createFile(); } catch (e) { await sendFileOverChannel(file); return; }
 
   const SLICE = 4 * 1024 * 1024;
-  const segQueue = [];
+  const segQueue = []; // { id, buffer }
   let pumping = false, failed = false, readyInfo = null, sentStreamInfo = false, sentBytes = 0;
 
   const pump = async () => {
@@ -2904,16 +2904,17 @@ async function streamRemuxedFile(file) {
     pumping = true;
     try {
       while (segQueue.length && !failed) {
-        const buf = segQueue.shift();
-        sentBytes += await sendBufferOverChannel(ch, buf);
+        const seg = segQueue.shift();
+        if (ch && ch.readyState === "open") { try { ch.send("T:" + seg.id); } catch (e) {} }
+        sentBytes += await sendBufferOverChannel(ch, seg.buffer);
       }
     } finally { pumping = false; }
   };
-  const enqueue = (buf) => { segQueue.push(buf); pump(); };
+  const enqueue = (id, buffer) => { segQueue.push({ id, buffer }); pump(); };
 
   fileBox.onError = (e) => { if (!sentStreamInfo) failed = true; else funLog("Remux error: " + e); };
   fileBox.onReady = (info) => { readyInfo = info; };
-  fileBox.onSegment = (id, user, buffer) => { if (!failed) enqueue(buffer); };
+  fileBox.onSegment = (id, user, buffer) => { if (!failed) enqueue(id, buffer); };
 
   // Phase 1: read until the moov is parsed (faststart: within the first slices).
   let off = 0;
@@ -2927,31 +2928,32 @@ async function streamRemuxedFile(file) {
   }
   if (!readyInfo || failed) { funLog("Streaming not possible — sending full file…"); await sendFileOverChannel(file); return; }
 
-  // Build the codecs string from the parsed tracks.
-  const codecs = []; const trackIds = [];
+  // Build the per-track codec list from the parsed tracks.
+  const trackList = []; let hasVideo = false;
   for (const t of (readyInfo.tracks || [])) {
-    if ((t.video || t.audio) && t.codec) { codecs.push(String(t.codec).replace(/\s/g, "")); trackIds.push(t.id); }
+    if ((t.video || t.audio) && t.codec) {
+      if (t.video) hasVideo = true;
+      trackList.push({ id: t.id, codec: String(t.codec).replace(/\s/g, "") });
+    }
   }
-  if (!trackIds.length) { funLog("No playable tracks — sending full file…"); await sendFileOverChannel(file); return; }
-  const hasVideo = (readyInfo.tracks || []).some(t => t.video && t.codec);
+  if (!trackList.length) { funLog("No playable tracks — sending full file…"); await sendFileOverChannel(file); return; }
   if (!hasVideo) { funLog("Could not detect video codec — sending full file…"); await sendFileOverChannel(file); return; }
-  const mimeStr = "video/mp4; codecs=\"" + codecs.join(",") + "\"";
-  // Set up segmentation first, so any failure falls back to a clean raw send.
-  let initBuf = null;
+
+  // Set up per-track segmentation (one SourceBuffer per track on the TV).
   try {
-    for (const id of trackIds) fileBox.setSegmentOptions(id, fileBox, { nbSamples: 200 });
-    const init = fileBox.initializeSegmentation();
-    initBuf = init && init.buffer ? init.buffer : (init && init[0] && init[0].buffer ? init[0].buffer : null);
+    for (const tr of trackList) fileBox.setSegmentOptions(tr.id, fileBox, { nbSamples: 200 });
+    const init = fileBox.initializeSegmentation("per-track");
+    const initSegs = Array.isArray(init) ? init : [];
+    sendCastMsg({ type: "stream-info", tracks: trackList });
+    sentStreamInfo = true;
+    for (const s of initSegs) if (s && s.buffer) enqueue(s.id, s.buffer);
     fileBox.start();
+    funLog("Remux streaming started…");
   } catch (e) {
     funLog("Remux setup failed — sending full file…");
     await sendFileOverChannel(file);
     return;
   }
-  sendCastMsg({ type: "stream-info", mime: mimeStr });
-  sentStreamInfo = true;
-  if (initBuf) enqueue(initBuf);
-  funLog("Remux streaming started…");
 
   // Phase 2: feed the rest and stream the resulting fMP4 segments.
   let lastProg = 0;
