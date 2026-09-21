@@ -179,8 +179,7 @@ function fallbackToBlob(reason) {
 }
 function completePlayback() {
   if (finished) return;
-  if (mseMode && !mseStarted) { fallbackToBlob("MSE did not start"); return; }
-  if (!mseMode) { finish(); return; }
+  if (!mseMode || !mseStarted) { finish(); return; }
   finished = true;
   const tryEnd = () => {
     if (sbBusy || sbQueue.length > 0) { setTimeout(tryEnd, 150); return; }
@@ -258,6 +257,20 @@ function onMessage(event) {
     } else if (m.type === "seek") {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
       pushStatus();
+    } else if (m.type === "stream-info") {
+      const wasMse = mseMode;
+      const mimeStr = m.mime || "";
+      if (mimeStr && window.MediaSource && MediaSource.isTypeSupported(mimeStr)) {
+        mseMime = mimeStr; mseMode = true; sbError = false; firstAppendTime = 0;
+        totalSize = 0; // size unknown for a remuxed stream — completion via channel close
+        if (!wasMse && chunks.length) {
+          for (const b of chunks) { if (sourceBuffer) appendMse(b); else pendingMse.push(b); }
+        }
+        setStatus("Streaming…");
+      } else {
+        setStatus("Codec not supported by the TV.");
+        send({ type: "error", fatal: true, msg: "Codec not supported by the TV." });
+      }
     } else if (m.type === "volume") {
       try { video.volume = Math.max(0, Math.min(1, Number(m.v) || 0)); } catch (e) {}
     } else if (m.type === "mute") {

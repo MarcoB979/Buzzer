@@ -1,5 +1,5 @@
 // Sparkmote service worker (network-first with cache fallback).
-const CACHE = "ossm-remote-v5";
+const CACHE = "ossm-remote-v6";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

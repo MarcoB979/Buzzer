@@ -8,6 +8,7 @@
 <link rel="icon" href="icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="icon.svg" />
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20"></script>
+<script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"></script>
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 <script>window.__castApiAvailable=false;window.__onGCastApiAvailable=function(a){window.__castApiAvailable=!!a;};</script>
 <meta name="mobile-web-app-capable" content="yes" />
@@ -2706,7 +2707,7 @@ function parseMp4Codecs(buf) {
   return "";
 }
 async function probeFile(file) {
-  const meta = { container: "unknown", moovFront: false, fragmented: false, codecs: "" };
+  const meta = { container: "unknown", moovFront: false, fragmented: false, remux: false, codecs: "" };
   try {
     const head = new Uint8Array(await file.slice(0, Math.min(512 * 1024, file.size)).arrayBuffer());
     if (head.length >= 4 && head[0] === 0x1A && head[1] === 0x45 && head[2] === 0xDF && head[3] === 0xA3) {
@@ -2728,6 +2729,7 @@ async function probeFile(file) {
         meta.codecs = parseMp4Codecs(big);
         if (!meta.fragmented) meta.fragmented = findBytes(big, [0x6D, 0x6F, 0x6F, 0x66]) >= 0;
       }
+      meta.remux = meta.moovFront && !meta.fragmented;
       return meta;
     }
   } catch (e) {}
@@ -2756,7 +2758,14 @@ function beginWebrtcSignaling() {
     webrtcChannel = webrtcPc.createDataChannel("media", { ordered: true });
     webrtcChannel.binaryType = "arraybuffer";
     webrtcChannel.bufferedAmountLowThreshold = 256 * 1024;
-    webrtcChannel.onopen = () => { funLog("Streaming to TV…"); sendFileOverChannel(localCastFile); };
+    webrtcChannel.onopen = () => {
+      funLog("Streaming to TV…");
+      if (funState.fileMeta && funState.fileMeta.remux && window.MP4Box && window.MP4Box.createFile && localCastFile && localCastFile.size <= 1.5 * 1024 * 1024 * 1024) {
+        streamRemuxedFile(localCastFile);
+      } else {
+        sendFileOverChannel(localCastFile);
+      }
+    };
     webrtcChannel.onerror = () => funLog("Data channel error.");
   } catch (e) {
     funLog("Data channel failed: " + (e && e.message));
@@ -2810,7 +2819,10 @@ function onCastMessage(ns, message) {
     if (typeof m.duration === "number" && isFinite(m.duration) && m.duration > 0) webrtcDuration = m.duration;
     return;
   }
-  if (m.type === "error") { funLog("TV: " + (m.msg || "unknown error")); }
+  if (m.type === "error") {
+    funLog("TV: " + (m.msg || "unknown error"));
+    if (m.fatal) { try { stopCast(); } catch (e) {} }
+  }
 }
 async function sendFileOverChannel(file) {
   const ch = webrtcChannel;
@@ -2854,6 +2866,108 @@ async function sendFileOverChannel(file) {
   } catch (e) {
     funLog("Send failed: " + (e && ((e.name ? e.name + ": " : "") + e.message)));
   }
+}
+const sleepMs = (ms) => new Promise(r => setTimeout(r, ms));
+async function sendBufferOverChannel(ch, buf) {
+  const CHUNK = 16 * 1024;
+  const view = (buf instanceof Uint8Array) ? buf : new Uint8Array(buf);
+  const waitLow = () => new Promise(r => {
+    if (!ch || ch.readyState !== "open") return r();
+    if (ch.bufferedAmount <= 256 * 1024) return r();
+    const h = () => { ch.removeEventListener("bufferedamountlow", h); r(); };
+    ch.addEventListener("bufferedamountlow", h);
+  });
+  for (let i = 0; i < view.byteLength; i += CHUNK) {
+    if (!ch || ch.readyState !== "open") break;
+    await waitLow();
+    ch.send(view.slice(i, Math.min(i + CHUNK, view.byteLength)));
+  }
+}
+// On-the-fly remux of regular MP4 -> fragmented MP4 (MP4Box.js) so the TV can
+// start playing within seconds instead of waiting for a full upload.
+async function streamRemuxedFile(file) {
+  const ch = webrtcChannel;
+  if (!ch || !window.MP4Box || !window.MP4Box.createFile) { await sendFileOverChannel(file); return; }
+  let fileBox = null;
+  try { fileBox = MP4Box.createFile(); } catch (e) { await sendFileOverChannel(file); return; }
+
+  const SLICE = 4 * 1024 * 1024;
+  const segQueue = [];
+  let pumping = false, failed = false, readyInfo = null, sentStreamInfo = false;
+
+  const pump = async () => {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (segQueue.length && !failed) {
+        const buf = segQueue.shift();
+        await sendBufferOverChannel(ch, buf);
+      }
+    } finally { pumping = false; }
+  };
+  const enqueue = (buf) => { segQueue.push(buf); pump(); };
+
+  fileBox.onError = (e) => { if (!sentStreamInfo) failed = true; else funLog("Remux error: " + e); };
+  fileBox.onReady = (info) => { readyInfo = info; };
+  fileBox.onSegment = (id, user, buffer) => { if (!failed) enqueue(buffer); };
+
+  // Phase 1: read until the moov is parsed (faststart: within the first slices).
+  let off = 0;
+  while (!readyInfo && !failed && off < file.size && off < 32 * 1024 * 1024) {
+    const end = Math.min(off + SLICE, file.size);
+    const buf = await file.slice(off, end).arrayBuffer();
+    buf.fileStart = off;
+    try { fileBox.appendBuffer(buf); fileBox.flush(); } catch (e) { failed = true; }
+    off = end;
+    await sleepMs(0);
+  }
+  if (!readyInfo || failed) { funLog("Streaming not possible — sending full file…"); await sendFileOverChannel(file); return; }
+
+  // Build the codecs string from the parsed tracks.
+  const codecs = []; const trackIds = [];
+  for (const t of (readyInfo.tracks || [])) {
+    if ((t.video || t.audio) && t.codec) { codecs.push(String(t.codec).replace(/\s/g, "")); trackIds.push(t.id); }
+  }
+  if (!trackIds.length) { funLog("No playable tracks — sending full file…"); await sendFileOverChannel(file); return; }
+  const mimeStr = "video/mp4; codecs=\"" + codecs.join(",") + "\"";
+  // Set up segmentation first, so any failure falls back to a clean raw send.
+  let initBuf = null;
+  try {
+    for (const id of trackIds) fileBox.setSegmentOptions(id, fileBox, { nbSamples: 200 });
+    const init = fileBox.initializeSegmentation();
+    initBuf = init && init.buffer ? init.buffer : (init && init[0] && init[0].buffer ? init[0].buffer : null);
+    fileBox.start();
+  } catch (e) {
+    funLog("Remux setup failed — sending full file…");
+    await sendFileOverChannel(file);
+    return;
+  }
+  sendCastMsg({ type: "stream-info", mime: mimeStr });
+  sentStreamInfo = true;
+  if (initBuf) enqueue(initBuf);
+  funLog("Remux streaming started…");
+
+  // Phase 2: feed the rest and stream the resulting fMP4 segments.
+  let lastProg = 0;
+  while (off < file.size && !failed) {
+    const end = Math.min(off + SLICE, file.size);
+    const buf = await file.slice(off, end).arrayBuffer();
+    buf.fileStart = off;
+    try { fileBox.appendBuffer(buf); fileBox.flush(); } catch (e) { failed = true; break; }
+    off = end;
+    const now = Date.now();
+    if (now - lastProg >= 2000) { lastProg = now; funLog("Streaming… " + Math.round(off / 1048576) + " MB"); }
+    while (segQueue.length > 6 && !failed) await sleepMs(100);
+    await sleepMs(0);
+  }
+  if (!failed) { try { fileBox.flush(); } catch (e) {} }
+  while (segQueue.length || pumping) await sleepMs(100);
+  if (ch && ch.readyState === "open") {
+    const deadline = Date.now() + 10000;
+    while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) await sleepMs(100);
+    try { ch.close(); } catch (e) {}
+  }
+  funLog(failed ? "Remux stream stopped early." : "Casting to TV…");
 }
 function pollCastTime() {
   if (!castConnected) return;
@@ -3380,7 +3494,8 @@ if (fvi) fvi.addEventListener("change", e => {
     funState.fileMeta = meta;
     const kind = meta.container === "webm" ? "WebM — streams instantly"
       : meta.fragmented ? "fragmented MP4 — streams instantly"
-      : meta.container === "mp4" ? "regular MP4 — full upload before it plays"
+      : meta.remux ? "MP4 — streams (on-the-fly remux)"
+      : meta.container === "mp4" ? "MP4 — index at end, full upload (re-encode with faststart to stream)"
       : "unknown format — full upload before it plays";
     funLog("Video type: " + kind);
   });
