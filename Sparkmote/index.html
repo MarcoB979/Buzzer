@@ -3459,16 +3459,22 @@ function requestMode(command) {
   const token = ++modeSwitchToken;
   if (modeSwitchTimer) { clearInterval(modeSwitchTimer); modeSwitchTimer = null; }
   stdWrite("go:menu"); // return to menu first — this works from any mode
-  // Wait until the device actually reports menu.idle before sending the mode command;
-  // otherwise the button press is ignored and the device stays stuck in the menu.
+  // Wait until the device actually reports menu before sending the mode command.
+  // The device can ignore "go:menu" while it is still homing, so re-send it
+  // periodically and only send the target command once we are truly in the menu.
   let attempts = 0;
   modeSwitchTimer = setInterval(() => {
     attempts++;
     if (token !== modeSwitchToken || !connected || !stdCmd) { clearInterval(modeSwitchTimer); modeSwitchTimer = null; return; }
     const s = stdStateName || "";
-    if (s === "menu" || s === "menu.idle" || attempts > 20) {
+    if (s === "menu" || s === "menu.idle" || s === "idle") {
       clearInterval(modeSwitchTimer); modeSwitchTimer = null;
       stdWrite(command);
+    } else if (attempts % 10 === 0) {
+      stdWrite("go:menu"); // re-send in case it was dropped while homing
+    } else if (attempts > 120) {
+      clearInterval(modeSwitchTimer); modeSwitchTimer = null;
+      stdWrite(command); // last resort if the device never reports menu
     }
   }, 100);
 }
