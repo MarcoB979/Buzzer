@@ -2620,7 +2620,7 @@ function setReceiverApp(appId) {
 }
 function sendCastMsg(obj) {
   const session = castSession || (castContext && castContext.getCurrentSession());
-  if (session) { try { session.sendMessage(CAST_NS, obj); } catch (e) {} }
+  if (session) { try { session.sendMessage(CAST_NS, JSON.stringify(obj)); } catch (e) {} }
 }
 function detachCastListener() {
   const session = castSession || (castContext && castContext.getCurrentSession());
@@ -2696,7 +2696,9 @@ function beginWebrtcSignaling() {
   }, 800);
 }
 function onCastMessage(ns, message) {
-  const m = message || {};
+  let m = message;
+  if (typeof m === "string") { try { m = JSON.parse(m); } catch (e) { return; } }
+  m = m || {};
   if (m.type === "ready") { beginWebrtcSignaling(); return; }
   if (m.type === "answer") {
     webrtcGotAnswer = true;
