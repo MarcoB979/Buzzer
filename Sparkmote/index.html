@@ -2581,6 +2581,7 @@ let webrtcPc = null, webrtcChannel = null;
 let webrtcDuration = 0, webrtcPlaying = false;
 let localCastFile = null, castMsgListener = null;
 let webrtcRetryTimer = null, webrtcGotAnswer = false;
+let castVolume = 1, castMuted = false;
 const CAST_NS = "urn:x-cast:com.sparkmote.local";
 // Paste your PUBLISHED Custom Receiver Application ID here (cast.google.com/publish).
 // Once set, every visitor casts local files with a single press — zero setup on their side.
@@ -2606,6 +2607,7 @@ function initCast() {
           castPausedLocal = !!(v && !v.paused);
           if (castPausedLocal) v.pause();
           castConnectAt = Date.now(); castFailNotified = false; castWasPlaying = false; castEnded = false;
+          castVolume = 1; castMuted = false;
           if (castMode === "webrtc") startWebrtcCast();
           else loadCastMedia();
           if (funState.actions.length && !funState.playing) funStartStreaming();
@@ -3025,6 +3027,38 @@ function castPlayPause() {
     }
   } catch (e) {}
 }
+function applyCastVolume() {
+  const level = Math.max(0, Math.min(1, castVolume));
+  if (castMode === "webrtc") {
+    sendCastMsg({ type: "volume", v: level });
+    sendCastMsg({ type: "mute", m: castMuted });
+  } else {
+    const session = castSession || (castContext && castContext.getCurrentSession());
+    if (session) {
+      try {
+        if (typeof session.setReceiverVolumeLevel === "function") session.setReceiverVolumeLevel(level, () => {}, () => {});
+        if (typeof session.setReceiverMuted === "function") session.setReceiverMuted(castMuted, () => {}, () => {});
+      } catch (e) {}
+    }
+  }
+  updateCastVolumeUI();
+}
+function adjustCastVolume(delta) {
+  if (!castConnected) return;
+  castVolume = Math.max(0, Math.min(1, castVolume + delta));
+  applyCastVolume();
+}
+function toggleCastMute() {
+  if (!castConnected) return;
+  castMuted = !castMuted;
+  applyCastVolume();
+}
+function updateCastVolumeUI() {
+  const vm = $("castMuteBtn");
+  if (vm) vm.textContent = castMuted ? "🔇" : "🔊";
+  const vl = $("castVolLabel");
+  if (vl) vl.textContent = Math.round(castVolume * 100) + "%";
+}
 function stopCast() {
   if (!castConnected || !castContext) return;
   castPausedLocal = false;
@@ -3096,11 +3130,17 @@ function setCastOverlay(show) {
       ov.className = "fun-cast-overlay";
       ov.innerHTML = "<div style=\"font-size:1.5rem;\">📺</div>" +
         "<div style=\"font-size:.95rem;color:#e2e8f0;font-weight:bold;\">Casting to TV</div>" +
-        "<div style=\"font-size:.75rem;color:#94a3b8;\">The OSSM follows the TV playback</div>" +
+        "<div id=\"castVideoName\" style=\"font-size:.75rem;color:#94a3b8;max-width:88%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;\"></div>" +
         "<div style=\"display:flex;align-items:center;gap:8px;width:100%;max-width:420px;margin-top:10px;padding:0 12px;box-sizing:border-box;\">" +
           "<span id=\"castTimeLabel\" style=\"font-size:.7rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap;\">0:00</span>" +
           "<input type=\"range\" id=\"castSeek\" min=\"0\" max=\"100\" step=\"1\" value=\"0\" style=\"flex:1;min-width:0;\">" +
           "<span id=\"castDurLabel\" style=\"font-size:.7rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap;\">0:00</span>" +
+        "</div>" +
+        "<div style=\"display:flex;align-items:center;justify-content:center;gap:8px;width:100%;max-width:420px;margin-top:12px;padding:0 12px;box-sizing:border-box;\">" +
+          "<button id=\"castVolDownBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">🔉 −</button>" +
+          "<button id=\"castMuteBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">🔊</button>" +
+          "<span id=\"castVolLabel\" style=\"font-size:.75rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:46px;text-align:center;\">100%</span>" +
+          "<button id=\"castVolUpBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 12px;font-size:.8rem;cursor:pointer;\">🔊 +</button>" +
         "</div>" +
         "<div style=\"display:flex;align-items:center;justify-content:center;gap:8px;width:100%;max-width:420px;margin-top:12px;padding:0 12px;box-sizing:border-box;\">" +
           "<button id=\"castBackBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 10px;font-size:.8rem;cursor:pointer;\">⏪ 10s</button>" +
@@ -3110,6 +3150,15 @@ function setCastOverlay(show) {
         "</div>" +
         "<button id=\"castStopBtn\" type=\"button\" style=\"background:#dc2626;border:none;color:#fff;border-radius:8px;padding:10px 20px;font-size:.85rem;font-weight:bold;cursor:pointer;margin-top:14px;\">Stop casting</button>";
       wrap.appendChild(ov);
+      const vn = ov.querySelector("#castVideoName");
+      if (vn) vn.textContent = funState.videoName || "OSSM video";
+      const vd = ov.querySelector("#castVolDownBtn");
+      if (vd) vd.onclick = () => adjustCastVolume(-0.1);
+      const vu = ov.querySelector("#castVolUpBtn");
+      if (vu) vu.onclick = () => adjustCastVolume(0.1);
+      const vm = ov.querySelector("#castMuteBtn");
+      if (vm) vm.onclick = toggleCastMute;
+      updateCastVolumeUI();
       const r = ov.querySelector("#castSeek");
       if (r) {
         r.addEventListener("input", () => { r.dataset.dragging = "1"; const c = $("castTimeLabel"); if (c) c.textContent = fmtCastTime(parseFloat(r.value) || 0); });
