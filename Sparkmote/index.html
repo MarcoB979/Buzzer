@@ -1891,7 +1891,7 @@ function resizeCanvas() {
 // ---------- Funscript mode (video + streaming over BLE) ----------
 const funState = {
   videoUrl: null, videoName: "", scriptName: "",
-  castUrl: null, uploading: false, localFile: null,
+  castUrl: null, uploading: false, localFile: null, fileMeta: null,
   rawActions: [], actions: [],
   maxSpeed: 100, maxDepth: 100, minDepth: 0, buffer: 100, sensation: 50,
   reverse: false, simplify: true,
@@ -2651,6 +2651,47 @@ function guessMime(name, type) {
   if (/mp4|m4v|mov/i.test(ext)) return "video/mp4";
   return "";
 }
+function findBytes(hay, needle) {
+  outer: for (let i = 0; i <= hay.length - needle.length; i++) {
+    for (let j = 0; j < needle.length; j++) if (hay[i + j] !== needle[j]) continue outer;
+    return i;
+  }
+  return -1;
+}
+function hex2(b) { return (b < 16 ? "0" : "") + b.toString(16).toUpperCase(); }
+function parseMp4Codecs(buf) {
+  const avcIdx = findBytes(buf, [0x61, 0x76, 0x63, 0x43]); // "avcC"
+  if (avcIdx >= 0 && avcIdx + 8 <= buf.length) {
+    return "avc1." + hex2(buf[avcIdx + 5]) + hex2(buf[avcIdx + 6]) + hex2(buf[avcIdx + 7]);
+  }
+  return "";
+}
+async function probeFile(file) {
+  const meta = { container: "unknown", moovFront: false, codecs: "" };
+  try {
+    const head = new Uint8Array(await file.slice(0, Math.min(512 * 1024, file.size)).arrayBuffer());
+    if (head.length >= 4 && head[0] === 0x1A && head[1] === 0x45 && head[2] === 0xDF && head[3] === 0xA3) {
+      meta.container = "webm";
+      meta.moovFront = true;
+      const vp9 = findBytes(head, [0x56, 0x50, 0x39]) >= 0; // "VP9"
+      const vp8 = findBytes(head, [0x56, 0x50, 0x38]) >= 0; // "VP8"
+      meta.codecs = vp9 ? "vp9" : (vp8 ? "vp8" : "");
+      return meta;
+    }
+    if (findBytes(head, [0x66, 0x74, 0x79, 0x70]) >= 0) { // "ftyp"
+      meta.container = "mp4";
+      const moovIdx = findBytes(head, [0x6D, 0x6F, 0x6F, 0x76]); // "moov"
+      const mdatIdx = findBytes(head, [0x6D, 0x64, 0x61, 0x74]); // "mdat"
+      meta.moovFront = moovIdx >= 0 && (mdatIdx < 0 || moovIdx < mdatIdx);
+      if (meta.moovFront) {
+        const big = new Uint8Array(await file.slice(0, Math.min(6 * 1024 * 1024, file.size)).arrayBuffer());
+        meta.codecs = parseMp4Codecs(big);
+      }
+      return meta;
+    }
+  } catch (e) {}
+  return meta;
+}
 function waitIceComplete(pc, timeoutMs) {
   return new Promise(resolve => {
     let done = false;
@@ -2662,7 +2703,7 @@ function waitIceComplete(pc, timeoutMs) {
 }
 function beginWebrtcSignaling() {
   if (webrtcPc || !localCastFile) return;
-  sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type) });
+  sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type), meta: funState.fileMeta });
   try {
     webrtcPc = new RTCPeerConnection({ iceServers: [] });
   } catch (e) {
@@ -2692,7 +2733,7 @@ function beginWebrtcSignaling() {
   if (webrtcRetryTimer) clearInterval(webrtcRetryTimer);
   webrtcRetryTimer = setInterval(() => {
     if (webrtcGotAnswer) { clearInterval(webrtcRetryTimer); webrtcRetryTimer = null; return; }
-    sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type) });
+    sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type), meta: funState.fileMeta });
     sendOffer();
   }, 800);
 }
@@ -3237,6 +3278,8 @@ if (fvi) fvi.addEventListener("change", e => {
   if (!f) return;
   setFunVideo(URL.createObjectURL(f), f.name);
   funState.localFile = f;
+  funState.fileMeta = null;
+  probeFile(f).then(meta => { funState.fileMeta = meta; });
   // Custom receiver (WebRTC) is the free, no-upload path; R2 upload is the fallback.
   if (!getCastAppId()) maybeUploadLocalForCast(f);
   else updateCastButton();
