@@ -2695,10 +2695,17 @@ function beginWebrtcSignaling() {
     sendOffer();
   }, 800);
 }
+let castMsgSeen = false;
 function onCastMessage(ns, message) {
   let m = message;
-  if (typeof m === "string") { try { m = JSON.parse(m); } catch (e) { return; } }
-  m = m || {};
+  if (typeof m === "string") {
+    try { m = JSON.parse(m); if (typeof m === "string") m = JSON.parse(m); } catch (e) {}
+  }
+  m = (m && typeof m === "object") ? m : {};
+  if (!castMsgSeen) {
+    castMsgSeen = true;
+    funLog("Got message from TV: " + JSON.stringify(m).slice(0, 80));
+  }
   if (m.type === "ready") { beginWebrtcSignaling(); return; }
   if (m.type === "answer") {
     webrtcGotAnswer = true;
