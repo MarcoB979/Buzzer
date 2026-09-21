@@ -2740,7 +2740,14 @@ async function sendFileOverChannel(file) {
     const h = () => { ch.removeEventListener("bufferedamountlow", h); r(); };
     ch.addEventListener("bufferedamountlow", h);
   });
-  let sent = 0;
+  let sent = 0, lastProg = 0;
+  const progress = (force) => {
+    const now = Date.now();
+    if (force || now - lastProg >= 1000) {
+      lastProg = now;
+      funLog("Sending… " + Math.round(sent / 1048576) + " MB");
+    }
+  };
   try {
     const stream = file.stream ? file.stream() : null;
     if (stream) {
@@ -2754,6 +2761,7 @@ async function sendFileOverChannel(file) {
           carry = carry.slice(CHUNK);
           ch.send(piece);
           sent += piece.byteLength;
+          progress();
           continue;
         }
         const { done, value } = await reader.read();
@@ -2767,6 +2775,7 @@ async function sendFileOverChannel(file) {
         await waitLow();
         ch.send(carry);
         sent += carry.byteLength;
+        progress(true);
       }
     } else {
       for (let off = 0; off < file.size; off += CHUNK) {
@@ -2775,6 +2784,7 @@ async function sendFileOverChannel(file) {
         const buf = await file.slice(off, Math.min(off + CHUNK, file.size)).arrayBuffer();
         ch.send(buf);
         sent += buf.byteLength;
+        progress();
       }
     }
     if (sent >= file.size) funLog("Video sent to TV (" + Math.round(sent / 1048576) + " MB).");

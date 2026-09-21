@@ -75,6 +75,7 @@ function onData(ev) {
   chunks.push(ev.data);
   received += len;
   if (totalSize > 0) setStatus("Receiving… " + Math.min(100, Math.round(received / totalSize * 100)) + "%");
+  else setStatus("Receiving… " + Math.round(received / 1048576) + " MB");
   if (totalSize > 0 && received >= totalSize) finish();
 }
 
