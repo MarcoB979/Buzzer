@@ -2561,9 +2561,10 @@ function initCast() {
       castAvailable = true;
       castContext.addEventListener(cast.framework.CastContextEventType.CAST_STATE_CHANGED, e => {
         const wasConnected = castConnected;
-        castConnected = e.castState === cast.framework.CastState.CONNECTED;
-        castSession = castConnected ? castContext.getCurrentSession() : null;
-        if (castConnected) {
+        const nowConnected = e.castState === cast.framework.CastState.CONNECTED;
+        castConnected = nowConnected;
+        castSession = nowConnected ? castContext.getCurrentSession() : null;
+        if (nowConnected) {
           const v = $("funVideo");
           castPausedLocal = !!(v && !v.paused);
           if (castPausedLocal) v.pause();
@@ -2572,12 +2573,12 @@ function initCast() {
           else loadCastMedia();
           if (funState.actions.length && !funState.playing) funStartStreaming();
           setCastOverlay(true);
-        } else {
+        } else if (wasConnected) {
           castMedia = null; castRemoteTime = 0; castClockBaseMs = 0; castConnectAt = 0; castWasPlaying = false;
           cleanupWebrtc();
           if (castTickTimer) { clearInterval(castTickTimer); castTickTimer = null; }
           setCastOverlay(false);
-          if (wasConnected) fallbackToLocal();
+          fallbackToLocal();
         }
         updateCastButton();
       });
