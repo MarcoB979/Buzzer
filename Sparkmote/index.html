@@ -2699,6 +2699,7 @@ let webrtcDuration = 0, webrtcPlaying = false;
 let localCastFile = null, castMsgListener = null;
 let webrtcRetryTimer = null, webrtcGotAnswer = false;
 let castVolume = 1, castMuted = false;
+let castRemotePlayer = null, castRemoteController = null;
 const CAST_NS = "urn:x-cast:com.sparkmote.local";
 // Paste your PUBLISHED Custom Receiver Application ID here (cast.google.com/publish).
 // Once set, every visitor casts local files with a single press — zero setup on their side.
@@ -2725,12 +2726,14 @@ function initCast() {
           if (castPausedLocal) v.pause();
           castConnectAt = Date.now(); castFailNotified = false; castWasPlaying = false; castEnded = false;
           castVolume = 1; castMuted = false;
+          castRemotePlayer = null; castRemoteController = null;
           if (castMode === "webrtc") startWebrtcCast();
-          else loadCastMedia();
+          else { loadCastMedia(); ensureRemotePlayer(); }
           if (funState.actions.length && !funState.playing) funStartStreaming();
           setCastOverlay(true);
         } else if (wasConnected) {
           castMedia = null; castRemoteTime = 0; castClockBaseMs = 0; castConnectAt = 0; castWasPlaying = false;
+          castRemotePlayer = null; castRemoteController = null;
           cleanupWebrtc();
           if (castTickTimer) { clearInterval(castTickTimer); castTickTimer = null; }
           setCastOverlay(false);
@@ -3266,18 +3269,44 @@ function castPlayPause() {
     }
   } catch (e) {}
 }
+function ensureRemotePlayer() {
+  if (!(window.cast && cast.framework && cast.framework.RemotePlayer && cast.framework.RemotePlayerController)) return false;
+  if (castRemotePlayer && castRemoteController) return true;
+  castRemotePlayer = new cast.framework.RemotePlayer();
+  castRemoteController = new cast.framework.RemotePlayerController(castRemotePlayer);
+  try {
+    castRemoteController.addEventListener(cast.framework.RemotePlayerEventType.IS_MUTED_CHANGED, () => {
+      castMuted = !!castRemotePlayer.isMuted;
+      updateCastVolumeUI();
+    });
+    castRemoteController.addEventListener(cast.framework.RemotePlayerEventType.VOLUME_LEVEL_CHANGED, () => {
+      castVolume = Math.max(0, Math.min(1, castRemotePlayer.volumeLevel || 0));
+      updateCastVolumeUI();
+    });
+  } catch (e) {}
+  return true;
+}
 function applyCastVolume() {
   const level = Math.max(0, Math.min(1, castVolume));
   if (castMode === "webrtc") {
     sendCastMsg({ type: "volume", v: level });
     sendCastMsg({ type: "mute", m: castMuted });
   } else {
-    const session = castSession || (castContext && castContext.getCurrentSession());
-    if (session) {
+    // Online URL (default media receiver) — control volume via RemotePlayerController.
+    if (ensureRemotePlayer() && castRemoteController) {
       try {
-        if (typeof session.setReceiverVolumeLevel === "function") session.setReceiverVolumeLevel(level, () => {}, () => {});
-        if (typeof session.setReceiverMuted === "function") session.setReceiverMuted(castMuted, () => {}, () => {});
+        if (!!castRemotePlayer.isMuted !== !!castMuted) castRemoteController.muteOrUnmute();
+        const cur = (typeof castRemotePlayer.volumeLevel === "number" && isFinite(castRemotePlayer.volumeLevel)) ? castRemotePlayer.volumeLevel : level;
+        if (Math.abs(cur - level) > 0.01) castRemoteController.setVolumeLevel(level);
       } catch (e) {}
+    } else {
+      const session = castSession || (castContext && castContext.getCurrentSession());
+      if (session) {
+        try {
+          if (typeof session.setReceiverVolumeLevel === "function") session.setReceiverVolumeLevel(level, () => {}, () => {});
+          if (typeof session.setReceiverMuted === "function") session.setReceiverMuted(castMuted, () => {}, () => {});
+        } catch (e) {}
+      }
     }
   }
   updateCastVolumeUI();
