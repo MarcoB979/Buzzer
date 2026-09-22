@@ -631,6 +631,9 @@ let speedRampEnabled = true;
 try { speedRampEnabled = localStorage.getItem("ossm-speed-ramp") !== "0"; } catch (e) {}
 let apSpeedSeq = 0;
 let stdSpeedSeq = 0;
+const STOP_RESEND_MS = 150;    // delay before re-sending a stop command
+const PREVIEW_REDRAW_MS = 250; // min interval between funscript preview redraws
+const FUN_BUFFER_MAX = 500;    // safety cap: bounds how long the OSSM keeps moving after Stop
 
 const BASE_NAMES = ["Max Depth", "Min Depth", "In Speed", "Out Speed", "In Accel", "Out Accel"];
 const BASE_COLORS = ["#ff0c00", "#ff8100", "#ffff00", "#00ff00", "#0000ff", "#ac8dee"];
@@ -705,7 +708,10 @@ async function writeControlReliable(s) {
   try { await ctlChar.writeValueWithResponse(encode(s)); }
   catch { await ctlChar.writeValueWithoutResponse(encode(s)); }
 }
-async function writePreset(s) { await prsChar.writeValueWithResponse(encode(s)); }
+async function writePreset(s) {
+  try { await prsChar.writeValueWithResponse(encode(s)); }
+  catch (e) { log("Preset write failed: " + (e && e.message)); }
+}
 
 function parseConfig(raw) {
   const parsed = {};
@@ -1033,7 +1039,7 @@ function setSpeed(v) {
   if (v === 0) {
     setTimeout(() => {
       if (seq === apSpeedSeq && connected && ctlChar) writeControlReliable(speedIndex() + ":0,").catch(() => {});
-    }, 150);
+    }, STOP_RESEND_MS);
   }
 }
 
@@ -1055,7 +1061,7 @@ function setStdSpeed(v) {
   if (v === 0) {
     setTimeout(() => {
       if (seq === stdSpeedSeq && connected && stdCmd) stdWriteReliable("set:speed:0");
-    }, 150);
+    }, STOP_RESEND_MS);
   }
 }
 function applySpeedInstant(to) {
@@ -1069,7 +1075,7 @@ function applySpeedInstant(to) {
     if (to === 0) {
       setTimeout(() => {
         if (seq === stdSpeedSeq && connected && stdCmd) stdWriteReliable("set:speed:0");
-      }, 150);
+      }, STOP_RESEND_MS);
     }
   } else if (appMode === "ap") {
     setSpeed(to);
@@ -2177,7 +2183,7 @@ function resizeCanvas() {
 // ---------- Funscript mode (video + streaming over BLE) ----------
 const funState = {
   videoUrl: null, videoName: "", scriptName: "",
-  castUrl: null, uploading: false, localFile: null, fileMeta: null,
+  castUrl: null, uploading: false, localFile: null, fileMeta: null, hls: null,
   rawActions: [], actions: [],
   maxSpeed: 100, maxDepth: 100, minDepth: 0, buffer: 100, sensation: 50,
   reverse: false, simplify: true,
@@ -2185,7 +2191,7 @@ const funState = {
   lastSentPos: null, rampTo: null,
   nextIdx: 0, playing: false, timer: null
 };
-try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.round(b); } catch (e) {}
+try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.min(FUN_BUFFER_MAX, Math.round(b)); } catch (e) {}
 try { const s = parseFloat(localStorage.getItem("ossm-fun-sensation")); if (isFinite(s) && s >= 0 && s <= 100) funState.sensation = Math.round(s); } catch (e) {}
 
 function getFavorites() {
@@ -2485,7 +2491,7 @@ function buildFunControls() {
   const bufG = document.createElement("div");
   bufG.className = "slider-group";
   bufG.title = "Latency buffer: higher = smoother but more lag; lower = tighter sync but more sensitive to BLE hiccups. The offset auto-adjusts to keep sync.";
-  bufG.innerHTML = `<div class="slider-row"><span class="slider-name">Buffer</span><span class="val-num" id="funBufferVal" style="background:#8b5cf6;color:#fff">${funState.buffer}ms</span><button type="button" class="step-btn minus" id="funBufferMinus">−</button><input type="range" id="funBufferRange" min="0" max="1000" value="${funState.buffer}" step="25"><button type="button" class="step-btn plus" id="funBufferPlus">+</button></div>`;
+  bufG.innerHTML = `<div class="slider-row"><span class="slider-name">Buffer</span><span class="val-num" id="funBufferVal" style="background:#8b5cf6;color:#fff">${funState.buffer}ms</span><button type="button" class="step-btn minus" id="funBufferMinus">−</button><input type="range" id="funBufferRange" min="0" max="${FUN_BUFFER_MAX}" value="${funState.buffer}" step="25"><button type="button" class="step-btn plus" id="funBufferPlus">+</button></div>`;
   wrap.appendChild(bufG);
   const bufRange = bufG.querySelector("#funBufferRange");
   const bufMinus = bufG.querySelector("#funBufferMinus");
@@ -2691,7 +2697,7 @@ function updateOffsetUI() {
 }
 function setFunBuffer(v) {
   const oldBuffer = funState.buffer;
-  funState.buffer = Math.max(0, Math.min(1000, Math.round(v / 25) * 25));
+  funState.buffer = Math.max(0, Math.min(FUN_BUFFER_MAX, Math.round(v / 25) * 25));
   const delta = funState.buffer - oldBuffer;
   try { localStorage.setItem("ossm-fun-buffer", funState.buffer); } catch (e) {}
   const bv = $("funBufferVal"), br = $("funBufferRange");
@@ -2901,7 +2907,7 @@ function funStreamTick() {
   if (!funState.playing) return;
   if (funPreviewShown) {
     const now = performance.now();
-    if (now - lastFunPreviewDraw > 250) { lastFunPreviewDraw = now; drawFunPreview(); }
+    if (now - lastFunPreviewDraw > PREVIEW_REDRAW_MS) { lastFunPreviewDraw = now; drawFunPreview(); }
   }
   let t;
   if (castConnected) t = castTimeNow() * 1000;
@@ -5031,15 +5037,20 @@ setInterval(() => {
 // Mode watchdog: if a fast mode switch dropped a command and the device drifted
 // out of the mode that matches the active screen, force it back.
 let modeWatchMismatchSince = 0;
+let modeWatchLastForceAt = 0;
 setInterval(() => {
   if (!connected || !stdCmd || demoMode || modeSwitchTimer) { modeWatchMismatchSince = 0; return; }
   if (Date.now() < modeWatchPausedUntil) return;
   if (machineModeMatches()) { modeWatchMismatchSince = 0; return; }
   if (machineMoving()) { modeWatchMismatchSince = 0; return; }
-  const now = performance.now();
-  if (!modeWatchMismatchSince) modeWatchMismatchSince = now;
-  else if (now - modeWatchMismatchSince < 1500) return;
+  const nowMs = Date.now();
+  if (!modeWatchMismatchSince) modeWatchMismatchSince = nowMs;
+  else if (nowMs - modeWatchMismatchSince < 1500) return;
   modeWatchMismatchSince = 0;
+  // Back off: if the device keeps reporting an unexpected state, don't spam
+  // mode re-entry commands every couple of seconds.
+  if (nowMs - modeWatchLastForceAt < 10000) return;
+  modeWatchLastForceAt = nowMs;
   if (appMode === "fun") enterStreamingMode();
   else if (appMode === "std") enterStdMode();
   else enterApMode();
