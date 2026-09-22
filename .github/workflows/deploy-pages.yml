@@ -1,4 +1,4 @@
-name: Deploy Sparkmote to GitHub Pages
+name: Deploy Buzzer to GitHub Pages
 
 on:
   push:
@@ -28,17 +28,17 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Add .nojekyll
-        run: touch ./Sparkmote/.nojekyll
+        run: touch ./Buzzer/.nojekyll
 
       - name: Stamp build time
         run: |
           STAMP="$(TZ=Europe/Amsterdam date +'%Y-%m-%d %H:%M')"
-          sed -i "s/__BUILD_TIME__/${STAMP}/g" ./Sparkmote/index.html
+          sed -i "s/__BUILD_TIME__/${STAMP}/g" ./Buzzer/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./Sparkmote
+          path: ./Buzzer
 
       - name: Deploy to GitHub Pages
         id: deployment

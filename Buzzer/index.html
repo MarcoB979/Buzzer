@@ -14,7 +14,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<title>Sparkmote — OSSM Remote</title>
+<title>Buzzer — OSSM Remote</title>
 <style>
   :root {
     --bg-color: #0a0a12;
@@ -2698,7 +2698,7 @@ async function maybeUploadLocalForCast(file) {
 }
 function showExtractorHelp() {
   const body = $("helpBody");
-  if (body) body.innerHTML = `<p><b>What it is</b><br>A tiny helper server (a free "Cloudflare Worker") that fetches a video page for you and returns the direct .mp4 / .m3u8 stream URL. Browsers cannot read other websites' pages directly (a security rule called CORS), so this helper does it on the server side.</p><p><b>Why use it</b><br>Without it, the app uses free public proxies, which are slower and less reliable. Your own worker makes URL loading fast and dependable, and keeps your traffic on your own free account instead of a shared one.</p><p><b>How to set it up</b> (free, about 5 minutes)</p><ol><li>Create a free account at <code>dash.cloudflare.com</code>.</li><li>Go to <b>Workers &amp; Pages → Create → Create Worker</b>.</li><li>Delete the sample code and paste the entire contents of <code>video-extractor.js</code> (included with this app), then click <b>Deploy</b>.</li><li>Copy the URL Cloudflare gives you (it ends in <code>.workers.dev</code>) and paste it into the field on this page.</li></ol><p><b>Privacy</b><br>The URL is stored only in this browser, on this device. Nothing is uploaded or shared, and it is 100% optional.</p><p><b>Cast local video files — free, no upload</b><br>Local videos stream directly from the phone to the TV over WiFi — no upload, no storage, no cost. The app ships with a built-in receiver, so visitors just press Cast. (To run the receiver while developing: register a free <b>Custom Receiver</b> at <code>cast.google.com/publish</code> with the URL <code>https://&lt;your-name&gt;.github.io/Spark-Mote/receiver.html</code>, add your Chromecast's serial number under <b>Cast Receiver Devices</b>, and put that App ID in the field above. Once you <b>publish</b> the receiver, the serial-number step is no longer needed and every visitor can cast with one press.)</p><p><b>Alternative (your worker)</b><br>The same worker can also turn a local video into a public URL: bind a free Cloudflare <b>R2 bucket</b> named <code>BUCKET</code> and redeploy <code>video-extractor.js</code>. Videos are uploaded and become castable; uploads stay in R2 until you delete them.</p>`;
+  if (body) body.innerHTML = `<p><b>What it is</b><br>A tiny helper server (a free "Cloudflare Worker") that fetches a video page for you and returns the direct .mp4 / .m3u8 stream URL. Browsers cannot read other websites' pages directly (a security rule called CORS), so this helper does it on the server side.</p><p><b>Why use it</b><br>Without it, the app uses free public proxies, which are slower and less reliable. Your own worker makes URL loading fast and dependable, and keeps your traffic on your own free account instead of a shared one.</p><p><b>How to set it up</b> (free, about 5 minutes)</p><ol><li>Create a free account at <code>dash.cloudflare.com</code>.</li><li>Go to <b>Workers &amp; Pages → Create → Create Worker</b>.</li><li>Delete the sample code and paste the entire contents of <code>video-extractor.js</code> (included with this app), then click <b>Deploy</b>.</li><li>Copy the URL Cloudflare gives you (it ends in <code>.workers.dev</code>) and paste it into the field on this page.</li></ol><p><b>Privacy</b><br>The URL is stored only in this browser, on this device. Nothing is uploaded or shared, and it is 100% optional.</p><p><b>Cast local video files — free, no upload</b><br>Local videos stream directly from the phone to the TV over WiFi — no upload, no storage, no cost. The app ships with a built-in receiver, so visitors just press Cast. (To run the receiver while developing: register a free <b>Custom Receiver</b> at <code>cast.google.com/publish</code> with the URL <code>https://&lt;your-name&gt;.github.io/Buzzer/receiver.html</code>, add your Chromecast's serial number under <b>Cast Receiver Devices</b>, and put that App ID in the field above. Once you <b>publish</b> the receiver, the serial-number step is no longer needed and every visitor can cast with one press.)</p><p><b>Alternative (your worker)</b><br>The same worker can also turn a local video into a public URL: bind a free Cloudflare <b>R2 bucket</b> named <code>BUCKET</code> and redeploy <code>video-extractor.js</code>. Videos are uploaded and become castable; uploads stay in R2 until you delete them.</p>`;
   const ov = $("helpOverlay");
   if (ov) ov.style.display = "flex";
 }
@@ -2881,7 +2881,7 @@ let localCastFile = null, castMsgListener = null;
 let webrtcRetryTimer = null, webrtcGotAnswer = false;
 let castVolume = 1, castMuted = false;
 let castRemotePlayer = null, castRemoteController = null;
-const CAST_NS = "urn:x-cast:com.sparkmote.local";
+const CAST_NS = "urn:x-cast:com.buzzer.local";
 // Paste your PUBLISHED Custom Receiver Application ID here (cast.google.com/publish).
 // Once set, every visitor casts local files with a single press — zero setup on their side.
 const DEFAULT_CAST_APP_ID = "5EB0A88B";

@@ -1,5 +1,5 @@
-// Sparkmote service worker (network-first with cache fallback).
-const CACHE = "ossm-remote-v6";
+// Buzzer service worker (network-first with cache fallback).
+const CACHE = "buzzer-ossm-remote-v1";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

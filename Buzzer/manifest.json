@@ -1,7 +1,7 @@
 {
-  "name": "Sparkmote OSSM Remote",
-  "short_name": "Sparkmote",
-  "description": "Sparkmote — the BLE web remote for the OSSM: Standard, Advanced Penetration and Funscript modes.",
+  "name": "Buzzer OSSM Remote",
+  "short_name": "Buzzer",
+  "description": "Buzzer — the BLE web remote for the OSSM: Standard, Advanced Penetration and Funscript modes.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",

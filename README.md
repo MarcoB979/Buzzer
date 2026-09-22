@@ -1,4 +1,4 @@
-# Sparkmote
+# Buzzer
 
 The BLE web remote for the OSSM — by **Volt Labs**.
 
@@ -20,19 +20,19 @@ A static Progressive Web App (no build step) that controls your OSSM from any ph
 
 ## Deploy
 
-GitHub Actions deploys the `Sparkmote/` folder to GitHub Pages on every push to `main`.
+GitHub Actions deploys the `Buzzer/` folder to GitHub Pages on every push to `main`.
 
 ## Cast local videos
 
 Chromecast fetches the video URL itself, so a file that only exists on your phone
-cannot be cast with the default receiver. Sparkmote solves this by streaming the
+cannot be cast with the default receiver. Buzzer solves this by streaming the
 file **directly from your phone to the TV over WiFi** with a custom receiver —
 free forever, no upload, no storage, no server.
 
 ### One-time developer setup (visitors need nothing)
 
 1. Register a **Custom Receiver** at <https://cast.google.com/publish> (free).
-2. Set its URL to `https://<your-name>.github.io/Spark-Mote/receiver.html`.
+2. Set its URL to `https://<your-name>.github.io/Buzzer/receiver.html`.
 3. Copy the **Application ID** and paste it into `DEFAULT_CAST_APP_ID` in
    `index.html` (or into the ⚙ field while testing).
 4. **Publish** the receiver in the console. Once published, it works on every

@@ -1,5 +1,5 @@
 /**
- * Sparkmote — Cloudflare Worker: video URL extractor + local-video cast host.
+ * Buzzer — Cloudflare Worker: video URL extractor + local-video cast host.
  *
  * Two jobs in one worker:
  *   1. EXTRACT  GET  ?url=<page>      -> fetch a video page for you (bypassing
