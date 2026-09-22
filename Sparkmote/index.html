@@ -576,7 +576,8 @@ let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: ST
 let stdStateName = "";
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
 let stdRunning = false;
-let lastNonZeroSpeed = 50;
+let lastNonZeroSpeed = 0;
+const DEFAULT_RESUME_SPEED = 10;
 let stdLastSpeed = 0;
 let speedRampTimer = null;
 let speedRampTarget = 0;
@@ -778,7 +779,7 @@ async function connect() {
     connected = true;
     updateFocusStatus();
     running = speed() > 0;
-    lastNonZeroSpeed = speed() > 0 ? speed() : 50;
+    lastNonZeroSpeed = speed() > 0 ? speed() : 0;
     setConnectingUI(false);
     $("ble-panel").style.display = "none";
     $("conn-dot").style.display = "inline-block";
@@ -941,7 +942,6 @@ function setBase(i, v) {
 }
 function setSpeed(v) { stopSpeedRamp(); setBase(speedIndex(), v); if (v > 0) lastNonZeroSpeed = v; }
 
-const SPEED_RAMP_STEP = 5;
 const SPEED_RAMP_MS = 90;
 function stopSpeedRamp() {
   if (speedRampTimer) { clearInterval(speedRampTimer); speedRampTimer = null; }
@@ -966,9 +966,12 @@ function rampSpeedTo(target) {
   else if (appMode === "ap") lastNonZeroSpeed = target;
   speedRampTarget = target;
   let cur = 0;
+  const t0 = performance.now();
   speedRampTimer = setInterval(() => {
     if (!connected || !stdCmd || (appMode !== "std" && appMode !== "ap")) { stopSpeedRamp(); return; }
-    cur = Math.min(speedRampTarget, cur + SPEED_RAMP_STEP);
+    const t = performance.now() - t0;
+    const step = t < 800 ? 1 : (t < 2000 ? 2 : (t < 4000 ? 4 : 8));
+    cur = Math.min(speedRampTarget, cur + step);
     if (appMode === "std") stdWrite("set:speed:" + cur);
     else writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
     if (cur >= speedRampTarget) stopSpeedRamp();
@@ -1084,11 +1087,11 @@ function toggleStart() {
   if (appMode === "std") {
     if (!machineRunningState()) { log("Waiting for the OSSM to finish homing…"); return; }
     if (stdRunning) { stopSpeedRamp(); stdWrite("set:speed:0"); }
-    else rampSpeedTo(stdLastSpeed > 0 ? stdLastSpeed : (stdValues.speed > 0 ? stdValues.speed : 50));
+    else rampSpeedTo(stdLastSpeed > 0 ? stdLastSpeed : (stdValues.speed > 0 ? stdValues.speed : DEFAULT_RESUME_SPEED));
     return;
   }
   if (speed() > 0) setSpeed(0);
-  else rampSpeedTo(lastNonZeroSpeed > 0 ? lastNonZeroSpeed : 50);
+  else rampSpeedTo(lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED);
 }
 
 function setLocal(key, v) {
