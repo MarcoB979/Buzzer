@@ -581,6 +581,7 @@ const DEFAULT_RESUME_SPEED = 10;
 let stdLastSpeed = 0;
 let speedRampTimer = null;
 let speedRampTarget = 0;
+let speedRampDown = false;
 
 const BASE_NAMES = ["Max Depth", "Min Depth", "In Speed", "Out Speed", "In Accel", "Out Accel"];
 const BASE_COLORS = ["#ff0c00", "#ff8100", "#ffff00", "#00ff00", "#0000ff", "#ac8dee"];
@@ -829,7 +830,7 @@ function parseStdState(raw) {
   try { j = JSON.parse(raw); } catch (e) { return; }
   if (typeof j.speed === "number") {
     stdValues.speed = Math.round(j.speed);
-    if (stdValues.speed > 0) stdLastSpeed = stdValues.speed;
+    if (stdValues.speed > 0 && !speedRampDown) stdLastSpeed = stdValues.speed;
   }
   if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
@@ -946,6 +947,7 @@ const SPEED_RAMP_MS = 90;
 function stopSpeedRamp() {
   if (speedRampTimer) { clearInterval(speedRampTimer); speedRampTimer = null; }
   speedRampTarget = 0;
+  speedRampDown = false;
 }
 function setStdSpeed(v) {
   stopSpeedRamp();
@@ -954,27 +956,25 @@ function setStdSpeed(v) {
   if (v > 0) stdLastSpeed = v;
   stdWrite("set:speed:" + v);
 }
-function rampSpeedTo(target) {
-  target = clamp(Math.round(target), 0, 100);
+function rampSpeed(from, to) {
+  from = clamp(Math.round(from), 0, 100);
+  to = clamp(Math.round(to), 0, 100);
   stopSpeedRamp();
-  if (target <= 0) {
-    if (appMode === "std") stdWrite("set:speed:0");
-    else if (appMode === "ap") setSpeed(0);
-    return;
-  }
-  if (appMode === "std") stdLastSpeed = target;
-  else if (appMode === "ap") lastNonZeroSpeed = target;
-  speedRampTarget = target;
-  let cur = 0;
+  if (from === to) return;
+  if (appMode === "std") { if (to > 0) stdLastSpeed = to; }
+  else if (appMode === "ap") { if (to > 0) lastNonZeroSpeed = to; }
+  speedRampTarget = to;
+  speedRampDown = to < from;
+  let cur = from;
   const t0 = performance.now();
   speedRampTimer = setInterval(() => {
     if (!connected || !stdCmd || (appMode !== "std" && appMode !== "ap")) { stopSpeedRamp(); return; }
     const t = performance.now() - t0;
     const step = t < 800 ? 1 : (t < 2000 ? 2 : (t < 4000 ? 4 : 8));
-    cur = Math.min(speedRampTarget, cur + step);
+    cur = speedRampDown ? Math.max(to, cur - step) : Math.min(to, cur + step);
     if (appMode === "std") stdWrite("set:speed:" + cur);
     else writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
-    if (cur >= speedRampTarget) stopSpeedRamp();
+    if (cur === to) stopSpeedRamp();
   }, SPEED_RAMP_MS);
 }
 function setModifier(bi, mi, v) {
@@ -1086,12 +1086,12 @@ function toggleStart() {
   }
   if (appMode === "std") {
     if (!machineRunningState()) { log("Waiting for the OSSM to finish homing…"); return; }
-    if (stdRunning) { stopSpeedRamp(); stdWrite("set:speed:0"); }
-    else rampSpeedTo(stdLastSpeed > 0 ? stdLastSpeed : (stdValues.speed > 0 ? stdValues.speed : DEFAULT_RESUME_SPEED));
+    if (stdRunning) rampSpeed(stdValues.speed, 0);
+    else rampSpeed(0, stdLastSpeed > 0 ? stdLastSpeed : (stdValues.speed > 0 ? stdValues.speed : DEFAULT_RESUME_SPEED));
     return;
   }
-  if (speed() > 0) setSpeed(0);
-  else rampSpeedTo(lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED);
+  if (speed() > 0) rampSpeed(speed(), 0);
+  else rampSpeed(0, lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED);
 }
 
 function setLocal(key, v) {
