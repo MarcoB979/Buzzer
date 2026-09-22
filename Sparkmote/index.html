@@ -3602,6 +3602,21 @@ function leaveStreamingIfNeeded() {
   if (funState.timer) { clearInterval(funState.timer); funState.timer = null; }
   if (connected && stdCmd && /^streaming/.test(stdStateName || "")) stdWrite("go:menu");
 }
+function machineMoving() {
+  if (!connected || demoMode) return false;
+  if (stdRunning) return true;
+  if (appMode === "fun" && funState.playing) return true;
+  if (appMode === "ap" && speed() > 0) return true;
+  const s = stdStateName || "";
+  if (s.indexOf("homing") === 0 || s === "measure.run" || s.indexOf("preflight") !== -1) return true;
+  return false;
+}
+function modeChangeBlocked() {
+  if (!machineMoving()) return false;
+  const msg = "⚠ Can't change mode while the OSSM is moving — stop it first.";
+  if (appMode === "fun") funLog(msg); else log(msg);
+  return true;
+}
 let modeSwitchToken = 0;
 let modeSwitchTimer = null;
 let modeWatchPausedUntil = 0;
@@ -3635,6 +3650,7 @@ function requestMode(command) {
   }, 100);
 }
 function enterStreamingMode() {
+  if (modeChangeBlocked()) return;
   if (connected && stdCmd && !/^streaming/.test(stdStateName || "")) {
     stdStateName = "";
     requestMode("go:streaming");
@@ -3643,6 +3659,7 @@ function enterStreamingMode() {
   updateStartButton();
 }
 function enterStdMode() {
+  if (modeChangeBlocked()) return;
   if (connected && stdCmd && stdStateName.indexOf("strokeEngine") !== 0) {
     stdStateName = "";
     requestMode("go:strokeEngine");
@@ -3650,6 +3667,7 @@ function enterStdMode() {
   updateStartButton();
 }
 function enterApMode() {
+  if (modeChangeBlocked()) return;
   const s = stdStateName || "";
   const inMenu = s.indexOf("menu") === 0 || s === "idle";
   if (connected && stdCmd && !inMenu) {
@@ -3658,12 +3676,12 @@ function enterApMode() {
   }
   updateStartButton();
 }
-$("modeAp").onclick = () => { if (!apAvailable()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); enterApMode(); };
-$("modeStd").onclick = () => { leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
+$("modeAp").onclick = () => { if (!apAvailable()) return; if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); enterApMode(); };
+$("modeStd").onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
 const mFun = $("modeFun");
-if (mFun) mFun.onclick = () => { leaveStreamingIfNeeded(); appMode = "fun"; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
+if (mFun) mFun.onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); appMode = "fun"; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
 const fEx = $("funExit");
-if (fEx) fEx.onclick = () => { leaveStreamingIfNeeded(); setDemoMode(false); appMode = apAvailable() ? "ap" : "std"; buildInterface(); if (appMode === "std") enterStdMode(); };
+if (fEx) fEx.onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = apAvailable() ? "ap" : "std"; buildInterface(); if (appMode === "std") enterStdMode(); };
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
 function setDemoMode(on) {
@@ -3795,12 +3813,12 @@ const DEFAULT_BINDINGS = {
   mode:        { src:"pad", kind:"btn", idx:3 },
   speedUp:     { src:"pad", kind:"stick", idx:0, dir:"up" },
   speedDown:   { src:"pad", kind:"stick", idx:0, dir:"down" },
-  maxUp:       { src:"pad", kind:"stick", idx:0, dir:"left" },
-  maxDown:     { src:"pad", kind:"stick", idx:0, dir:"right" },
-  minUp:       { src:"pad", kind:"stick", idx:2, dir:"up" },
-  minDown:     { src:"pad", kind:"stick", idx:2, dir:"down" },
-  sensationUp:   { src:"pad", kind:"stick", idx:2, dir:"left" },
-  sensationDown: { src:"pad", kind:"stick", idx:2, dir:"right" },
+  maxUp:       { src:"pad", kind:"stick", idx:2, dir:"right" },
+  maxDown:     { src:"pad", kind:"stick", idx:2, dir:"left" },
+  minUp:       { src:"pad", kind:"stick", idx:0, dir:"right" },
+  minDown:     { src:"pad", kind:"stick", idx:0, dir:"left" },
+  sensationUp:   { src:"pad", kind:"stick", idx:2, dir:"up" },
+  sensationDown: { src:"pad", kind:"stick", idx:2, dir:"down" },
   colLeft:     null,
   colRight:    null,
   estop:       { src:"pad", kind:"btn", idx:8 },
@@ -3827,8 +3845,8 @@ const DEFAULT_BINDINGS = {
   castMute:      { src:"pad", kind:"btn", idx:7 },
   bufferUp:    { src:"pad", kind:"btn", idx:10 },
   bufferDown:  { src:"pad", kind:"btn", idx:11 },
-  smoothnessUp:   { src:"pad", kind:"stick", idx:2, dir:"left" },
-  smoothnessDown: { src:"pad", kind:"stick", idx:2, dir:"right" },
+  smoothnessUp:   { src:"pad", kind:"stick", idx:2, dir:"up" },
+  smoothnessDown: { src:"pad", kind:"stick", idx:2, dir:"down" },
   offsetUp:    { src:"pad", kind:"btn", idx:12 },
   offsetDown:  { src:"pad", kind:"btn", idx:13 },
   reverseToggle:  null,
@@ -3904,21 +3922,38 @@ function loadBindings() {
       for (const id in p2) kb[id] = p2[id];
     }
   } catch (e) {}
-  // Migration: Max/Min Depth now work in every screen. Old defaults reused the
-  // sticks for offset/buffer in Funscript — move those to their new button
-  // defaults when they collide with Max/Min Depth, and free the displaced toggles.
-  const _moves = { offsetUp:"maxDown", offsetDown:"maxUp", bufferUp:"minUp", bufferDown:"minDown" };
-  for (const funId in _moves) {
-    const fb = pad[funId], mb = pad[_moves[funId]];
-    if (fb && fb.kind === "stick" && mb && bindingKey(fb) === bindingKey(mb)) {
-      pad[funId] = DEFAULT_BINDINGS[funId];
+  // Migration: remap saved stick defaults to the current layout, and move
+  // Funscript offset/buffer off any stick that Max/Min/Smoothness now uses.
+  const _stickRemap = {
+    maxUp:        [2, "right"], maxDown: [2, "left"],
+    minUp:        [0, "right"], minDown: [0, "left"],
+    sensationUp:  [2, "up"],   sensationDown: [2, "down"],
+    smoothnessUp: [2, "up"],   smoothnessDown: [2, "down"]
+  };
+  const _stickOld = {
+    maxUp:        [0, "left"], maxDown: [0, "right"],
+    minUp:        [2, "up"],   minDown: [2, "down"],
+    sensationUp:  [2, "left"], sensationDown: [2, "right"],
+    smoothnessUp: [2, "left"], smoothnessDown: [2, "right"]
+  };
+  for (const id in _stickOld) {
+    const b = pad[id];
+    if (b && b.kind === "stick" && b.idx === _stickOld[id][0] && b.dir === _stickOld[id][1]) {
+      pad[id] = { src:"pad", kind:"stick", idx:_stickRemap[id][0], dir:_stickRemap[id][1] };
     }
+  }
+  const _funClash = ["maxUp", "maxDown", "minUp", "minDown", "smoothnessUp", "smoothnessDown"];
+  for (const id of ["offsetUp", "offsetDown", "bufferUp", "bufferDown"]) {
+    const b = pad[id];
+    if (!b || b.kind !== "stick") continue;
+    const k = bindingKey(b);
+    if (_funClash.some(m => bindingKey(pad[m]) === k)) pad[id] = DEFAULT_BINDINGS[id];
   }
   for (const id of ["reverseToggle", "simplifyToggle", "colLeft", "colRight"]) {
     const b = pad[id];
     if (!b) continue;
     const k = bindingKey(b);
-    const taken = Object.keys(_moves).some(m => bindingKey(pad[m]) === k);
+    const taken = ["offsetUp", "offsetDown", "bufferUp", "bufferDown"].some(m => bindingKey(pad[m]) === k);
     if (taken) pad[id] = null;
   }
   return { pad, kb };
@@ -4203,6 +4238,7 @@ function gpCyclePattern(delta) {
   buildInterface();
 }
 function gpToggleMode() {
+  if (modeChangeBlocked()) return;
   leaveStreamingIfNeeded();
   setDemoMode(false);
   if (apAvailable()) appMode = appMode === "ap" ? "std" : (appMode === "std" ? "fun" : "ap");
@@ -4599,6 +4635,7 @@ setInterval(() => {
   if (!connected || !stdCmd || demoMode || modeSwitchTimer) { modeWatchMismatchSince = 0; return; }
   if (Date.now() < modeWatchPausedUntil) return;
   if (machineModeMatches()) { modeWatchMismatchSince = 0; return; }
+  if (machineMoving()) { modeWatchMismatchSince = 0; return; }
   const now = performance.now();
   if (!modeWatchMismatchSince) modeWatchMismatchSince = now;
   else if (now - modeWatchMismatchSince < 1500) return;
