@@ -952,6 +952,15 @@ function machineRunningState() {
   if (appMode === "std") return s.indexOf("strokeEngine") === 0;
   return true; // advanced penetration: not gated (existing behaviour)
 }
+function machineModeMatches() {
+  if (!connected || demoMode) return true;
+  const s = stdStateName || "";
+  if (!s) return true; // state unknown — don't force yet
+  if (s.indexOf("homing") === 0 || s === "measure.run" || s.indexOf("preflight") !== -1) return true; // mid-transition
+  if (appMode === "fun") return s.indexOf("streaming") === 0;
+  if (appMode === "std") return s.indexOf("strokeEngine") === 0;
+  return s.indexOf("menu") === 0 || s === "idle" || s.indexOf("advancedPenetration") === 0;
+}
 function machineStateLabel() {
   const s = stdStateName || "";
   if (s.indexOf("homing") === 0 || s === "measure.run") return "Homing…";
@@ -995,6 +1004,7 @@ function updateHeaderStopButton() {
   }
 }
 function emergencyStop() {
+  modeWatchPausedUntil = Date.now() + 15000; // keep the watchdog from re-entering the previous mode
   if (connected && stdCmd) stdWrite("go:menu");
   const v = $("funVideo");
   if (v && !v.paused) { try { v.pause(); } catch (e) {} }
@@ -3592,6 +3602,7 @@ function leaveStreamingIfNeeded() {
 }
 let modeSwitchToken = 0;
 let modeSwitchTimer = null;
+let modeWatchPausedUntil = 0;
 function requestMode(command) {
   if (!stdCmd) return;
   const token = ++modeSwitchToken;
@@ -4120,24 +4131,25 @@ function onBindingCaptured(d) {
   }
 }
 
-function gpSpeedStep(d) {
+function gpSpeedStep(d, mag) {
+  mag = mag || 1;
   if (appMode === "fun") {
-    funState.maxSpeed = clamp(funState.maxSpeed + d * 4, 1, 100);
+    funState.maxSpeed = clamp(funState.maxSpeed + d * mag, 1, 100);
     if (funState.playing) stdWrite("set:speed:" + funState.maxSpeed);
     buildFunControls();
     return;
   }
   if (appMode === "std") {
-    stdValues.speed = clamp(stdValues.speed + d * 4, 0, 100);
+    stdValues.speed = clamp(stdValues.speed + d * mag, 0, 100);
     stdWrite("set:speed:" + stdValues.speed);
   } else {
-    setSpeed(clamp(speed() + d * 4, 0, 100));
+    setSpeed(clamp(speed() + d * mag, 0, 100));
   }
 }
-function gpStdStep(field, d) {
+function gpStdStep(field, d, mag) {
   if (appMode !== "std") return;
-  const step = (field === "sensation") ? 3 : 2;
-  stdValues[field] = clamp(stdValues[field] + d * step, 0, 100);
+  mag = mag || 1;
+  stdValues[field] = clamp(stdValues[field] + d * mag, 0, 100);
   if (field === "max" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   if (field === "min" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   stdWrite("set:" + field + ":" + stdValues[field]);
@@ -4171,13 +4183,14 @@ function gpNav(delta) {
   }
   buildInterface();
 }
-function gpValueStep(delta) {
+function gpValueStep(delta, mag) {
+  mag = mag || 1;
   const bi = clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
   if (viewMode === "mod") {
     const mi = clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1);
-    setModifier(bi, mi, Math.round(settingValue(BASE_NAMES[bi] + MODIFIER_NAMES[mi])) + delta);
+    setModifier(bi, mi, Math.round(settingValue(BASE_NAMES[bi] + MODIFIER_NAMES[mi])) + delta * mag);
   } else {
-    setBase(bi, Math.round(settingValue(BASE_NAMES[bi])) + delta);
+    setBase(bi, Math.round(settingValue(BASE_NAMES[bi])) + delta * mag);
   }
 }
 function gpModEnter() {
@@ -4199,23 +4212,24 @@ function gpPresetNav(delta) {
   buildInterface();
 }
 function gpHandleDigital(id) {
+  const mag = gpRamp(id);
   switch (id) {
     case "start": toggleStart(); break;
     case "mode": gpToggleMode(); break;
-    case "speedUp": gpSpeedStep(1); break;
-    case "speedDown": gpSpeedStep(-1); break;
-    case "maxUp": gpStdStep("max", 1); break;
-    case "maxDown": gpStdStep("max", -1); break;
-    case "minUp": gpStdStep("min", 1); break;
-    case "minDown": gpStdStep("min", -1); break;
-    case "sensationUp": gpStdStep("sensation", 1); break;
-    case "sensationDown": gpStdStep("sensation", -1); break;
+    case "speedUp": gpSpeedStep(1, mag); break;
+    case "speedDown": gpSpeedStep(-1, mag); break;
+    case "maxUp": gpStdStep("max", 1, mag); break;
+    case "maxDown": gpStdStep("max", -1, mag); break;
+    case "minUp": gpStdStep("min", 1, mag); break;
+    case "minDown": gpStdStep("min", -1, mag); break;
+    case "sensationUp": gpStdStep("sensation", 1, mag); break;
+    case "sensationDown": gpStdStep("sensation", -1, mag); break;
     case "patternNext": gpCyclePattern(1); break;
     case "patternPrev": gpCyclePattern(-1); break;
     case "navNext": gpNav(1); break;
     case "navPrev": gpNav(-1); break;
-    case "valueUp": gpValueStep(1); break;
-    case "valueDown": gpValueStep(-1); break;
+    case "valueUp": gpValueStep(1, mag); break;
+    case "valueDown": gpValueStep(-1, mag); break;
     case "modEnter": gpModEnter(); break;
     case "modBack": gpModBack(); break;
     case "presetNext": gpPresetNav(1); break;
@@ -4233,12 +4247,12 @@ function gpHandleDigital(id) {
     case "castVolumeDown": adjustCastVolume(-0.1); break;
     case "castVolumeUp": adjustCastVolume(0.1); break;
     case "castMute": toggleCastMute(); break;
-    case "bufferUp": setFunBuffer(funState.buffer + 25); break;
-    case "bufferDown": setFunBuffer(funState.buffer - 25); break;
-    case "smoothnessUp": funSetSensation(funState.sensation + 5); break;
-    case "smoothnessDown": funSetSensation(funState.sensation - 5); break;
-    case "offsetUp": setFunOffset(funState.offsetMs + 100); break;
-    case "offsetDown": setFunOffset(funState.offsetMs - 100); break;
+    case "bufferUp": setFunBuffer(funState.buffer + 25 * mag); break;
+    case "bufferDown": setFunBuffer(funState.buffer - 25 * mag); break;
+    case "smoothnessUp": funSetSensation(funState.sensation + mag); break;
+    case "smoothnessDown": funSetSensation(funState.sensation - mag); break;
+    case "offsetUp": setFunOffset(funState.offsetMs + 100 * mag); break;
+    case "offsetDown": setFunOffset(funState.offsetMs - 100 * mag); break;
     case "reverseToggle": funState.reverse = !funState.reverse; rebuildFunscript(); buildFunControls(); break;
     case "simplifyToggle": funState.simplify = !funState.simplify; rebuildFunscript(); buildFunControls(); break;
     case "demoToggle": setDemoMode(!demoMode); break;
@@ -4265,6 +4279,15 @@ function bindingHeld(b, gp) {
     return sa[1] > 0 ? v > 0.6 : v < -0.6;
   }
   return false;
+}
+function gpRamp(id) {
+  const st = gpRepeatState[id];
+  if (!st || !st.on) return 1;
+  const t = performance.now() - st.since;
+  if (t < 700) return 1;
+  if (t < 1500) return 2;
+  if (t < 3000) return 4;
+  return 8;
 }
 function gpFire(held, id, handler, repeat) {
   const now = performance.now();
@@ -4527,6 +4550,22 @@ setInterval(() => {
     else if (appMode === "fun") updateStartButton();
   }).catch(() => {});
 }, 500);
+
+// Mode watchdog: if a fast mode switch dropped a command and the device drifted
+// out of the mode that matches the active screen, force it back.
+let modeWatchMismatchSince = 0;
+setInterval(() => {
+  if (!connected || !stdCmd || demoMode || modeSwitchTimer) { modeWatchMismatchSince = 0; return; }
+  if (Date.now() < modeWatchPausedUntil) return;
+  if (machineModeMatches()) { modeWatchMismatchSince = 0; return; }
+  const now = performance.now();
+  if (!modeWatchMismatchSince) modeWatchMismatchSince = now;
+  else if (now - modeWatchMismatchSince < 1500) return;
+  modeWatchMismatchSince = 0;
+  if (appMode === "fun") enterStreamingMode();
+  else if (appMode === "std") enterStdMode();
+  else enterApMode();
+}, 1000);
 
 // ---- Landscape sidebar toggles ----
 const landCols = (() => { try { return JSON.parse(localStorage.getItem("ossm-land-cols") || "{}"); } catch (e) { return {}; } })();
