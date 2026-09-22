@@ -21,13 +21,13 @@
 // (signaled through the Cast custom-message channel) and plays it on the TV.
 // No upload, no server, no storage — the bytes go straight phone → TV over WiFi.
 const NS = "urn:x-cast:com.buzzer.local";
+const video = document.getElementById("v");
+const statusEl = document.getElementById("status");
 if (!window.cast || !cast.framework) {
   statusEl.textContent = "Receiver SDK failed to load.";
   throw new Error("Cast receiver SDK unavailable");
 }
 const context = cast.framework.CastReceiverContext.getInstance();
-const video = document.getElementById("v");
-const statusEl = document.getElementById("status");
 
 let pc = null, channel = null;
 let chunks = [], received = 0, totalSize = 0, mime = "";
