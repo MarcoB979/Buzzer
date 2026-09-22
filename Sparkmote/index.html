@@ -605,6 +605,17 @@ let demoMode = false;
 let funPreviewShown = false;
 try { funPreviewShown = localStorage.getItem("ossm-fun-preview-shown") === "1"; } catch (e) {}
 let stdValues = { speed: 0, max: 100, min: 0, sensation: 50, pattern: 0 };
+try {
+  const sv = JSON.parse(localStorage.getItem("ossm-std-values") || "{}");
+  if (typeof sv.max === "number") stdValues.max = Math.round(sv.max);
+  if (typeof sv.min === "number") stdValues.min = Math.round(sv.min);
+  if (typeof sv.sensation === "number") stdValues.sensation = Math.round(sv.sensation);
+  if (typeof sv.pattern === "number") stdValues.pattern = Math.round(sv.pattern);
+} catch (e) {}
+function saveStdValues() {
+  try { localStorage.setItem("ossm-std-values", JSON.stringify({ max: stdValues.max, min: stdValues.min, sensation: stdValues.sensation, pattern: stdValues.pattern })); } catch (e) {}
+}
+let stdPendingSafeSync = false;
 let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
 let stdStateName = "";
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
@@ -864,10 +875,16 @@ async function refreshPresets() {
 function parseStdState(raw) {
   let j;
   try { j = JSON.parse(raw); } catch (e) { return; }
-  if (typeof j.speed === "number") {
-    stdValues.speed = Math.round(j.speed);
-    if (stdValues.speed > 0 && !speedRampDown) stdLastSpeed = stdValues.speed;
+  if (stdPendingSafeSync) {
+    // Mid-transition into the stroke engine: don't let the device's old values
+    // (e.g. a leftover funscript speed) pollute the Standard screen.
+    if (typeof j.state === "string") stdStateName = j.state;
+    stdRunning = typeof j.speed === "number" ? Math.round(j.speed) > 0.5 : false;
+    detectFirmware(j);
+    if ((stdStateName || "").indexOf("strokeEngine") === 0) applyStdSafeValues();
+    return;
   }
+  if (typeof j.speed === "number") stdValues.speed = Math.round(j.speed);
   if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
   if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
@@ -1138,7 +1155,7 @@ function toggleStart() {
   if (appMode === "std") {
     if (!machineRunningState()) { log("Waiting for the OSSM to finish homing…"); return; }
     if (stdRunning) rampSpeed(stdValues.speed, 0);
-    else rampSpeed(0, stdLastSpeed > 0 ? stdLastSpeed : (stdValues.speed > 0 ? stdValues.speed : DEFAULT_RESUME_SPEED));
+    else rampSpeed(0, stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED);
     return;
   }
   if (speed() > 0) rampSpeed(speed(), 0);
@@ -1465,16 +1482,19 @@ function buildStdSliders() {
     stdValues.max = v;
     if (stdValues.min > stdValues.max) { stdValues.min = stdValues.max; stdWrite("set:min:" + stdValues.min); }
     stdWrite("set:max:" + v);
+    saveStdValues();
     drawGraph();
   }));
   wrap.appendChild(sliderEl("Min Depth", 0, stdValues.max, stdValues.min, BASE_COLORS[1], (v) => {
     stdValues.min = Math.min(v, stdValues.max);
     stdWrite("set:min:" + stdValues.min);
+    saveStdValues();
     drawGraph();
   }));
   wrap.appendChild(sliderEl("Sensation", 0, 100, stdValues.sensation, "#c084fc", (v) => {
     stdValues.sensation = v;
     stdWrite("set:sensation:" + v);
+    saveStdValues();
     drawGraph();
   }));
 
@@ -1497,6 +1517,7 @@ function buildStdSliders() {
   sel.onchange = () => {
     stdValues.pattern = parseInt(sel.value, 10);
     stdWrite("set:pattern:" + stdValues.pattern);
+    saveStdValues();
     updateDesc();
     drawGraph();
   };
@@ -3882,11 +3903,37 @@ function enterStreamingMode() {
   }
   updateStartButton();
 }
+function applyStdSafeValues() {
+  stdPendingSafeSync = false;
+  stopSpeedRamp();
+  stdValues.speed = 0;
+  stdLastSpeed = 0;
+  try {
+    const sv = JSON.parse(localStorage.getItem("ossm-std-values") || "{}");
+    if (typeof sv.max === "number") stdValues.max = Math.round(sv.max);
+    if (typeof sv.min === "number") stdValues.min = Math.round(sv.min);
+    if (typeof sv.sensation === "number") stdValues.sensation = Math.round(sv.sensation);
+    if (typeof sv.pattern === "number") stdValues.pattern = Math.round(sv.pattern);
+  } catch (e) {}
+  if (connected && stdCmd) {
+    stdWrite("set:speed:0");
+    stdWrite("set:max:" + stdValues.max);
+    stdWrite("set:min:" + stdValues.min);
+    stdWrite("set:sensation:" + stdValues.sensation);
+    stdWrite("set:pattern:" + stdValues.pattern);
+  }
+  updateStartButton();
+}
 function enterStdMode() {
   if (modeChangeBlocked()) return;
-  if (connected && stdCmd && stdStateName.indexOf("strokeEngine") !== 0) {
-    stdStateName = "";
-    requestMode("go:strokeEngine");
+  if (connected && stdCmd) {
+    if (stdStateName.indexOf("strokeEngine") !== 0) {
+      stdStateName = "";
+      stdPendingSafeSync = true;
+      requestMode("go:strokeEngine");
+    } else {
+      applyStdSafeValues();
+    }
   }
   updateStartButton();
 }
@@ -4471,6 +4518,7 @@ function gpStdStep(field, d, mag) {
   stdValues[field] = clamp(stdValues[field] + d * mag, 0, 100);
   if (field === "max" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   if (field === "min" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
+  saveStdValues();
   stdWrite("set:" + field + ":" + stdValues[field]);
 }
 function gpCyclePattern(delta) {
@@ -4478,6 +4526,7 @@ function gpCyclePattern(delta) {
   const n = stdPatterns.length || STD_KNOWN_PATTERN_COUNT;
   stdValues.pattern = ((stdValues.pattern + delta) % n + n) % n;
   stdWrite("set:pattern:" + stdValues.pattern);
+  saveStdValues();
   buildInterface();
 }
 function gpToggleMode() {
