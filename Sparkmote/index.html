@@ -267,6 +267,9 @@
   .watch-panel[open] summary { margin-bottom: 8px; }
   .watch-panel[open] summary::after { content: "▴"; }
   .watch-body { display: flex; flex-direction: column; gap: 8px; }
+  .watch-load { display: flex; gap: 6px; align-items: center; }
+  .watch-load input[type=text] { flex: 1; min-width: 0; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 6px 8px; font-size: .78rem; }
+  .watch-load .ble-btn { font-size: .75rem; padding: 6px 10px; flex: 0 0 auto; }
   .watch-empty { font-size: .75rem; color: var(--muted); }
   .watch-body .fun-cast-overlay { position: static; inset: auto; }
   #presetList { display: flex; gap: 8px; align-items: center; }
@@ -451,7 +454,13 @@
     <details class="watch-panel" id="watch-panel" style="display:none;">
       <summary><span class="summary-left">📺 Video<span id="watchName" class="summary-value"></span></span></summary>
       <div class="watch-body" id="watch-body">
-        <div class="watch-empty" id="watchEmpty">No video loaded. Load one in Funscript first.</div>
+        <div class="watch-load">
+          <input type="text" id="watchUrlInput" placeholder="Video URL or Pornhub ID…">
+          <button class="ble-btn" id="watchUrlGo" type="button">Load</button>
+          <button class="ble-btn" id="watchFileBtn" type="button">📁 File</button>
+          <input type="file" id="watchFileInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg,application/octet-stream" style="display:none;">
+        </div>
+        <div class="watch-empty" id="watchEmpty">No video loaded yet.</div>
         <button class="ble-btn" id="watchCastBtn" type="button">Cast to TV</button>
       </div>
     </details>
@@ -3589,6 +3598,40 @@ function watchCast() {
     log("Cast failed: " + ((e && (e.description || e.message || e.code)) || "unknown"));
   });
 }
+function setWatchVideo(url, name, localFile) {
+  if (funState.videoUrl && funState.videoUrl.startsWith("blob:")) URL.revokeObjectURL(funState.videoUrl);
+  funState.videoUrl = url;
+  funState.videoName = name;
+  funState.castUrl = null;
+  funState.uploading = false;
+  funState.localFile = localFile || null;
+  funState.fileMeta = null;
+  buildWatchPanel();
+}
+async function loadWatchUrl() {
+  const inp = $("watchUrlInput");
+  const raw = (inp ? inp.value : "").trim();
+  if (!raw) { log("Enter a video URL or Pornhub ID."); return; }
+  const pageUrl = /^https?:\/\//i.test(raw)
+    ? raw
+    : ("https://www.pornhub.com/view_video.php?viewkey=" + encodeURIComponent(extractPhKey(raw)));
+  let data = null;
+  if (/^https?:\/\/[^\s]+\.(?:mp4|m3u8|webm|m4v|mov|mkv|mpg|mpeg|ogv)(?:[?#].*)?$/i.test(raw)) {
+    data = { url: raw, type: /\.m3u8(?:[?#]|$)/i.test(raw) ? "hls" : "mp4" };
+  } else {
+    log("Extracting video…");
+    const extractor = getExtractorUrl();
+    if (extractor) data = await callExtractor(extractor + "?url=" + encodeURIComponent(pageUrl));
+    if (!data || data.error) data = await fallbackExtract(pageUrl);
+  }
+  if (!data || data.error || !data.url) { log((data && data.error) || "Could not extract a video."); return; }
+  let name = "Stream";
+  try { name = new URL(pageUrl).hostname; } catch (e) {}
+  if (/pornhub/i.test(pageUrl)) name = "Pornhub " + extractPhKey(pageUrl);
+  if (castConnected) { try { stopCast(); } catch (e) {} }
+  setWatchVideo(absUrl(data.url), name, null);
+  log("Video loaded — press Cast to TV.");
+}
 function startCastPolling() {
   castRemoteTime = 0; castClockBaseMs = Date.now(); // autoplay: clock starts now
   if (castTickTimer) clearInterval(castTickTimer);
@@ -3815,6 +3858,25 @@ const hconn = $("header-connect");
 if (hconn) hconn.onclick = () => { if (demoMode) { setDemoMode(false); funLog("Demo mode off."); } else connect(); };
 $("btnStart").onclick = toggleStart;
 const wcb = $("watchCastBtn"); if (wcb) wcb.onclick = watchCast;
+const wgo = $("watchUrlGo"); if (wgo) wgo.onclick = () => loadWatchUrl();
+const wfb = $("watchFileBtn"); if (wfb) wfb.onclick = () => { const fi = $("watchFileInput"); if (fi) fi.click(); };
+const wui = $("watchUrlInput"); if (wui) wui.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); loadWatchUrl(); } });
+const wfi = $("watchFileInput");
+if (wfi) wfi.addEventListener("change", e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  if (castConnected) { try { stopCast(); } catch (err) {} }
+  setWatchVideo(URL.createObjectURL(f), f.name, f);
+  probeFile(f).then(meta => {
+    funState.fileMeta = meta;
+    const kind = meta.container === "webm" ? "WebM — streams instantly"
+      : meta.fragmented ? "fragmented MP4 — streams instantly"
+      : meta.remux ? "MP4 — streams (on-the-fly remux)"
+      : meta.container === "mp4" ? "MP4 — full upload (re-encode faststart to stream)"
+      : "unknown format";
+    log("Video type: " + kind + ".");
+  });
+});
 const fvi = $("funVideoInput");
 if (fvi) fvi.addEventListener("change", e => {
   const f = e.target.files && e.target.files[0];
