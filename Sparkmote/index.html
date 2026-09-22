@@ -2233,21 +2233,21 @@ function buildFunControls() {
   settings.appendChild(st);
 
   wrap.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }));
-  const maxDepthSlider = sliderEl("Max Depth", 1, 100, funState.maxDepth, "#ff0c00", v => {
+  funMaxDepthSlider = sliderEl("Max Depth", 1, 100, funState.maxDepth, "#ff0c00", v => {
     funState.maxDepth = v;
-    if (funState.minDepth > v) { funState.minDepth = v; minDepthSlider.setValue(v); }
+    if (funState.minDepth > v) { funState.minDepth = v; if (funMinDepthSlider) funMinDepthSlider.setValue(v); }
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
   });
-  const minDepthSlider = sliderEl("Min Depth", 0, 99, funState.minDepth, "#ff8100", v => {
+  funMinDepthSlider = sliderEl("Min Depth", 0, 99, funState.minDepth, "#ff8100", v => {
     const clamped = Math.min(v, funState.maxDepth);
     funState.minDepth = clamped;
-    if (clamped !== v) minDepthSlider.setValue(clamped);
+    if (clamped !== v) funMinDepthSlider.setValue(clamped);
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
   });
-  wrap.appendChild(maxDepthSlider);
-  wrap.appendChild(minDepthSlider);
+  wrap.appendChild(funMaxDepthSlider);
+  wrap.appendChild(funMinDepthSlider);
 
   const bufG = document.createElement("div");
   bufG.className = "slider-group";
@@ -2461,6 +2461,8 @@ function setFunBuffer(v) {
   if (connected && stdCmd) stdWrite("set:buffer:" + funState.buffer);
 }
 let funSmoothSlider = null;
+let funMaxDepthSlider = null;
+let funMinDepthSlider = null;
 function funSetSensation(v) {
   funState.sensation = clamp(Math.round(v), 0, 100);
   try { localStorage.setItem("ossm-fun-sensation", String(funState.sensation)); } catch (e) {}
@@ -3741,10 +3743,10 @@ const GP_ACTIONS = [
   { id:"mode",      group:"general", label:"Mode toggle",     mode:"both", help:"Switches between the Advanced, Standard and Funscript screens." },
   { id:"speedUp",   group:"general", label:"Speed up",        mode:"both", repeat:true, help:"Stroke speed. Standard = engine speed; Advanced = the Speed value; Funscript = Max Speed." },
   { id:"speedDown", group:"general", label:"Speed down",      mode:"both", repeat:true, help:"Stroke speed. Standard = engine speed; Advanced = the Speed value; Funscript = Max Speed." },
-  { id:"maxUp",     group:"general", label:"Max depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Max depth position (stroke goes deeper)." },
-  { id:"maxDown",   group:"general", label:"Max depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Max depth position." },
-  { id:"minUp",     group:"general", label:"Min depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Min depth position (stroke starts deeper)." },
-  { id:"minDown",   group:"general", label:"Min depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Min depth position." },
+  { id:"maxUp",     group:"general", label:"Max depth up",    mode:"both",  repeat:true, help:"Increases the Max depth position (stroke goes deeper). Works in Standard, Advanced and Funscript." },
+  { id:"maxDown",   group:"general", label:"Max depth down",  mode:"both",  repeat:true, help:"Decreases the Max depth position. Works in Standard, Advanced and Funscript." },
+  { id:"minUp",     group:"general", label:"Min depth up",    mode:"both",  repeat:true, help:"Increases the Min depth position (stroke starts deeper). Works in Standard, Advanced and Funscript." },
+  { id:"minDown",   group:"general", label:"Min depth down",  mode:"both",  repeat:true, help:"Decreases the Min depth position. Works in Standard, Advanced and Funscript." },
   { id:"sensationUp",   group:"general", label:"Sensation up",   mode:"std", repeat:true, help:"Standard mode: increases sensation 0–100 (50 = neutral)." },
   { id:"sensationDown", group:"general", label:"Sensation down", mode:"std", repeat:true, help:"Standard mode: decreases sensation 0–100 (50 = neutral)." },
   { id:"colLeft",  group:"general", label:"Hide/show sliders (◀)",  mode:"both", help:"Landscape: toggles the left sliders column." },
@@ -3799,8 +3801,8 @@ const DEFAULT_BINDINGS = {
   minDown:     { src:"pad", kind:"stick", idx:2, dir:"down" },
   sensationUp:   { src:"pad", kind:"stick", idx:2, dir:"left" },
   sensationDown: { src:"pad", kind:"stick", idx:2, dir:"right" },
-  colLeft:     { src:"pad", kind:"btn", idx:10 },
-  colRight:    { src:"pad", kind:"btn", idx:11 },
+  colLeft:     null,
+  colRight:    null,
   estop:       { src:"pad", kind:"btn", idx:8 },
   patternNext: { src:"pad", kind:"btn", idx:15 },
   patternPrev: { src:"pad", kind:"btn", idx:14 },
@@ -3823,14 +3825,14 @@ const DEFAULT_BINDINGS = {
   castVolumeDown:{ src:"pad", kind:"btn", idx:4 },
   castVolumeUp:  { src:"pad", kind:"btn", idx:5 },
   castMute:      { src:"pad", kind:"btn", idx:7 },
-  bufferUp:    { src:"pad", kind:"stick", idx:2, dir:"up" },
-  bufferDown:  { src:"pad", kind:"stick", idx:2, dir:"down" },
+  bufferUp:    { src:"pad", kind:"btn", idx:10 },
+  bufferDown:  { src:"pad", kind:"btn", idx:11 },
   smoothnessUp:   { src:"pad", kind:"stick", idx:2, dir:"left" },
   smoothnessDown: { src:"pad", kind:"stick", idx:2, dir:"right" },
-  offsetUp:    { src:"pad", kind:"stick", idx:0, dir:"right" },
-  offsetDown:  { src:"pad", kind:"stick", idx:0, dir:"left" },
-  reverseToggle:  { src:"pad", kind:"btn", idx:12 },
-  simplifyToggle: { src:"pad", kind:"btn", idx:13 },
+  offsetUp:    { src:"pad", kind:"btn", idx:12 },
+  offsetDown:  { src:"pad", kind:"btn", idx:13 },
+  reverseToggle:  null,
+  simplifyToggle: null,
   demoToggle:  null,
   previewToggle: null
 };
@@ -3902,6 +3904,23 @@ function loadBindings() {
       for (const id in p2) kb[id] = p2[id];
     }
   } catch (e) {}
+  // Migration: Max/Min Depth now work in every screen. Old defaults reused the
+  // sticks for offset/buffer in Funscript — move those to their new button
+  // defaults when they collide with Max/Min Depth, and free the displaced toggles.
+  const _moves = { offsetUp:"maxDown", offsetDown:"maxUp", bufferUp:"minUp", bufferDown:"minDown" };
+  for (const funId in _moves) {
+    const fb = pad[funId], mb = pad[_moves[funId]];
+    if (fb && fb.kind === "stick" && mb && bindingKey(fb) === bindingKey(mb)) {
+      pad[funId] = DEFAULT_BINDINGS[funId];
+    }
+  }
+  for (const id of ["reverseToggle", "simplifyToggle", "colLeft", "colRight"]) {
+    const b = pad[id];
+    if (!b) continue;
+    const k = bindingKey(b);
+    const taken = Object.keys(_moves).some(m => bindingKey(pad[m]) === k);
+    if (taken) pad[id] = null;
+  }
   return { pad, kb };
 }
 function saveBindings() {
@@ -4147,8 +4166,30 @@ function gpSpeedStep(d, mag) {
   }
 }
 function gpStdStep(field, d, mag) {
-  if (appMode !== "std") return;
   mag = mag || 1;
+  if (appMode === "fun") {
+    if (field === "max") {
+      funState.maxDepth = clamp(funState.maxDepth + d * mag, 1, 100);
+      if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
+      stdWrite("set:max:" + funState.maxDepth);
+      stdWrite("set:min:" + funState.minDepth);
+      if (funMaxDepthSlider && funMaxDepthSlider.setValue) funMaxDepthSlider.setValue(funState.maxDepth);
+      if (funMinDepthSlider && funMinDepthSlider.setValue) funMinDepthSlider.setValue(funState.minDepth);
+    } else if (field === "min") {
+      funState.minDepth = clamp(funState.minDepth + d * mag, 0, 99);
+      if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
+      stdWrite("set:max:" + funState.maxDepth);
+      stdWrite("set:min:" + funState.minDepth);
+      if (funMinDepthSlider && funMinDepthSlider.setValue) funMinDepthSlider.setValue(funState.minDepth);
+    }
+    return;
+  }
+  if (appMode === "ap") {
+    if (field === "max") setBase(0, Math.round(settingValue(BASE_NAMES[0])) + d * mag);
+    else if (field === "min") setBase(1, Math.round(settingValue(BASE_NAMES[1])) + d * mag);
+    return;
+  }
+  if (appMode !== "std") return;
   stdValues[field] = clamp(stdValues[field] + d * mag, 0, 100);
   if (field === "max" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   if (field === "min" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
@@ -4372,7 +4413,7 @@ window.addEventListener("blur", () => { for (const k in kbDown) delete kbDown[k]
 const wizard = { active: false, step: 0, order: [], note: null, slot: "pad" };
 function hideWizard() { const w = $("wizard"); if (w) w.style.display = "none"; }
 function wizardModeNote(a) {
-  if (a.mode === "both") return "Works in BOTH Standard and Advanced modes.";
+  if (a.mode === "both") return "Works in every screen.";
   if (a.mode === "std") return "Standard mode only.";
   if (a.mode === "fun") return "Funscript mode only.";
   return "Advanced mode only.";
