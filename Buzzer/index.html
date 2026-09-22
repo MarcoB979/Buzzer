@@ -1149,8 +1149,8 @@ function machineStateLabel() {
   if (s.indexOf("streaming") === 0) return "Streaming ready";
   if (s.indexOf("strokeEngine") === 0) return "Stroke engine ready";
   if (s.indexOf("advancedPenetration") === 0) return "Advanced ready";
-  if (s.indexOf("menu") === 0 || s === "idle") return "In menu…";
-  return s || "Preparing…";
+  if (s.indexOf("menu") === 0 || s === "idle") return "Starting…";
+  return s || "Getting ready…";
 }
 function updateStartButton() {
   updateHeaderStopButton();
@@ -1209,6 +1209,15 @@ function emergencyStop() {
   }
   updateStartButton();
   log("⚠ Emergency stop — returning to menu.");
+  // Return to a ready state shortly after, so the screen doesn't sit on
+  // "Starting…" and look broken. AP is already ready in the menu, so only
+  // Standard and Funscript need re-entering (with safe values).
+  const modeAtEstop = appMode;
+  setTimeout(() => {
+    if (!connected || !stdCmd || appMode !== modeAtEstop) return;
+    if (appMode === "std") enterStdMode();
+    else if (appMode === "fun") enterStreamingMode();
+  }, 1500);
 }
 function toggleStart() {
   if (appMode === "fun") {
