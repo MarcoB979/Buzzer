@@ -3636,7 +3636,16 @@ function enterStdMode() {
   }
   updateStartButton();
 }
-$("modeAp").onclick = () => { if (!apAvailable()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); };
+function enterApMode() {
+  const s = stdStateName || "";
+  const inMenu = s.indexOf("menu") === 0 || s === "idle";
+  if (connected && stdCmd && !inMenu) {
+    stdStateName = "";
+    requestMode("go:menu");
+  }
+  updateStartButton();
+}
+$("modeAp").onclick = () => { if (!apAvailable()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); enterApMode(); };
 $("modeStd").onclick = () => { leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
 const mFun = $("modeFun");
 if (mFun) mFun.onclick = () => { leaveStreamingIfNeeded(); appMode = "fun"; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
@@ -4141,9 +4150,17 @@ function gpCyclePattern(delta) {
   buildInterface();
 }
 function gpToggleMode() {
+  leaveStreamingIfNeeded();
+  setDemoMode(false);
   if (apAvailable()) appMode = appMode === "ap" ? "std" : (appMode === "std" ? "fun" : "ap");
   else appMode = appMode === "std" ? "fun" : "std";
+  if (appMode === "fun" && !forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock("landscape").catch(() => {});
+  }
   buildInterface();
+  if (appMode === "std") enterStdMode();
+  else if (appMode === "fun") enterStreamingMode();
+  else enterApMode();
 }
 function gpNav(delta) {
   if (viewMode === "mod") {
