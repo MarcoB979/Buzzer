@@ -256,6 +256,19 @@
   .presets-panel summary::after { content: "▾"; font-size: .7rem; }
   .presets-panel[open] summary { margin-bottom: 8px; }
   .presets-panel[open] summary::after { content: "▴"; }
+  .watch-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
+  .watch-panel summary { list-style: none; cursor: pointer; user-select: none; font-size: .8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; }
+  .watch-panel .summary-left { display: flex; align-items: baseline; min-width: 0; gap: 4px; }
+  .watch-panel .summary-value { text-transform: none; letter-spacing: 0; color: var(--text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .watch-panel .summary-value:empty { display: none; }
+  .watch-panel .summary-value:not(:empty)::before { content: ":"; margin-right: 5px; }
+  .watch-panel summary::-webkit-details-marker { display: none; }
+  .watch-panel summary::after { content: "▾"; font-size: .7rem; }
+  .watch-panel[open] summary { margin-bottom: 8px; }
+  .watch-panel[open] summary::after { content: "▴"; }
+  .watch-body { display: flex; flex-direction: column; gap: 8px; }
+  .watch-empty { font-size: .75rem; color: var(--muted); }
+  .watch-body .fun-cast-overlay { position: static; inset: auto; }
   #presetList { display: flex; gap: 8px; align-items: center; }
   #presetList select { flex: 1; width: auto; min-width: 0; }
   #presetList button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 8px 12px; font-weight: bold; cursor: pointer; white-space: nowrap; }
@@ -434,6 +447,14 @@
     </div>
 
     <div class="speed-line" id="speed-control"></div>
+
+    <details class="watch-panel" id="watch-panel" style="display:none;">
+      <summary><span class="summary-left">📺 Video<span id="watchName" class="summary-value"></span></span></summary>
+      <div class="watch-body" id="watch-body">
+        <div class="watch-empty" id="watchEmpty">No video loaded. Load one in Funscript first.</div>
+        <button class="ble-btn" id="watchCastBtn" type="button">Cast to TV</button>
+      </div>
+    </details>
 
     <div class="tabs-container" id="tabs-wrapper"></div>
 
@@ -1190,6 +1211,7 @@ function buildInterface() {
   $("speed-control").style.display = isFun ? "none" : "";
   $("fun-controls").style.display = isFun ? "" : "none";
   $("fun-video").style.display = isFun ? "" : "none";
+  $("watch-panel").style.display = isFun ? "none" : "";
   $("fun-preview-wrap").style.display = isFun ? "" : "none";
   const pv = $("funPreview"); if (pv) pv.style.display = funPreviewShown ? "block" : "none";
   const pvt = $("funPreviewToggle"); if (pvt) { pvt.textContent = funPreviewShown ? "▾" : "▴"; pvt.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
@@ -1216,7 +1238,7 @@ function buildInterface() {
     else { buildSliders(); const fs = $("focused-sliders"); if (fs) fs.style.display = "none"; }
     renderPresets();
   }
-  if (!isFun) { buildSpeed(); resizeCanvas(); drawGraph(); }
+  if (!isFun) { buildSpeed(); resizeCanvas(); drawGraph(); buildWatchPanel(); }
   placeStartButton();
   applyFunLayout();
 }
@@ -2822,6 +2844,7 @@ function initCast() {
           fallbackToLocal();
         }
         updateCastButton();
+        if (appMode !== "fun") buildWatchPanel();
       });
       updateCastButton();
     } catch (err) {}
@@ -3468,9 +3491,15 @@ function updateCastSeekUI() {
   }
   if (funPreviewShown) drawFunPreview();
 }
+function castOverlayHost() {
+  return (appMode === "fun") ? $("fun-video") : $("watch-body");
+}
 function setCastOverlay(show) {
-  const wrap = $("fun-video");
+  const wrap = castOverlayHost();
   if (!wrap) return;
+  const other = (wrap === $("fun-video")) ? $("watch-body") : $("fun-video");
+  const stale = other && other.querySelector(".fun-cast-overlay");
+  if (stale) stale.remove();
   const v = wrap.querySelector("video");
   if (v) v.style.display = show ? "none" : "";
   let ov = wrap.querySelector(".fun-cast-overlay");
@@ -3527,8 +3556,38 @@ function setCastOverlay(show) {
     }
     ov.style.display = "flex";
   } else if (ov) {
-    ov.style.display = "none";
+    ov.remove();
   }
+}
+function buildWatchPanel() {
+  const hasVideo = !!(funState.videoUrl || funState.castUrl || funState.localFile);
+  const wn = $("watchName");
+  if (wn) wn.textContent = hasVideo ? (funState.videoName || "video") : "";
+  const empty = $("watchEmpty");
+  if (empty) empty.style.display = (hasVideo || castConnected) ? "none" : "";
+  const btn = $("watchCastBtn");
+  if (btn) {
+    btn.style.display = (!castConnected && hasVideo) ? "" : "none";
+    btn.disabled = !castAvailable;
+  }
+  setCastOverlay(castConnected);
+}
+function watchCast() {
+  if (!castContext || castConnected) return;
+  castRemoteTime = 0; castClockBaseMs = 0; castEnded = false; castWasPlaying = false;
+  const localFile = funState.localFile;
+  const appId = getCastAppId();
+  if (localFile && appId) {
+    castMode = "webrtc";
+    localCastFile = localFile;
+    setReceiverApp(appId);
+  } else {
+    castMode = "media";
+    setReceiverApp(chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID);
+  }
+  castContext.requestSession().catch(e => {
+    log("Cast failed: " + ((e && (e.description || e.message || e.code)) || "unknown"));
+  });
 }
 function startCastPolling() {
   castRemoteTime = 0; castClockBaseMs = Date.now(); // autoplay: clock starts now
@@ -3656,7 +3715,6 @@ const fpBtn = $("funPreviewToggle");
 if (fpBtn) { fpBtn.textContent = funPreviewShown ? "▾" : "▴"; fpBtn.onclick = toggleFunPreview; }
 function leaveStreamingIfNeeded() {
   if (appMode !== "fun") return;
-  if (castConnected) { try { stopCast(); } catch (e) {} }
   const v = $("funVideo");
   if (v && !v.paused) { try { v.pause(); } catch (e) {} }
   funState.playing = false;
@@ -3756,6 +3814,7 @@ function setDemoMode(on) {
 const hconn = $("header-connect");
 if (hconn) hconn.onclick = () => { if (demoMode) { setDemoMode(false); funLog("Demo mode off."); } else connect(); };
 $("btnStart").onclick = toggleStart;
+const wcb = $("watchCastBtn"); if (wcb) wcb.onclick = watchCast;
 const fvi = $("funVideoInput");
 if (fvi) fvi.addEventListener("change", e => {
   const f = e.target.files && e.target.files[0];
