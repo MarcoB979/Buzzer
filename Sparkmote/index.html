@@ -3821,6 +3821,8 @@ try { const v = localStorage.getItem("ossm-bind-view"); if (v === "kb" || v === 
 let gpIndex = null;
 let gpPrevButtons = [];
 let gpPrevAxes = [];
+let gpDpadBase = -1;   // axis pair index identified as the D-pad hat switch
+let gpPrevDpad = { up:false, down:false, left:false, right:false };
 let listeningFor = null;
 const gpRepeatState = {};
 const kbDown = {}, kbJust = {};
@@ -3829,6 +3831,26 @@ function currentGamepad() {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   if (gpIndex !== null && pads[gpIndex] && pads[gpIndex].connected) return pads[gpIndex];
   for (const p of pads) if (p && p.connected) return p;
+  return null;
+}
+function gpDpadState(gp) {
+  // D-pad reported as a hat switch on a known axis pair.
+  const d = { up:false, down:false, left:false, right:false };
+  if (!gp || !gp.axes || gpDpadBase < 0 || gpDpadBase + 1 >= gp.axes.length) return d;
+  const x = gp.axes[gpDpadBase] || 0, y = gp.axes[gpDpadBase + 1] || 0;
+  d.up = y < -0.75; d.down = y > 0.75; d.left = x < -0.75; d.right = x > 0.75;
+  return d;
+}
+function gpScanDpad(gp) {
+  // During binding: find an active hat-switch-style D-pad pair (axes past the
+  // sticks 0-3 and the likely trigger pair 4-5).
+  if (!gp || !gp.axes) return null;
+  for (let base = 6; base + 1 < gp.axes.length; base += 2) {
+    const x = gp.axes[base] || 0, y = gp.axes[base + 1] || 0;
+    if (Math.abs(x) > 0.75 || Math.abs(y) > 0.75) {
+      return { base, up: y < -0.75, down: y > 0.75, left: x < -0.75, right: x > 0.75 };
+    }
+  }
   return null;
 }
 function kbHeldCount() { return Object.keys(kbDown).length; }
@@ -3943,6 +3965,19 @@ function detectInput(slot) {
   for (let i = 0; i < gp.buttons.length; i++) {
     const cur = !!(gp.buttons[i] && gp.buttons[i].pressed);
     if (cur && !gpPrevButtons[i]) return { src:"pad", kind:"btn", idx:i };
+  }
+  // D-pad reported as a hat switch on axes (non-standard controller mapping).
+  if (gpDpadBase >= 0) {
+    const d = gpDpadState(gp);
+    const dirs = [["up", 12], ["down", 13], ["left", 14], ["right", 15]];
+    for (const [dir, idx] of dirs) if (d[dir] && !gpPrevDpad[dir]) return { src:"pad", kind:"btn", idx };
+  } else {
+    const cand = gpScanDpad(gp);
+    if (cand) {
+      gpDpadBase = cand.base;
+      const dirs = [["up", 12], ["down", 13], ["left", 14], ["right", 15]];
+      for (const [dir, idx] of dirs) if (cand[dir]) return { src:"pad", kind:"btn", idx };
+    }
   }
   for (const stickIdx of [0, 2]) {
     for (const dir of ["up", "down", "left", "right"]) {
@@ -4088,7 +4123,14 @@ function bindingHeld(b, gp) {
   if (!b) return false;
   if (b.src === "kb") return !!kbDown[b.code];
   if (!gp) return false;
-  if (b.kind === "btn" || b.kind === "trigger") return !!(gp.buttons[b.idx] && gp.buttons[b.idx].pressed);
+  if (b.kind === "btn" || b.kind === "trigger") {
+    if (b.idx >= 12 && b.idx <= 15) {
+      const d = gpDpadState(gp);
+      const dir = ["up", "down", "left", "right"][b.idx - 12];
+      return !!(gp.buttons[b.idx] && gp.buttons[b.idx].pressed) || d[dir];
+    }
+    return !!(gp.buttons[b.idx] && gp.buttons[b.idx].pressed);
+  }
   if (b.kind === "stick") {
     const sa = stickAxisSign(b);
     const v = gp.axes[sa[0]] || 0;
@@ -4125,7 +4167,7 @@ function gpPoll() {
   if (listeningFor) {
     const d = detectInput(listeningFor.slot);
     if (d) onBindingCaptured(d);
-    if (gp) { gpPrevButtons = gp.buttons.map(b => !!(b && b.pressed)); gpPrevAxes = (gp.axes || []).slice(); }
+    if (gp) { gpPrevButtons = gp.buttons.map(b => !!(b && b.pressed)); gpPrevAxes = (gp.axes || []).slice(); gpPrevDpad = gpDpadState(gp); }
     for (const k in kbJust) delete kbJust[k];
     return;
   }
@@ -4154,12 +4196,12 @@ function gpPoll() {
     if (bEl) bEl.textContent = "Pressed: " + (pressed.length ? pressed.join("  ") : "—");
   }
 
-  if (gp) { gpPrevButtons = gp.buttons.map(b => !!(b && b.pressed)); gpPrevAxes = (gp.axes || []).slice(); }
+  if (gp) { gpPrevButtons = gp.buttons.map(b => !!(b && b.pressed)); gpPrevAxes = (gp.axes || []).slice(); gpPrevDpad = gpDpadState(gp); }
   for (const k in kbJust) delete kbJust[k];
 }
 
-window.addEventListener("gamepadconnected", (e) => { gpIndex = e.gamepad.index; });
-window.addEventListener("gamepaddisconnected", (e) => { if (gpIndex === e.gamepad.index) { gpIndex = null; gpPrevButtons = []; gpPrevAxes = []; } });
+window.addEventListener("gamepadconnected", (e) => { gpIndex = e.gamepad.index; gpDpadBase = -1; gpPrevDpad = { up:false, down:false, left:false, right:false }; });
+window.addEventListener("gamepaddisconnected", (e) => { if (gpIndex === e.gamepad.index) { gpIndex = null; gpPrevButtons = []; gpPrevAxes = []; gpDpadBase = -1; gpPrevDpad = { up:false, down:false, left:false, right:false }; } });
 
 // Keyboard input (PC browsers) — ignored while typing in form fields.
 window.addEventListener("keydown", (e) => {
