@@ -1103,9 +1103,17 @@ function rampSpeed(from, to) {
     cur = speedRampDown ? Math.max(to, cur - step) : Math.min(to, cur + step);
     const final = cur === to;
     if (appMode === "std") {
+      // Keep local state in lock-step with the ramp so a mid-ramp Stop/Start
+      // uses the real current speed. Without this, a stale "from" makes the
+      // ramp jump back up (or never reach 0) on the next press.
+      stdValues.speed = cur;
+      stdRunning = cur > 0.5;
       if (final) await stdWriteReliable("set:speed:" + cur);
       else await stdWrite("set:speed:" + cur);
     } else {
+      const spd = getSetting(SPEED_KEY);
+      spd.value = cur;
+      settings[SPEED_KEY] = spd;
       if (final) await writeControlReliable(speedIndex() + ":" + cur + ",");
       else await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
     }
@@ -1239,11 +1247,11 @@ function toggleStart() {
   if (appMode === "std") {
     if (!machineRunningState()) { log("Waiting for the OSSM to finish homing…"); return; }
     if (stdRunning) rampSpeed(stdValues.speed, 0);
-    else rampSpeed(0, stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED);
+    else rampSpeed(stdValues.speed, stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED);
     return;
   }
   if (speed() > 0) rampSpeed(speed(), 0);
-  else rampSpeed(0, lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED);
+  else rampSpeed(speed(), lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED);
 }
 
 function setLocal(key, v) {
