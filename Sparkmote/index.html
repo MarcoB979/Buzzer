@@ -107,6 +107,7 @@
   .bind-status { font-size: .72rem; color: #fbbf24; margin: 8px 0 4px; min-height: 1em; }
   .bind-reset { background: none; border: 1px solid #ff5b6a; color: #ff5b6a; border-radius: 6px; padding: 4px 10px; font-size: .72rem; cursor: pointer; margin-top: 6px; }
   .bind-hint { font-size: .7rem; color: var(--muted); margin-bottom: 8px; line-height: 1.35; }
+  .bind-group { font-size: .68rem; text-transform: uppercase; letter-spacing: 1px; color: #7dd3fc; margin: 10px 0 4px; border-bottom: 1px solid var(--border-color); padding-bottom: 3px; }
   .bind-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .bind-wizard { background: #7c3aed; color: #fff; border: none; border-radius: 6px; padding: 5px 10px; font-size: .72rem; font-weight: bold; cursor: pointer; }
   .wizard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
@@ -2250,11 +2251,12 @@ function buildFunControls() {
   bufMinus.onclick = () => setFunBuffer(funState.buffer - 25);
   bufPlus.onclick = () => setFunBuffer(funState.buffer + 25);
 
-  wrap.appendChild(sliderEl("Smoothness", 0, 100, funState.sensation, "#38bdf8", v => {
+  funSmoothSlider = sliderEl("Smoothness", 0, 100, funState.sensation, "#38bdf8", v => {
     funState.sensation = v;
     try { localStorage.setItem("ossm-fun-sensation", String(v)); } catch (e) {}
     stdWrite("set:sensation:" + v);
-  }));
+  });
+  wrap.appendChild(funSmoothSlider);
 
   const offG = document.createElement("div");
   offG.className = "slider-group";
@@ -2447,6 +2449,13 @@ function setFunBuffer(v) {
   if (bv) bv.textContent = funState.buffer + "ms";
   if (br) br.value = funState.buffer;
   if (connected && stdCmd) stdWrite("set:buffer:" + funState.buffer);
+}
+let funSmoothSlider = null;
+function funSetSensation(v) {
+  funState.sensation = clamp(Math.round(v), 0, 100);
+  try { localStorage.setItem("ossm-fun-sensation", String(funState.sensation)); } catch (e) {}
+  if (connected && stdCmd) stdWrite("set:sensation:" + funState.sensation);
+  if (funSmoothSlider && funSmoothSlider.setValue) funSmoothSlider.setValue(funState.sensation);
 }
 
 function funLog(msg) {
@@ -3707,32 +3716,61 @@ const BTN_NAMES = { 0:"A", 1:"B", 2:"X", 3:"Y", 4:"LB", 5:"RB", 6:"LT", 7:"RT", 
 const STICK_NAMES = { 0:"Left stick", 2:"Right stick" };
 const KEY_LABELS = { "ArrowUp":"↑", "ArrowDown":"↓", "ArrowLeft":"←", "ArrowRight":"→", "Space":"Space", "Enter":"Enter", "ShiftLeft":"Shift", "ShiftRight":"Shift", "ControlLeft":"Ctrl", "ControlRight":"Ctrl", "AltLeft":"Alt", "AltRight":"Alt", "Backspace":"⌫", "Tab":"Tab", "Escape":"Esc" };
 const GP_ACTIONS = [
-  { id:"speedUp",   label:"Speed up",        mode:"both", repeat:true, help:"Stroke speed 0–100. BOTH modes: Standard = engine speed; Advanced = the Speed value at the bottom of the screen." },
-  { id:"speedDown", label:"Speed down",      mode:"both", repeat:true, help:"Stroke speed 0–100. BOTH modes: Standard = engine speed; Advanced = the Speed value at the bottom of the screen." },
-  { id:"maxUp",     label:"Max depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Max depth position (stroke goes deeper)." },
-  { id:"maxDown",   label:"Max depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Max depth position." },
-  { id:"minUp",     label:"Min depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Min depth position (stroke starts deeper)." },
-  { id:"minDown",   label:"Min depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Min depth position." },
-  { id:"sensationUp",   label:"Sensation up",   mode:"std", repeat:true, help:"Standard mode: increases sensation 0–100 (50 = neutral)." },
-  { id:"sensationDown", label:"Sensation down", mode:"std", repeat:true, help:"Standard mode: decreases sensation 0–100 (50 = neutral)." },
-  { id:"start",     label:"Start / Stop",    mode:"both", help:"Starts or stops the stroke engine. BOTH modes." },
-  { id:"mode",      label:"Mode toggle",     mode:"both", help:"Switches between the Standard and Advanced screens. BOTH modes." },
-  { id:"patternNext", label:"Pattern next (Std)", mode:"std", repeat:true, help:"Standard mode: next stroke pattern." },
-  { id:"patternPrev", label:"Pattern prev (Std)", mode:"std", repeat:true, help:"Standard mode: previous stroke pattern." },
-  { id:"navNext",   label:"Next base/modifier (AP)", mode:"ap", repeat:true, help:"Advanced mode: moves the highlight to the next base value (or modifier type)." },
-  { id:"navPrev",   label:"Prev base/modifier (AP)", mode:"ap", repeat:true, help:"Advanced mode: moves the highlight to the previous base value (or modifier type)." },
-  { id:"valueUp",   label:"Value +1 (AP)",   mode:"ap", repeat:true, help:"Advanced mode: increases the currently highlighted value by 1." },
-  { id:"valueDown", label:"Value -1 (AP)",   mode:"ap", repeat:true, help:"Advanced mode: decreases the currently highlighted value by 1." },
-  { id:"modEnter",  label:"Enter modifier (AP)", mode:"ap", help:"Advanced mode: opens the modifier controls for the highlighted base value." },
-  { id:"modBack",   label:"Back to main (AP)",  mode:"ap", help:"Advanced mode: closes the modifier controls and returns to the main list." },
-  { id:"presetNext", label:"Preset next (AP)", mode:"ap", repeat:true, help:"Advanced mode: next saved preset." },
-  { id:"presetPrev", label:"Preset prev (AP)", mode:"ap", repeat:true, help:"Advanced mode: previous saved preset." },
-  { id:"colLeft",  label:"Hide/show sliders (◀)",  mode:"both", help:"Landscape: toggles the left sliders column." },
-  { id:"colRight", label:"Hide/show settings (▶)", mode:"both", help:"Landscape: toggles the right settings column." },
-  { id:"fullscreen", label:"Video fullscreen", mode:"fun", help:"Funscript mode: toggles the video to/from fullscreen." },
-  { id:"estop", label:"Emergency stop", mode:"both", help:"Immediately force-stops the OSSM and returns it to the menu." }
+  // ---- General (all screens) ----
+  { id:"start",     group:"general", label:"Start / Stop",    mode:"both", help:"Starts or stops the OSSM. Works in every screen." },
+  { id:"mode",      group:"general", label:"Mode toggle",     mode:"both", help:"Switches between the Advanced, Standard and Funscript screens." },
+  { id:"speedUp",   group:"general", label:"Speed up",        mode:"both", repeat:true, help:"Stroke speed. Standard = engine speed; Advanced = the Speed value; Funscript = Max Speed." },
+  { id:"speedDown", group:"general", label:"Speed down",      mode:"both", repeat:true, help:"Stroke speed. Standard = engine speed; Advanced = the Speed value; Funscript = Max Speed." },
+  { id:"maxUp",     group:"general", label:"Max depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Max depth position (stroke goes deeper)." },
+  { id:"maxDown",   group:"general", label:"Max depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Max depth position." },
+  { id:"minUp",     group:"general", label:"Min depth up",    mode:"std",  repeat:true, help:"Standard mode: increases the Min depth position (stroke starts deeper)." },
+  { id:"minDown",   group:"general", label:"Min depth down",  mode:"std",  repeat:true, help:"Standard mode: decreases the Min depth position." },
+  { id:"sensationUp",   group:"general", label:"Sensation up",   mode:"std", repeat:true, help:"Standard mode: increases sensation 0–100 (50 = neutral)." },
+  { id:"sensationDown", group:"general", label:"Sensation down", mode:"std", repeat:true, help:"Standard mode: decreases sensation 0–100 (50 = neutral)." },
+  { id:"colLeft",  group:"general", label:"Hide/show sliders (◀)",  mode:"both", help:"Landscape: toggles the left sliders column." },
+  { id:"colRight", group:"general", label:"Hide/show settings (▶)", mode:"both", help:"Landscape: toggles the right settings column." },
+  { id:"estop", group:"general", label:"Emergency stop", mode:"both", help:"Immediately force-stops the OSSM and returns it to the menu." },
+
+  // ---- Standard screen ----
+  { id:"patternNext", group:"std", label:"Pattern next", mode:"std", repeat:true, help:"Standard mode: next stroke pattern." },
+  { id:"patternPrev", group:"std", label:"Pattern prev", mode:"std", repeat:true, help:"Standard mode: previous stroke pattern." },
+
+  // ---- Advanced screen ----
+  { id:"navNext",   group:"ap", label:"Next base/modifier", mode:"ap", repeat:true, help:"Advanced mode: moves the highlight to the next base value (or modifier type)." },
+  { id:"navPrev",   group:"ap", label:"Prev base/modifier", mode:"ap", repeat:true, help:"Advanced mode: moves the highlight to the previous base value (or modifier type)." },
+  { id:"valueUp",   group:"ap", label:"Value +1",   mode:"ap", repeat:true, help:"Advanced mode: increases the currently highlighted value by 1." },
+  { id:"valueDown", group:"ap", label:"Value −1",   mode:"ap", repeat:true, help:"Advanced mode: decreases the currently highlighted value by 1." },
+  { id:"modEnter",  group:"ap", label:"Enter modifier", mode:"ap", help:"Advanced mode: opens the modifier controls for the highlighted base value." },
+  { id:"modBack",   group:"ap", label:"Back to main",  mode:"ap", help:"Advanced mode: closes the modifier controls and returns to the main list." },
+  { id:"presetNext", group:"ap", label:"Preset next", mode:"ap", repeat:true, help:"Advanced mode: next saved preset." },
+  { id:"presetPrev", group:"ap", label:"Preset prev", mode:"ap", repeat:true, help:"Advanced mode: previous saved preset." },
+  { id:"resetValues", group:"ap", label:"Reset all values", mode:"ap", help:"Advanced mode: resets every base value, speed and modifier to the firmware defaults." },
+
+  // ---- Funscript screen ----
+  { id:"fullscreen", group:"fun", label:"Video fullscreen", mode:"fun", help:"Funscript mode: toggles the video to/from fullscreen." },
+  { id:"castToggle", group:"fun", label:"Cast / Stop cast", mode:"fun", help:"Funscript mode: starts or stops casting the current video to the TV." },
+  { id:"castPlayPause", group:"fun", label:"Cast play / pause", mode:"fun", help:"Funscript mode: play/pause on the TV." },
+  { id:"castSeekBack", group:"fun", label:"Cast seek back 10s", mode:"fun", help:"Funscript mode: seek the cast back 10 seconds." },
+  { id:"castSeekFwd", group:"fun", label:"Cast seek forward 10s", mode:"fun", help:"Funscript mode: seek the cast forward 10 seconds." },
+  { id:"castReplay", group:"fun", label:"Cast replay", mode:"fun", help:"Funscript mode: restart the cast from the beginning." },
+  { id:"castStop", group:"fun", label:"Cast stop", mode:"fun", help:"Funscript mode: stop casting and return to local playback." },
+  { id:"castVolumeDown", group:"fun", label:"Cast volume down", mode:"fun", help:"Funscript mode: lower the TV volume." },
+  { id:"castVolumeUp", group:"fun", label:"Cast volume up", mode:"fun", help:"Funscript mode: raise the TV volume." },
+  { id:"castMute", group:"fun", label:"Cast mute", mode:"fun", help:"Funscript mode: mute/unmute the TV." },
+  { id:"bufferUp", group:"fun", label:"Buffer up", mode:"fun", repeat:true, help:"Funscript mode: increase the latency buffer (smoother, more lag)." },
+  { id:"bufferDown", group:"fun", label:"Buffer down", mode:"fun", repeat:true, help:"Funscript mode: decrease the latency buffer (tighter sync)." },
+  { id:"smoothnessUp", group:"fun", label:"Smoothness up", mode:"fun", repeat:true, help:"Funscript mode: increase streaming smoothness." },
+  { id:"smoothnessDown", group:"fun", label:"Smoothness down", mode:"fun", repeat:true, help:"Funscript mode: decrease streaming smoothness." },
+  { id:"offsetUp", group:"fun", label:"Script offset +", mode:"fun", repeat:true, help:"Funscript mode: shift the script later (+0.1s)." },
+  { id:"offsetDown", group:"fun", label:"Script offset −", mode:"fun", repeat:true, help:"Funscript mode: shift the script earlier (−0.1s)." },
+  { id:"reverseToggle", group:"fun", label:"Reverse script", mode:"fun", help:"Funscript mode: toggles Reverse Script." },
+  { id:"simplifyToggle", group:"fun", label:"Simplify script", mode:"fun", help:"Funscript mode: toggles Simplify Script." },
+  { id:"demoToggle", group:"fun", label:"Demo mode", mode:"fun", help:"Funscript mode: toggles demo mode (no OSSM needed)." },
+  { id:"previewToggle", group:"fun", label:"Funscript preview", mode:"fun", help:"Funscript mode: shows/hides the position preview." }
 ];
 const DEFAULT_BINDINGS = {
+  start:       { src:"pad", kind:"btn", idx:0 },
+  mode:        { src:"pad", kind:"btn", idx:3 },
   speedUp:     { src:"pad", kind:"stick", idx:0, dir:"up" },
   speedDown:   { src:"pad", kind:"stick", idx:0, dir:"down" },
   maxUp:       { src:"pad", kind:"stick", idx:0, dir:"left" },
@@ -3741,8 +3779,9 @@ const DEFAULT_BINDINGS = {
   minDown:     { src:"pad", kind:"stick", idx:2, dir:"down" },
   sensationUp:   { src:"pad", kind:"stick", idx:2, dir:"left" },
   sensationDown: { src:"pad", kind:"stick", idx:2, dir:"right" },
-  start:       { src:"pad", kind:"btn", idx:0 },
-  mode:        { src:"pad", kind:"btn", idx:3 },
+  colLeft:     { src:"pad", kind:"btn", idx:10 },
+  colRight:    { src:"pad", kind:"btn", idx:11 },
+  estop:       { src:"pad", kind:"btn", idx:8 },
   patternNext: { src:"pad", kind:"btn", idx:15 },
   patternPrev: { src:"pad", kind:"btn", idx:14 },
   navNext:     { src:"pad", kind:"btn", idx:15 },
@@ -3753,12 +3792,31 @@ const DEFAULT_BINDINGS = {
   modBack:     { src:"pad", kind:"btn", idx:1 },
   presetNext:  { src:"pad", kind:"btn", idx:5 },
   presetPrev:  { src:"pad", kind:"btn", idx:4 },
-  colLeft:     { src:"pad", kind:"btn", idx:10 },
-  colRight:    { src:"pad", kind:"btn", idx:11 },
+  resetValues: null,
   fullscreen:  { src:"pad", kind:"btn", idx:9 },
-  estop:       { src:"pad", kind:"btn", idx:8 }
+  castToggle:  { src:"pad", kind:"btn", idx:6 },
+  castPlayPause: { src:"pad", kind:"btn", idx:2 },
+  castSeekBack:  { src:"pad", kind:"btn", idx:14 },
+  castSeekFwd:   { src:"pad", kind:"btn", idx:15 },
+  castReplay:    { src:"pad", kind:"btn", idx:1 },
+  castStop:      { src:"pad", kind:"btn", idx:16 },
+  castVolumeDown:{ src:"pad", kind:"btn", idx:4 },
+  castVolumeUp:  { src:"pad", kind:"btn", idx:5 },
+  castMute:      { src:"pad", kind:"btn", idx:7 },
+  bufferUp:    { src:"pad", kind:"stick", idx:2, dir:"up" },
+  bufferDown:  { src:"pad", kind:"stick", idx:2, dir:"down" },
+  smoothnessUp:   { src:"pad", kind:"stick", idx:2, dir:"left" },
+  smoothnessDown: { src:"pad", kind:"stick", idx:2, dir:"right" },
+  offsetUp:    { src:"pad", kind:"stick", idx:0, dir:"right" },
+  offsetDown:  { src:"pad", kind:"stick", idx:0, dir:"left" },
+  reverseToggle:  { src:"pad", kind:"btn", idx:12 },
+  simplifyToggle: { src:"pad", kind:"btn", idx:13 },
+  demoToggle:  null,
+  previewToggle: null
 };
 const DEFAULT_KB_BINDINGS = {
+  start:         { src:"kb", kind:"btn", code:"Space", key:" " },
+  mode:          { src:"kb", kind:"btn", code:"KeyM", key:"m" },
   speedUp:       { src:"kb", kind:"btn", code:"ArrowUp", key:"↑" },
   speedDown:     { src:"kb", kind:"btn", code:"ArrowDown", key:"↓" },
   maxUp:         { src:"kb", kind:"btn", code:"KeyW", key:"w" },
@@ -3767,8 +3825,9 @@ const DEFAULT_KB_BINDINGS = {
   minDown:       { src:"kb", kind:"btn", code:"KeyD", key:"d" },
   sensationUp:   { src:"kb", kind:"btn", code:"KeyR", key:"r" },
   sensationDown: { src:"kb", kind:"btn", code:"KeyF", key:"f" },
-  start:         { src:"kb", kind:"btn", code:"Space", key:" " },
-  mode:          { src:"kb", kind:"btn", code:"KeyM", key:"m" },
+  colLeft:       { src:"kb", kind:"btn", code:"KeyO", key:"o" },
+  colRight:      { src:"kb", kind:"btn", code:"KeyP", key:"p" },
+  estop:         { src:"kb", kind:"btn", code:"Escape", key:"Esc" },
   patternNext:   { src:"kb", kind:"btn", code:"BracketRight", key:"]" },
   patternPrev:   { src:"kb", kind:"btn", code:"BracketLeft", key:"[" },
   navNext:       { src:"kb", kind:"btn", code:"Period", key:"." },
@@ -3779,10 +3838,27 @@ const DEFAULT_KB_BINDINGS = {
   modBack:       { src:"kb", kind:"btn", code:"Backspace", key:"⌫" },
   presetNext:    { src:"kb", kind:"btn", code:"KeyN", key:"n" },
   presetPrev:    { src:"kb", kind:"btn", code:"KeyB", key:"b" },
-  colLeft:       { src:"kb", kind:"btn", code:"KeyO", key:"o" },
-  colRight:      { src:"kb", kind:"btn", code:"KeyP", key:"p" },
+  resetValues:   null,
   fullscreen:    { src:"kb", kind:"btn", code:"KeyV", key:"v" },
-  estop:         { src:"kb", kind:"btn", code:"Escape", key:"Esc" }
+  castToggle:    { src:"kb", kind:"btn", code:"KeyC", key:"c" },
+  castPlayPause: { src:"kb", kind:"btn", code:"KeyK", key:"k" },
+  castSeekBack:  { src:"kb", kind:"btn", code:"KeyJ", key:"j" },
+  castSeekFwd:   { src:"kb", kind:"btn", code:"KeyL", key:"l" },
+  castReplay:    { src:"kb", kind:"btn", code:"KeyU", key:"u" },
+  castStop:      { src:"kb", kind:"btn", code:"KeyQ", key:"q" },
+  castVolumeDown:{ src:"kb", kind:"btn", code:"KeyH", key:"h" },
+  castVolumeUp:  { src:"kb", kind:"btn", code:"KeyI", key:"i" },
+  castMute:      { src:"kb", kind:"btn", code:"KeyG", key:"g" },
+  bufferUp:      { src:"kb", kind:"btn", code:"KeyT", key:"t" },
+  bufferDown:    { src:"kb", kind:"btn", code:"KeyY", key:"y" },
+  smoothnessUp:   { src:"kb", kind:"btn", code:"KeyZ", key:"z" },
+  smoothnessDown: { src:"kb", kind:"btn", code:"KeyX", key:"x" },
+  offsetUp:      { src:"kb", kind:"btn", code:"KeyA", key:"a" },
+  offsetDown:    { src:"kb", kind:"btn", code:"KeyB", key:"b" },
+  reverseToggle:  { src:"kb", kind:"btn", code:"Digit1", key:"1" },
+  simplifyToggle: { src:"kb", kind:"btn", code:"Digit2", key:"2" },
+  demoToggle:     { src:"kb", kind:"btn", code:"Digit3", key:"3" },
+  previewToggle:  { src:"kb", kind:"btn", code:"Digit4", key:"4" }
 };
 
 function loadBindings() {
@@ -3906,7 +3982,7 @@ function buildBindingUI() {
     const k = bindingKey(map[a.id]);
     if (k) (byKey[k] = byKey[k] || []).push(a);
   }
-  for (const a of GP_ACTIONS) {
+  const addRow = (a) => {
     const dup = dupIn(map, byKey, a);
     const row = document.createElement("div");
     row.className = "bind-row" + (dup ? " bind-conflict" : "");
@@ -3929,6 +4005,21 @@ function buildBindingUI() {
     clearBtn.onclick = () => { map[a.id] = null; saveBindings(); buildBindingUI(); const bs = $("bind-status"); if (bs) bs.textContent = "Cleared."; };
     row.appendChild(label); row.appendChild(val); row.appendChild(btn); row.appendChild(clearBtn);
     list.appendChild(row);
+  };
+  const groups = [
+    { id: "general", title: "General (all screens)" },
+    { id: "std", title: "Standard screen" },
+    { id: "ap", title: "Advanced screen" },
+    { id: "fun", title: "Funscript screen" }
+  ];
+  for (const g of groups) {
+    const actions = GP_ACTIONS.filter(a => a.group === g.id);
+    if (!actions.length) continue;
+    const hdr = document.createElement("div");
+    hdr.className = "bind-group";
+    hdr.textContent = g.title;
+    list.appendChild(hdr);
+    for (const a of actions) addRow(a);
   }
   const bp = $("bindViewPad"), bk = $("bindViewKb");
   if (bp) bp.classList.toggle("active", bindViewSlot === "pad");
@@ -4112,9 +4203,29 @@ function gpHandleDigital(id) {
     case "modBack": gpModBack(); break;
     case "presetNext": gpPresetNav(1); break;
     case "presetPrev": gpPresetNav(-1); break;
+    case "resetValues": resetAllValues(); break;
     case "colLeft": toggleColSide(1); break;
     case "colRight": toggleColSide(3); break;
     case "fullscreen": toggleVideoFullscreen(); break;
+    case "castToggle": toggleCast(); break;
+    case "castPlayPause": castPlayPause(); break;
+    case "castSeekBack": seekCast(castTimeNow() - 10); break;
+    case "castSeekFwd": seekCast(castTimeNow() + 10); break;
+    case "castReplay": replayCast(); break;
+    case "castStop": stopCast(); break;
+    case "castVolumeDown": adjustCastVolume(-0.1); break;
+    case "castVolumeUp": adjustCastVolume(0.1); break;
+    case "castMute": toggleCastMute(); break;
+    case "bufferUp": setFunBuffer(funState.buffer + 25); break;
+    case "bufferDown": setFunBuffer(funState.buffer - 25); break;
+    case "smoothnessUp": funSetSensation(funState.sensation + 5); break;
+    case "smoothnessDown": funSetSensation(funState.sensation - 5); break;
+    case "offsetUp": setFunOffset(funState.offsetMs + 100); break;
+    case "offsetDown": setFunOffset(funState.offsetMs - 100); break;
+    case "reverseToggle": funState.reverse = !funState.reverse; rebuildFunscript(); buildFunControls(); break;
+    case "simplifyToggle": funState.simplify = !funState.simplify; rebuildFunscript(); buildFunControls(); break;
+    case "demoToggle": setDemoMode(!demoMode); break;
+    case "previewToggle": toggleFunPreview(); break;
     case "estop": emergencyStop(); break;
   }
 }
