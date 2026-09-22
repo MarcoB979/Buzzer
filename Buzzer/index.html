@@ -2467,7 +2467,7 @@ function buildFunControls() {
 
   const bufG = document.createElement("div");
   bufG.className = "slider-group";
-  bufG.title = "Latency buffer: higher = smoother but more lag; lower = tighter sync but more sensitive to BLE hiccups.";
+  bufG.title = "Latency buffer: higher = smoother but more lag; lower = tighter sync but more sensitive to BLE hiccups. The offset auto-adjusts to keep sync.";
   bufG.innerHTML = `<div class="slider-row"><span class="slider-name">Buffer</span><span class="val-num" id="funBufferVal" style="background:#8b5cf6;color:#fff">${funState.buffer}ms</span><button type="button" class="step-btn minus" id="funBufferMinus">−</button><input type="range" id="funBufferRange" min="0" max="1000" value="${funState.buffer}" step="25"><button type="button" class="step-btn plus" id="funBufferPlus">+</button></div>`;
   wrap.appendChild(bufG);
   const bufRange = bufG.querySelector("#funBufferRange");
@@ -2665,16 +2665,30 @@ function setFunOffset(ms) {
 }
 function updateOffsetUI() {
   const v = $("funOffsetVal"), r = $("funOffsetRange");
-  if (v) { const s = funState.offsetMs / 1000; v.textContent = (s >= 0 ? "+" : "") + s.toFixed(1) + "s"; }
+  if (v) {
+    const s = funState.offsetMs / 1000;
+    const dec = (funState.offsetMs % 100 === 0) ? 1 : 2;
+    v.textContent = (s >= 0 ? "+" : "") + s.toFixed(dec) + "s";
+  }
   if (r) r.value = funState.offsetMs;
 }
 function setFunBuffer(v) {
+  const oldBuffer = funState.buffer;
   funState.buffer = Math.max(0, Math.min(1000, Math.round(v / 25) * 25));
+  const delta = funState.buffer - oldBuffer;
   try { localStorage.setItem("ossm-fun-buffer", funState.buffer); } catch (e) {}
   const bv = $("funBufferVal"), br = $("funBufferRange");
   if (bv) bv.textContent = funState.buffer + "ms";
   if (br) br.value = funState.buffer;
   if (connected && stdCmd) stdWrite("set:buffer:" + funState.buffer);
+  // A bigger buffer adds that much more fixed lag, so shift the script offset by
+  // the same amount to cancel it. Your manual offset (for BLE/firmware latency)
+  // is preserved on top of this.
+  if (delta !== 0) {
+    funState.offsetMs = Math.max(-10000, Math.min(30000, funState.offsetMs + delta));
+    if (funState.playing) syncFunToTime(currentPlaybackMs());
+    updateOffsetUI();
+  }
 }
 let funSmoothSlider = null;
 let funMaxDepthSlider = null;
