@@ -614,6 +614,7 @@ let stdLastSpeed = 0;
 let speedRampTimer = null;
 let speedRampTarget = 0;
 let speedRampDown = false;
+let speedRampToken = 0;
 let speedRampEnabled = true;
 try { speedRampEnabled = localStorage.getItem("ossm-speed-ramp") !== "0"; } catch (e) {}
 
@@ -979,7 +980,8 @@ function setSpeed(v) { stopSpeedRamp(); setBase(speedIndex(), v); if (v > 0) las
 
 const SPEED_RAMP_MS = 90;
 function stopSpeedRamp() {
-  if (speedRampTimer) { clearInterval(speedRampTimer); speedRampTimer = null; }
+  speedRampToken++;
+  if (speedRampTimer) { clearTimeout(speedRampTimer); speedRampTimer = null; }
   speedRampTarget = 0;
   speedRampDown = false;
 }
@@ -1010,17 +1012,21 @@ function rampSpeed(from, to) {
   else if (appMode === "ap") { if (to > 0) lastNonZeroSpeed = to; }
   speedRampTarget = to;
   speedRampDown = to < from;
+  const token = speedRampToken;
   let cur = from;
   const t0 = performance.now();
-  speedRampTimer = setInterval(() => {
-    if (!connected || !stdCmd || (appMode !== "std" && appMode !== "ap")) { stopSpeedRamp(); return; }
+  const tick = async () => {
+    if (token !== speedRampToken || !connected || !stdCmd || (appMode !== "std" && appMode !== "ap")) return;
     const t = performance.now() - t0;
     const step = t < 800 ? 1 : (t < 2000 ? 2 : (t < 4000 ? 4 : 8));
     cur = speedRampDown ? Math.max(to, cur - step) : Math.min(to, cur + step);
-    if (appMode === "std") stdWrite("set:speed:" + cur);
-    else writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
-    if (cur === to) stopSpeedRamp();
-  }, SPEED_RAMP_MS);
+    if (appMode === "std") await stdWrite("set:speed:" + cur);
+    else await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
+    if (token !== speedRampToken) return; // cancelled mid-write
+    if (cur === to) { stopSpeedRamp(); return; }
+    speedRampTimer = setTimeout(tick, SPEED_RAMP_MS);
+  };
+  speedRampTimer = setTimeout(tick, SPEED_RAMP_MS);
 }
 function setModifier(bi, mi, v) {
   const key = modifierKey(bi, mi);
@@ -1236,6 +1242,7 @@ function buildInterface() {
   $("fun-controls").style.display = isFun ? "" : "none";
   $("fun-video").style.display = isFun ? "" : "none";
   $("watch-panel").style.display = isFun ? "none" : "";
+  if (!isFun) placeWatchPanel();
   $("fun-preview-wrap").style.display = isFun ? "" : "none";
   const pv = $("funPreview"); if (pv) pv.style.display = funPreviewShown ? "block" : "none";
   const pvt = $("funPreviewToggle"); if (pvt) { pvt.textContent = funPreviewShown ? "▾" : "▴"; pvt.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
@@ -3594,6 +3601,21 @@ function setCastOverlay(show) {
     ov.style.display = "flex";
   } else if (ov) {
     ov.remove();
+  }
+}
+function placeWatchPanel() {
+  const wp = $("watch-panel");
+  if (!wp) return;
+  if (appMode === "ap") {
+    const mr = $("mode-row");
+    if (mr && mr.parentNode) {
+      if (wp.parentNode !== mr.parentNode || wp.nextElementSibling !== mr) mr.parentNode.insertBefore(wp, mr);
+    }
+    wp.style.order = "8";
+  } else {
+    const sc = $("speed-control");
+    if (sc && sc.parentNode && wp.previousElementSibling !== sc) sc.insertAdjacentElement("afterend", wp);
+    wp.style.order = "";
   }
 }
 function buildWatchPanel() {
