@@ -870,7 +870,13 @@ function disconnect() {
   } catch (e) { log("Disconnect failed: " + e.message); }
 }
 
-function onStatus(ev) { parseStatus(decode(ev.target.value)); buildInterface(); }
+function onStatus(ev) {
+  parseStatus(decode(ev.target.value));
+  // In Funscript mode the screen is driven by video/cast events, not AP status;
+  // a full rebuild here would churn the DOM and can disturb the video element.
+  if (appMode === "fun") return;
+  buildInterface();
+}
 async function refreshStatus() { parseStatus(await readStr(stsChar)); }
 async function refreshPresets() {
   presetNames = (await readStr(prsChar)).split(",").map(s => s.trim()).filter(Boolean);
@@ -941,15 +947,21 @@ async function stdWriteReliable(cmd) {
   catch (e) { try { await stdCmd.writeValueWithoutResponse(data); } catch (e2) { log("Std write failed: " + e2.message); } }
 }
 let streamFallbackNotified = false;
+let streamPendingWrites = 0;
+const STREAM_MAX_PENDING = 8;
 function writeStream(cmd) {
   if (streamChar) {
     const enc = encode(cmd);
+    streamPendingWrites++;
+    const done = () => { streamPendingWrites--; };
     streamChar.writeValueWithoutResponse(enc).catch(() => {
       if (!streamFallbackNotified) { streamFallbackNotified = true; log("BLE: using acknowledged writes (slower)."); }
-      streamChar.writeValueWithResponse(enc).catch(e => log("Stream write failed: " + (e && e.message)));
-    });
+      return streamChar.writeValueWithResponse(enc).catch(e => log("Stream write failed: " + (e && e.message)));
+    }).then(done, done);
   } else if (stdCmd) {
-    stdWrite("stream:" + cmd);
+    streamPendingWrites++;
+    const done = () => { streamPendingWrites--; };
+    stdWrite("stream:" + cmd).then(done, done);
   }
 }
 
@@ -1263,12 +1275,16 @@ function placeStartButton() {
   else anchor = $("sliders-wrapper");
   if (anchor && anchor.nextElementSibling !== row) anchor.insertAdjacentElement("afterend", row);
 }
+let lastFocusStatusHtml = "";
 function updateFocusStatus() {
   const el = $("focus-status");
   if (!el) return;
   const ble = connected ? "Connected" : "Disconnected";
-  el.innerHTML = `<span class="fs-dot${connected ? " on" : ""}"></span><span>${ble}</span>` +
-                 (padStateText ? `<span class="fs-sep">·</span><span>${padStateText}</span>` : "");
+  const html = `<span class="fs-dot${connected ? " on" : ""}"></span><span>${ble}</span>` +
+               (padStateText ? `<span class="fs-sep">·</span><span>${padStateText}</span>` : "");
+  if (html === lastFocusStatusHtml) return; // avoid innerHTML churn every poll
+  lastFocusStatusHtml = html;
+  el.innerHTML = html;
 }
 let sliderDragging = false;
 document.addEventListener("pointerdown", (e) => {
@@ -2849,9 +2865,13 @@ function funStartStreaming() {
   $("btnStart").textContent = "Stop";
   $("btnStart").classList.add("stop");
 }
+let lastFunPreviewDraw = 0;
 function funStreamTick() {
   if (!funState.playing) return;
-  if (funPreviewShown) drawFunPreview();
+  if (funPreviewShown) {
+    const now = performance.now();
+    if (now - lastFunPreviewDraw > 250) { lastFunPreviewDraw = now; drawFunPreview(); }
+  }
   let t;
   if (castConnected) t = castTimeNow() * 1000;
   else { const v = $("funVideo"); if (!v) return; t = v.currentTime * 1000; }
@@ -2875,7 +2895,10 @@ function funStreamTick() {
   const acts = funState.actions;
   const off = funState.offsetMs;
   let sent = 0;
-  while (funState.nextIdx < acts.length - 1 && sent < 4) {
+  // Back-pressure: if writes are backing up on the BLE link, stop queueing more
+  // this tick (they'll catch up next tick). Halve the batch in acknowledged mode.
+  const batchCap = streamFallbackNotified ? 2 : 4;
+  while (funState.nextIdx < acts.length - 1 && sent < batchCap && streamPendingWrites < STREAM_MAX_PENDING) {
     const cur = acts[funState.nextIdx];
     if (cur.at + off > t) break;
     const nxt = acts[funState.nextIdx + 1];
@@ -4962,6 +4985,10 @@ document.addEventListener("pointercancel", clearSliderGuard, true);
 // Fallback state polling: keeps the Start button in sync even if BLE notify is flaky.
 setInterval(() => {
   if (!connected || !stdState) return;
+  // Don't do GATT reads while a funscript is streaming — they stall the BLE link
+  // and cause periodic desync with the video. (In fun mode the Start button is
+  // driven by the video play/pause events, not by BLE state.)
+  if (appMode === "fun" && funState.playing) return;
   stdState.readValue().then(v => {
     const before = stdStateName;
     parseStdState(decode(v));
