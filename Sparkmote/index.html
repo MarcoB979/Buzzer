@@ -1256,10 +1256,11 @@ function buildInterface() {
   const fst = $("focus-status"); if (fst) fst.style.display = (focusedMode() || isFun) ? "" : "none";
   const hc = $("header-connect");
   if (hc) {
-    hc.style.display = (isFun && !connected) ? "" : "none";
+    hc.style.display = (!connected) ? "" : "none";
     hc.textContent = demoMode ? "DEMO" : "Connect";
     hc.classList.toggle("demo", !!demoMode);
   }
+  const bp = $("ble-panel"); if (bp) bp.style.display = "none"; // Connect lives in the header now
 
   if (isFun) { buildFunControls(); buildFunVideo(); }
   else if (isStd) { buildStdSliders(); const fs = $("focused-sliders"); if (fs) fs.style.display = "none"; }
