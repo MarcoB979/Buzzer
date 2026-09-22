@@ -3811,9 +3811,10 @@ function leaveStreamingIfNeeded() {
 }
 function machineMoving() {
   if (!connected || demoMode) return false;
-  if (stdRunning) return true;
-  if (appMode === "fun" && funState.playing) return true;
-  if (appMode === "ap" && speed() > 0) return true;
+  const s = stdStateName || "";
+  if (appMode === "std") return s.indexOf("strokeEngine") === 0 && stdRunning; // stroke engine actively stroking
+  if (appMode === "fun") return funState.playing; // video actually playing
+  if (appMode === "ap") return speed() > 0;       // advanced penetration running
   return false;
 }
 function modeChangeBlocked() {
