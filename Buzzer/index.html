@@ -629,6 +629,8 @@ let speedRampDown = false;
 let speedRampToken = 0;
 let speedRampEnabled = true;
 try { speedRampEnabled = localStorage.getItem("ossm-speed-ramp") !== "0"; } catch (e) {}
+let apSpeedSeq = 0;
+let stdSpeedSeq = 0;
 
 const BASE_NAMES = ["Max Depth", "Min Depth", "In Speed", "Out Speed", "In Accel", "Out Accel"];
 const BASE_COLORS = ["#ff0c00", "#ff8100", "#ffff00", "#00ff00", "#0000ff", "#ac8dee"];
@@ -698,6 +700,10 @@ async function readStr(ch) { return decode(await ch.readValue()); }
 async function writeControl(s) {
   try { await ctlChar.writeValueWithoutResponse(encode(s)); }
   catch { await ctlChar.writeValueWithResponse(encode(s)); }
+}
+async function writeControlReliable(s) {
+  try { await ctlChar.writeValueWithResponse(encode(s)); }
+  catch { await ctlChar.writeValueWithoutResponse(encode(s)); }
 }
 async function writePreset(s) { await prsChar.writeValueWithResponse(encode(s)); }
 
@@ -997,10 +1003,27 @@ function setBase(i, v) {
   s.value = v;
   settings[key] = s;
   if (i >= 0 && i < BASE_NAMES.length) activeBaseIndex = i; // highlight the moved setting
-  writeControl(`${i}:${v},`).catch(e => log("Write failed: " + e));
+  const payload = `${i}:${v},`;
+  // Speed (index 6) is safety-critical: use an acknowledged write so a stop
+  // command isn't silently dropped while the OSSM is mid-stroke.
+  if (i === speedIndex()) writeControlReliable(payload).catch(e => log("Write failed: " + e));
+  else writeControl(payload).catch(e => log("Write failed: " + e));
   buildInterface();
 }
-function setSpeed(v) { stopSpeedRamp(); setBase(speedIndex(), v); if (v > 0) lastNonZeroSpeed = v; }
+function setSpeed(v) {
+  stopSpeedRamp();
+  apSpeedSeq++;
+  const seq = apSpeedSeq;
+  setBase(speedIndex(), v);
+  if (v > 0) lastNonZeroSpeed = v;
+  // A stop (speed 0) can be dropped mid-stroke, especially during direction
+  // reversal. Re-send it once unless a newer speed command superseded it.
+  if (v === 0) {
+    setTimeout(() => {
+      if (seq === apSpeedSeq && connected && ctlChar) writeControlReliable(speedIndex() + ":0,").catch(() => {});
+    }, 150);
+  }
+}
 
 const SPEED_RAMP_MS = 90;
 function stopSpeedRamp() {
@@ -1012,16 +1035,30 @@ function stopSpeedRamp() {
 function setStdSpeed(v) {
   stopSpeedRamp();
   v = clamp(Math.round(v), 0, 100);
+  stdSpeedSeq++;
+  const seq = stdSpeedSeq;
   stdValues.speed = v;
   if (v > 0) stdLastSpeed = v;
-  stdWrite("set:speed:" + v);
+  stdWriteReliable("set:speed:" + v);
+  if (v === 0) {
+    setTimeout(() => {
+      if (seq === stdSpeedSeq && connected && stdCmd) stdWriteReliable("set:speed:0");
+    }, 150);
+  }
 }
 function applySpeedInstant(to) {
   to = clamp(Math.round(to), 0, 100);
   if (appMode === "std") {
+    stdSpeedSeq++;
+    const seq = stdSpeedSeq;
     stdValues.speed = to;
     if (to > 0) stdLastSpeed = to;
-    stdWrite("set:speed:" + to);
+    stdWriteReliable("set:speed:" + to);
+    if (to === 0) {
+      setTimeout(() => {
+        if (seq === stdSpeedSeq && connected && stdCmd) stdWriteReliable("set:speed:0");
+      }, 150);
+    }
   } else if (appMode === "ap") {
     setSpeed(to);
   }
@@ -1029,6 +1066,8 @@ function applySpeedInstant(to) {
 function rampSpeed(from, to) {
   from = clamp(Math.round(from), 0, 100);
   to = clamp(Math.round(to), 0, 100);
+  if (appMode === "std") stdSpeedSeq++;
+  else if (appMode === "ap") apSpeedSeq++;
   stopSpeedRamp();
   if (from === to) return;
   if (!speedRampEnabled) { applySpeedInstant(to); return; }
@@ -1049,7 +1088,8 @@ function rampSpeed(from, to) {
       if (final) await stdWriteReliable("set:speed:" + cur);
       else await stdWrite("set:speed:" + cur);
     } else {
-      await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
+      if (final) await writeControlReliable(speedIndex() + ":" + cur + ",");
+      else await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
     }
     if (token !== speedRampToken) return; // cancelled mid-write
     if (final) { stopSpeedRamp(); return; }
@@ -3927,11 +3967,11 @@ function applyStdSafeValues() {
     if (typeof sv.pattern === "number") stdValues.pattern = Math.round(sv.pattern);
   } catch (e) {}
   if (connected && stdCmd) {
-    stdWrite("set:speed:0");
-    stdWrite("set:max:" + stdValues.max);
-    stdWrite("set:min:" + stdValues.min);
-    stdWrite("set:sensation:" + stdValues.sensation);
-    stdWrite("set:pattern:" + stdValues.pattern);
+    stdWriteReliable("set:speed:0");
+    stdWriteReliable("set:max:" + stdValues.max);
+    stdWriteReliable("set:min:" + stdValues.min);
+    stdWriteReliable("set:sensation:" + stdValues.sensation);
+    stdWriteReliable("set:pattern:" + stdValues.pattern);
   }
   updateStartButton();
 }
