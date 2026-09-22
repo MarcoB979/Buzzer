@@ -1180,12 +1180,18 @@ function updateHeaderStopButton() {
 }
 function emergencyStop() {
   modeWatchPausedUntil = Date.now() + 15000; // keep the watchdog from re-entering the previous mode
-  if (connected && stdCmd) stdWrite("go:menu");
+  if (connected && stdCmd) stdWriteReliable("go:menu");
   const v = $("funVideo");
   if (v && !v.paused) { try { v.pause(); } catch (e) {} }
   funState.playing = false;
   if (funState.timer) { clearInterval(funState.timer); funState.timer = null; }
+  stopSpeedRamp();
   stdRunning = false;
+  stdValues.speed = 0;
+  stdLastSpeed = 0;
+  lastNonZeroSpeed = 0;
+  settings[SPEED_KEY] = settings[SPEED_KEY] || { min: 0, max: 100, value: 0 };
+  settings[SPEED_KEY].value = 0;
   if (castConnected && castContext) {
     castPausedLocal = false;
     try {
@@ -1303,7 +1309,18 @@ function uiBusy() {
   const ae = document.activeElement;
   return !!(ae && ae.tagName === "SELECT");
 }
+let buildQueued = false;
 function buildInterface() {
+  // Coalesce rapid rebuild requests (slider drags, controller repeats, BLE
+  // notifications) into one render per animation frame.
+  if (buildQueued) return;
+  buildQueued = true;
+  requestAnimationFrame(() => {
+    buildQueued = false;
+    buildInterfaceNow();
+  });
+}
+function buildInterfaceNow() {
   if (uiBusy()) return; // keep dropdowns/sliders open — don't rebuild mid-interaction
   if (appMode === "ap" && !apAvailable()) appMode = "std";
   const isStd = appMode === "std";
@@ -3662,7 +3679,6 @@ function updateCastSeekUI() {
     }
     pp.textContent = playing ? "⏸ Pause" : "▶ Play";
   }
-  if (funPreviewShown) drawFunPreview();
 }
 function castOverlayHost() {
   return (appMode === "fun") ? $("fun-video") : $("watch-body");
