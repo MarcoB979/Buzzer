@@ -4125,7 +4125,7 @@ function gpPoll() {
   if (listeningFor) {
     const d = detectInput(listeningFor.slot);
     if (d) onBindingCaptured(d);
-    if (gp) { gpPrevButtons = gp.buttons.slice(); gpPrevAxes = (gp.axes || []).slice(); }
+    if (gp) { gpPrevButtons = gp.buttons.map(b => !!(b && b.pressed)); gpPrevAxes = (gp.axes || []).slice(); }
     for (const k in kbJust) delete kbJust[k];
     return;
   }
@@ -4154,7 +4154,7 @@ function gpPoll() {
     if (bEl) bEl.textContent = "Pressed: " + (pressed.length ? pressed.join("  ") : "—");
   }
 
-  if (gp) { gpPrevButtons = gp.buttons.slice(); gpPrevAxes = (gp.axes || []).slice(); }
+  if (gp) { gpPrevButtons = gp.buttons.map(b => !!(b && b.pressed)); gpPrevAxes = (gp.axes || []).slice(); }
   for (const k in kbJust) delete kbJust[k];
 }
 
