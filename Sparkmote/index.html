@@ -64,6 +64,7 @@
   #presets-panel { order: 11; }
   .start-stop-row { order: 12; }
   #pad-debug { order: 13; }
+  #watch-panel { order: 9; }
   .ble-panel {
     display: flex; justify-content: space-between; align-items: center;
     background-color: #111827; padding: 10px; border-radius: 12px;
@@ -3611,7 +3612,6 @@ function placeWatchPanel() {
   if (mr && mr.parentNode) {
     if (wp.parentNode !== mr.parentNode || wp.nextElementSibling !== mr) mr.parentNode.insertBefore(wp, mr);
   }
-  wp.style.order = "9";
 }
 function buildWatchPanel() {
   const hasVideo = !!(funState.videoUrl || funState.castUrl || funState.localFile);
