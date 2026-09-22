@@ -164,7 +164,7 @@
   .fun-file { font-family: monospace; font-size: .7rem; color: #38bdf8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fun-video { background: #000; border: 1px solid var(--border-color); border-radius: 8px; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
   .fun-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-  .fun-cast-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 6px; background: #0f172a; border-radius: 8px; z-index: 2; }
+  .fun-cast-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: safe center; gap: 6px; background: #0f172a; border-radius: 8px; z-index: 2; overflow-y: auto; padding: 10px; }
   .fun-placeholder { color: var(--muted); font-size: .9rem; padding: 40px; text-align: center; }
   .phone-container.fun .col-left { display: none; }
   .phone-container.fun .col-right { display: none; }
@@ -1121,15 +1121,14 @@ function emergencyStop() {
 function toggleStart() {
   if (appMode === "fun") {
     if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
-    if (castConnected && castSession) {
-      try {
-        const media = castSession.getMediaSession ? castSession.getMediaSession() : (castMedia || null);
-        if (!media) { funLog("No media session."); return; }
-        const ps = media.playerState;
-        const playing = ps === "PLAYING" || ps === "BUFFERING";
-        if (playing && media.pause) media.pause(mkCastRequest("PauseRequest"), () => {}, () => {});
-        else if (media.play) media.play(mkCastRequest("PlayRequest"), () => {}, () => {});
-      } catch (e) { funLog("Cast control failed."); }
+    if (castConnected) {
+      if (funState.playing) {
+        castSetPlaying(false); // pause the cast (keep the session)
+        funStopStreaming();    // stop the OSSM motion
+      } else {
+        castSetPlaying(true);
+        if (funState.actions.length) funStartStreaming();
+      }
       return;
     }
     const v = $("funVideo");
@@ -3417,6 +3416,25 @@ function castPlayPause() {
     } else if (!playing && media.play) {
       castEnded = false;
       media.play(mkCastRequest("PlayRequest"), () => {}, () => {});
+    }
+  } catch (e) {}
+}
+function castSetPlaying(on) {
+  if (!castConnected) return;
+  if (castMode === "webrtc") {
+    sendCastMsg({ type: on ? "play" : "pause" });
+    return;
+  }
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  if (!session) return;
+  try {
+    const media = session.getMediaSession ? session.getMediaSession() : (castMedia || null);
+    if (!media) return;
+    if (on) {
+      castEnded = false;
+      if (typeof media.play === "function") media.play(mkCastRequest("PlayRequest"), () => {}, () => {});
+    } else if (typeof media.pause === "function") {
+      media.pause(mkCastRequest("PauseRequest"), () => {}, () => {});
     }
   } catch (e) {}
 }
