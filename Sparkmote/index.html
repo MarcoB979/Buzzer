@@ -577,6 +577,9 @@ let stdStateName = "";
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
 let stdRunning = false;
 let lastNonZeroSpeed = 50;
+let stdLastSpeed = 0;
+let speedRampTimer = null;
+let speedRampTarget = 0;
 
 const BASE_NAMES = ["Max Depth", "Min Depth", "In Speed", "Out Speed", "In Accel", "Out Accel"];
 const BASE_COLORS = ["#ff0c00", "#ff8100", "#ffff00", "#00ff00", "#0000ff", "#ac8dee"];
@@ -823,7 +826,10 @@ async function refreshPresets() {
 function parseStdState(raw) {
   let j;
   try { j = JSON.parse(raw); } catch (e) { return; }
-  if (typeof j.speed === "number") stdValues.speed = Math.round(j.speed);
+  if (typeof j.speed === "number") {
+    stdValues.speed = Math.round(j.speed);
+    if (stdValues.speed > 0) stdLastSpeed = stdValues.speed;
+  }
   if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
   if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
@@ -933,7 +939,41 @@ function setBase(i, v) {
   writeControl(`${i}:${v},`).catch(e => log("Write failed: " + e));
   buildInterface();
 }
-function setSpeed(v) { setBase(speedIndex(), v); if (v > 0) lastNonZeroSpeed = v; }
+function setSpeed(v) { stopSpeedRamp(); setBase(speedIndex(), v); if (v > 0) lastNonZeroSpeed = v; }
+
+const SPEED_RAMP_STEP = 5;
+const SPEED_RAMP_MS = 90;
+function stopSpeedRamp() {
+  if (speedRampTimer) { clearInterval(speedRampTimer); speedRampTimer = null; }
+  speedRampTarget = 0;
+}
+function setStdSpeed(v) {
+  stopSpeedRamp();
+  v = clamp(Math.round(v), 0, 100);
+  stdValues.speed = v;
+  if (v > 0) stdLastSpeed = v;
+  stdWrite("set:speed:" + v);
+}
+function rampSpeedTo(target) {
+  target = clamp(Math.round(target), 0, 100);
+  stopSpeedRamp();
+  if (target <= 0) {
+    if (appMode === "std") stdWrite("set:speed:0");
+    else if (appMode === "ap") setSpeed(0);
+    return;
+  }
+  if (appMode === "std") stdLastSpeed = target;
+  else if (appMode === "ap") lastNonZeroSpeed = target;
+  speedRampTarget = target;
+  let cur = 0;
+  speedRampTimer = setInterval(() => {
+    if (!connected || !stdCmd || (appMode !== "std" && appMode !== "ap")) { stopSpeedRamp(); return; }
+    cur = Math.min(speedRampTarget, cur + SPEED_RAMP_STEP);
+    if (appMode === "std") stdWrite("set:speed:" + cur);
+    else writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
+    if (cur >= speedRampTarget) stopSpeedRamp();
+  }, SPEED_RAMP_MS);
+}
 function setModifier(bi, mi, v) {
   const key = modifierKey(bi, mi);
   const s = getSetting(key);
@@ -1043,12 +1083,12 @@ function toggleStart() {
   }
   if (appMode === "std") {
     if (!machineRunningState()) { log("Waiting for the OSSM to finish homing…"); return; }
-    if (stdRunning) stdWrite("set:speed:0");
-    else stdWrite("set:speed:" + (stdValues.speed > 0 ? stdValues.speed : 50));
+    if (stdRunning) { stopSpeedRamp(); stdWrite("set:speed:0"); }
+    else rampSpeedTo(stdLastSpeed > 0 ? stdLastSpeed : (stdValues.speed > 0 ? stdValues.speed : 50));
     return;
   }
   if (speed() > 0) setSpeed(0);
-  else setSpeed(lastNonZeroSpeed > 0 ? lastNonZeroSpeed : 50);
+  else rampSpeedTo(lastNonZeroSpeed > 0 ? lastNonZeroSpeed : 50);
 }
 
 function setLocal(key, v) {
@@ -1108,7 +1148,25 @@ function updateFocusStatus() {
   el.innerHTML = `<span class="fs-dot${connected ? " on" : ""}"></span><span>${ble}</span>` +
                  (padStateText ? `<span class="fs-sep">·</span><span>${padStateText}</span>` : "");
 }
+let sliderDragging = false;
+document.addEventListener("pointerdown", (e) => {
+  const t = e.target;
+  if (t && t.tagName === "INPUT" && t.type === "range") sliderDragging = true;
+}, true);
+const endSliderDrag = () => { sliderDragging = false; };
+document.addEventListener("pointerup", endSliderDrag, true);
+document.addEventListener("pointercancel", endSliderDrag, true);
+document.addEventListener("change", (e) => { if (e.target && e.target.tagName === "INPUT") sliderDragging = false; }, true);
+let selectOpen = false;
+document.addEventListener("focusin", (e) => { if (e.target && e.target.tagName === "SELECT") selectOpen = true; }, true);
+document.addEventListener("focusout", (e) => { if (e.target && e.target.tagName === "SELECT") selectOpen = false; }, true);
+function uiBusy() {
+  if (sliderDragging || selectOpen) return true;
+  const ae = document.activeElement;
+  return !!(ae && ae.tagName === "SELECT");
+}
 function buildInterface() {
+  if (uiBusy()) return; // keep dropdowns/sliders open — don't rebuild mid-interaction
   if (appMode === "ap" && !apAvailable()) appMode = "std";
   const isStd = appMode === "std";
   const isFun = appMode === "fun";
@@ -1215,7 +1273,7 @@ function buildSpeed() {
   const lo = 0, hi = 100;
   const val = isStd ? stdValues.speed : Math.round(settingValue(SPEED_KEY));
   const onSet = isStd
-    ? (v) => { stdValues.speed = v; stdWrite("set:speed:" + v); }
+    ? (v) => setStdSpeed(v)
     : (v) => setSpeed(v);
   const label = document.createElement("span");
   label.className = "speed-label";
@@ -3607,8 +3665,6 @@ function machineMoving() {
   if (stdRunning) return true;
   if (appMode === "fun" && funState.playing) return true;
   if (appMode === "ap" && speed() > 0) return true;
-  const s = stdStateName || "";
-  if (s.indexOf("homing") === 0 || s === "measure.run" || s.indexOf("preflight") !== -1) return true;
   return false;
 }
 function modeChangeBlocked() {
@@ -4194,8 +4250,7 @@ function gpSpeedStep(d, mag) {
     return;
   }
   if (appMode === "std") {
-    stdValues.speed = clamp(stdValues.speed + d * mag, 0, 100);
-    stdWrite("set:speed:" + stdValues.speed);
+    setStdSpeed(clamp(stdValues.speed + d * mag, 0, 100));
   } else {
     setSpeed(clamp(speed() + d * mag, 0, 100));
   }
