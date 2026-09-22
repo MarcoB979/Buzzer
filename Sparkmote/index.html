@@ -232,6 +232,8 @@
   .speed-label { font-size: .8rem; color: var(--muted); white-space: nowrap; }
   .speed-val { font-family: monospace; font-size: .9rem; font-weight: bold; color: #fff; min-width: 30px; text-align: right; }
   .speed-line input[type=range] { flex: 1; }
+  .ramp-toggle { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; order: 0; flex: 0 0 auto; }
+  .ramp-toggle input[type=checkbox] { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: #38bdf8; }
   #btnStart { width: 100%; background-color: #16a34a; border: none; border-radius: 10px; padding: 14px; color: #fff; font-weight: bold; font-size: 1rem; cursor: pointer; }
   #btnStart.stop { background-color: #dc2626; }
   #btnStart:disabled { background-color: #334155; color: #94a3b8; cursor: not-allowed; }
@@ -612,6 +614,8 @@ let stdLastSpeed = 0;
 let speedRampTimer = null;
 let speedRampTarget = 0;
 let speedRampDown = false;
+let speedRampEnabled = true;
+try { speedRampEnabled = localStorage.getItem("ossm-speed-ramp") !== "0"; } catch (e) {}
 
 const BASE_NAMES = ["Max Depth", "Min Depth", "In Speed", "Out Speed", "In Accel", "Out Accel"];
 const BASE_COLORS = ["#ff0c00", "#ff8100", "#ffff00", "#00ff00", "#0000ff", "#ac8dee"];
@@ -986,11 +990,22 @@ function setStdSpeed(v) {
   if (v > 0) stdLastSpeed = v;
   stdWrite("set:speed:" + v);
 }
+function applySpeedInstant(to) {
+  to = clamp(Math.round(to), 0, 100);
+  if (appMode === "std") {
+    stdValues.speed = to;
+    if (to > 0) stdLastSpeed = to;
+    stdWrite("set:speed:" + to);
+  } else if (appMode === "ap") {
+    setSpeed(to);
+  }
+}
 function rampSpeed(from, to) {
   from = clamp(Math.round(from), 0, 100);
   to = clamp(Math.round(to), 0, 100);
   stopSpeedRamp();
   if (from === to) return;
+  if (!speedRampEnabled) { applySpeedInstant(to); return; }
   if (appMode === "std") { if (to > 0) stdLastSpeed = to; }
   else if (appMode === "ap") { if (to > 0) lastNonZeroSpeed = to; }
   speedRampTarget = to;
@@ -1309,6 +1324,18 @@ function buildSpeed() {
   const onSet = isStd
     ? (v) => setStdSpeed(v)
     : (v) => setSpeed(v);
+  const rampLbl = document.createElement("label");
+  rampLbl.className = "ramp-toggle";
+  rampLbl.title = speedRampEnabled ? "Speed ramp on (smooth)" : "Speed ramp off (instant)";
+  rampLbl.innerHTML = '<input type="checkbox"' + (speedRampEnabled ? " checked" : "") + '>' +
+    '<svg width="15" height="15" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 13 L4.5 9 L7 11 L10.5 5 L14.5 2.5" fill="none" stroke="#38bdf8" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const rc = rampLbl.querySelector("input");
+  if (rc) rc.onchange = () => {
+    speedRampEnabled = rc.checked;
+    try { localStorage.setItem("ossm-speed-ramp", speedRampEnabled ? "1" : "0"); } catch (e) {}
+    rampLbl.title = speedRampEnabled ? "Speed ramp on (smooth)" : "Speed ramp off (instant)";
+    if (!speedRampEnabled && speedRampTimer) { const t = speedRampTarget; stopSpeedRamp(); applySpeedInstant(t); }
+  };
   const label = document.createElement("span");
   label.className = "speed-label";
   label.textContent = "Speed:";
@@ -1332,6 +1359,7 @@ function buildSpeed() {
   plus.type = "button";
   plus.className = "step-btn plus";
   plus.textContent = "+";
+  wrap.appendChild(rampLbl);
   wrap.appendChild(label);
   wrap.appendChild(num);
   wrap.appendChild(minus);
