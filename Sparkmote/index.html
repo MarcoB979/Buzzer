@@ -3607,10 +3607,8 @@ function placeWatchPanel() {
   const wp = $("watch-panel");
   if (!wp) return;
   if (appMode === "ap") {
-    const mr = $("mode-row");
-    if (mr && mr.parentNode) {
-      if (wp.parentNode !== mr.parentNode || wp.nextElementSibling !== mr) mr.parentNode.insertBefore(wp, mr);
-    }
+    const tw = $("tabs-wrapper");
+    if (tw && tw.parentNode && wp.previousElementSibling !== tw) tw.insertAdjacentElement("afterend", wp);
     wp.style.order = "8";
   } else {
     const sc = $("speed-control");
