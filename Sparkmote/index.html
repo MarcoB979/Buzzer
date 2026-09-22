@@ -604,16 +604,16 @@ try { funControlsCollapsed = localStorage.getItem("ossm-fun-controls-collapsed")
 let demoMode = false;
 let funPreviewShown = false;
 try { funPreviewShown = localStorage.getItem("ossm-fun-preview-shown") === "1"; } catch (e) {}
-let stdValues = { speed: 0, max: 100, min: 0, sensation: 50, pattern: 0 };
+const STD_SAFE_MAX = 20;
+const STD_SAFE_MIN = 0;
+let stdValues = { speed: 0, max: STD_SAFE_MAX, min: STD_SAFE_MIN, sensation: 50, pattern: 0 };
 try {
   const sv = JSON.parse(localStorage.getItem("ossm-std-values") || "{}");
-  if (typeof sv.max === "number") stdValues.max = Math.round(sv.max);
-  if (typeof sv.min === "number") stdValues.min = Math.round(sv.min);
   if (typeof sv.sensation === "number") stdValues.sensation = Math.round(sv.sensation);
   if (typeof sv.pattern === "number") stdValues.pattern = Math.round(sv.pattern);
 } catch (e) {}
 function saveStdValues() {
-  try { localStorage.setItem("ossm-std-values", JSON.stringify({ max: stdValues.max, min: stdValues.min, sensation: stdValues.sensation, pattern: stdValues.pattern })); } catch (e) {}
+  try { localStorage.setItem("ossm-std-values", JSON.stringify({ sensation: stdValues.sensation, pattern: stdValues.pattern })); } catch (e) {}
 }
 let stdPendingSafeSync = false;
 let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
@@ -928,6 +928,12 @@ async function stdWrite(cmd) {
   try { await stdCmd.writeValueWithoutResponse(data); }
   catch (e) { try { await stdCmd.writeValueWithResponse(data); } catch (e2) { log("Std write failed: " + e2.message); } }
 }
+async function stdWriteReliable(cmd) {
+  if (!stdCmd) return;
+  const data = encode(cmd);
+  try { await stdCmd.writeValueWithResponse(data); }
+  catch (e) { try { await stdCmd.writeValueWithoutResponse(data); } catch (e2) { log("Std write failed: " + e2.message); } }
+}
 let streamFallbackNotified = false;
 function writeStream(cmd) {
   if (streamChar) {
@@ -1038,10 +1044,15 @@ function rampSpeed(from, to) {
     const t = performance.now() - t0;
     const step = t < 800 ? 1 : (t < 2000 ? 2 : (t < 4000 ? 4 : 8));
     cur = speedRampDown ? Math.max(to, cur - step) : Math.min(to, cur + step);
-    if (appMode === "std") await stdWrite("set:speed:" + cur);
-    else await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
+    const final = cur === to;
+    if (appMode === "std") {
+      if (final) await stdWriteReliable("set:speed:" + cur);
+      else await stdWrite("set:speed:" + cur);
+    } else {
+      await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
+    }
     if (token !== speedRampToken) return; // cancelled mid-write
-    if (cur === to) { stopSpeedRamp(); return; }
+    if (final) { stopSpeedRamp(); return; }
     speedRampTimer = setTimeout(tick, SPEED_RAMP_MS);
   };
   speedRampTimer = setTimeout(tick, SPEED_RAMP_MS);
@@ -3907,11 +3918,11 @@ function applyStdSafeValues() {
   stdPendingSafeSync = false;
   stopSpeedRamp();
   stdValues.speed = 0;
+  stdValues.max = STD_SAFE_MAX;
+  stdValues.min = STD_SAFE_MIN;
   stdLastSpeed = 0;
   try {
     const sv = JSON.parse(localStorage.getItem("ossm-std-values") || "{}");
-    if (typeof sv.max === "number") stdValues.max = Math.round(sv.max);
-    if (typeof sv.min === "number") stdValues.min = Math.round(sv.min);
     if (typeof sv.sensation === "number") stdValues.sensation = Math.round(sv.sensation);
     if (typeof sv.pattern === "number") stdValues.pattern = Math.round(sv.pattern);
   } catch (e) {}
