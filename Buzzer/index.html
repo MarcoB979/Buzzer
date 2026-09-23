@@ -287,6 +287,12 @@
   .preset-row button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 8px 12px; font-weight: bold; cursor: pointer; white-space: nowrap; }
   .preset-row button.danger { background: #7f1d1d; }
   .cpp-logger { width: 100%; max-width: 400px; background: #000; font-family: 'Courier New', monospace; font-size: .75rem; color: #38bdf8; padding: 12px; border-radius: 8px; margin-top: 16px; border: 1px solid #1e293b; box-sizing: border-box; max-height: 250px; overflow-y: auto; }
+  .mon-line { white-space: pre-wrap; word-break: break-word; }
+  .mon-line.tx { color: #38bdf8; }
+  .mon-line.rx { color: #34d399; }
+  .mon-line.err { color: #f87171; }
+  .mon-line.warn { color: #fbbf24; }
+  .mon-x { color: #64748b; font-size: .65rem; }
   @media (max-width: 480px) {
     body { padding: 0; }
     .phone-container {
@@ -677,8 +683,35 @@ function buildDefaultSettings() {
 let settings = buildDefaultSettings();
 
 const $ = (id) => document.getElementById(id);
-const log = (msg) => { $("log").textContent = msg || ""; };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// ---------- Live dashboard monitor ----------
+const MONITOR_MAX = 200;
+let monitorLines = [];
+let monitorRenderQueued = false;
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function renderMonitor() {
+  monitorRenderQueued = false;
+  const el = $("log");
+  if (!el) return;
+  el.innerHTML = monitorLines.map(l =>
+    `<div class="mon-line${l.cls ? " " + l.cls : ""}">${escapeHtml(l.text)}${l.n > 1 ? ` <span class="mon-x">×${l.n}</span>` : ""}</div>`
+  ).join("");
+  const logger = el.parentElement;
+  if (logger) logger.scrollTop = logger.scrollHeight;
+}
+function monitor(msg, cls) {
+  const text = String(msg == null ? "" : msg);
+  if (!text) return;
+  const last = monitorLines[monitorLines.length - 1];
+  if (last && last.text === text && last.cls === cls) last.n = (last.n || 1) + 1;
+  else monitorLines.push({ text, cls, n: 1 });
+  if (monitorLines.length > MONITOR_MAX) monitorLines.splice(0, monitorLines.length - MONITOR_MAX);
+  if (!monitorRenderQueued) { monitorRenderQueued = true; requestAnimationFrame(renderMonitor); }
+}
+const log = (msg) => monitor(msg);
+const monitorTx = (cmd) => monitor("→ " + cmd, "tx");
+const monitorRx = (msg) => monitor("← " + msg, "rx");
 const decode = (dv) => new TextDecoder().decode(dv);
 const encode = (s) => new TextEncoder().encode(s);
 
@@ -695,18 +728,67 @@ const canvas = $("graphCanvas");
 const ctx = canvas.getContext("2d");
 
 // ---------- BLE ----------
-async function readStr(ch) { return decode(await ch.readValue()); }
+// Chrome rejects overlapping GATT operations with "GATT operation already in
+// progress", which is exactly what happens during mode changes (multiple
+// writes fired back-to-back + the state poll reading at the same time).
+// Serialize every read/write through one queue so they can never overlap.
+let gattQueue = Promise.resolve();
+function gattOp(fn) {
+  const run = gattQueue.then(fn);
+  gattQueue = run.then(() => {}, () => {});
+  return run;
+}
+
+async function readStr(ch) { return decode(await gattOp(() => ch.readValue())); }
+
+function stdCmdLabel(cmd) {
+  const c = String(cmd || "").split(",")[0].trim();
+  if (!c) return "";
+  if (c.indexOf("stream:") === 0) return "stream";
+  if (c.indexOf("set:") === 0) {
+    const parts = c.split(":");
+    return parts.length >= 2 ? parts.slice(0, 2).join(":") : c;
+  }
+  return c;
+}
+function advancedCmdLabel(s) {
+  const c = String(s || "").trim();
+  const m = c.match(/^(\d+):(\d+)(?::(\d+))?,$/);
+  if (!m) return c.split(",").filter(Boolean).length > 1 ? "bulk values" : c;
+  const bi = parseInt(m[1], 10);
+  if (m[3] !== undefined) {
+    const mi = parseInt(m[2], 10);
+    const b = bi === speedIndex() ? "Speed" : (BASE_NAMES[bi] || ("base " + bi));
+    return b + " · " + (MODIFIER_NAMES[mi] || ("mod " + mi));
+  }
+  return bi === speedIndex() ? "Speed" : (BASE_NAMES[bi] || ("base " + bi));
+}
+function handleWriteError(e, context) {
+  monitor("✖ " + context + ": " + (e && e.message ? e.message : e), "err");
+  if (device && device.gatt && !device.gatt.connected) {
+    monitor("Connection lost — resetting.", "warn");
+    onDisconnected();
+  }
+}
+
 async function writeControl(s) {
-  try { await ctlChar.writeValueWithoutResponse(encode(s)); }
-  catch { await ctlChar.writeValueWithResponse(encode(s)); }
+  monitorTx("AP " + advancedCmdLabel(s));
+  await gattOp(async () => {
+    try { await ctlChar.writeValueWithoutResponse(encode(s)); }
+    catch { await ctlChar.writeValueWithResponse(encode(s)); }
+  });
 }
 async function writeControlReliable(s) {
-  try { await ctlChar.writeValueWithResponse(encode(s)); }
-  catch { await ctlChar.writeValueWithoutResponse(encode(s)); }
+  monitorTx("AP " + advancedCmdLabel(s) + " ✓");
+  await gattOp(async () => {
+    try { await ctlChar.writeValueWithResponse(encode(s)); }
+    catch { await ctlChar.writeValueWithoutResponse(encode(s)); }
+  });
 }
 async function writePreset(s) {
-  try { await prsChar.writeValueWithResponse(encode(s)); }
-  catch (e) { log("Preset write failed: " + (e && e.message)); }
+  monitorTx("preset " + String(s).replace(/^:/, ""));
+  try { await gattOp(() => prsChar.writeValueWithResponse(encode(s))); }
+  catch (e) { handleWriteError(e, "preset"); }
 }
 
 function parseConfig(raw) {
@@ -921,12 +1003,15 @@ async function refreshPresets() {
 function parseStdState(raw) {
   let j;
   try { j = JSON.parse(raw); } catch (e) { return; }
+  const prevState = stdStateName;
+  const reportState = () => { if (stdStateName && stdStateName !== prevState) monitorRx("OSSM: " + stdStateName); };
   if (stdPendingSafeSync) {
     // Mid-transition into the stroke engine: don't let the device's old values
     // (e.g. a leftover funscript speed) pollute the Standard screen.
     if (typeof j.state === "string") stdStateName = j.state;
     stdRunning = typeof j.speed === "number" ? Math.round(j.speed) > 0.5 : false;
     detectFirmware(j);
+    reportState();
     if ((stdStateName || "").indexOf("strokeEngine") === 0) applyStdSafeValues();
     return;
   }
@@ -938,6 +1023,7 @@ function parseStdState(raw) {
   if (typeof j.state === "string") stdStateName = j.state;
   stdRunning = stdValues.speed > 0.5;
   detectFirmware(j);
+  reportState();
 }
 // OSSM-Lite reports minPosition/maxPosition in its state JSON; standard OSSM and
 // OSSM-RS only report depth/stroke. Rust OSSM state names use ready/playing/paused.
@@ -969,16 +1055,30 @@ function onStdState(ev) {
 }
 
 async function stdWrite(cmd) {
-  if (!stdCmd) return;
+  if (!stdCmd) return false;
+  const label = stdCmdLabel(cmd);
+  if (label && label !== "stream") monitorTx(label);
   const data = encode(cmd);
-  try { await stdCmd.writeValueWithoutResponse(data); }
-  catch (e) { try { await stdCmd.writeValueWithResponse(data); } catch (e2) { log("Std write failed: " + e2.message); } }
+  try {
+    await gattOp(async () => {
+      try { await stdCmd.writeValueWithoutResponse(data); }
+      catch { await stdCmd.writeValueWithResponse(data); }
+    });
+    return true;
+  } catch (e) { handleWriteError(e, label || cmd); return false; }
 }
 async function stdWriteReliable(cmd) {
-  if (!stdCmd) return;
+  if (!stdCmd) return false;
+  const label = stdCmdLabel(cmd);
+  if (label && label !== "stream") monitorTx(label);
   const data = encode(cmd);
-  try { await stdCmd.writeValueWithResponse(data); }
-  catch (e) { try { await stdCmd.writeValueWithoutResponse(data); } catch (e2) { log("Std write failed: " + e2.message); } }
+  try {
+    await gattOp(async () => {
+      try { await stdCmd.writeValueWithResponse(data); }
+      catch { await stdCmd.writeValueWithoutResponse(data); }
+    });
+    return true;
+  } catch (e) { handleWriteError(e, label || cmd); return false; }
 }
 let streamFallbackNotified = false;
 let streamPendingWrites = 0;
@@ -988,10 +1088,12 @@ function writeStream(cmd) {
     const enc = encode(cmd);
     streamPendingWrites++;
     const done = () => { streamPendingWrites--; };
-    streamChar.writeValueWithoutResponse(enc).catch(() => {
-      if (!streamFallbackNotified) { streamFallbackNotified = true; log("BLE: using acknowledged writes (slower)."); }
-      return streamChar.writeValueWithResponse(enc).catch(e => log("Stream write failed: " + (e && e.message)));
-    }).then(done, done);
+    gattOp(() => streamChar.writeValueWithoutResponse(enc))
+      .catch(() => {
+        if (!streamFallbackNotified) { streamFallbackNotified = true; monitor("BLE: using acknowledged writes (slower).", "warn"); }
+        return gattOp(() => streamChar.writeValueWithResponse(enc)).catch(() => monitor("Stream write failed", "err"));
+      })
+      .then(done, done);
   } else if (stdCmd) {
     streamPendingWrites++;
     const done = () => { streamPendingWrites--; };
@@ -1049,8 +1151,8 @@ function setBase(i, v) {
   const payload = `${i}:${v},`;
   // Speed (index 6) is safety-critical: use an acknowledged write so a stop
   // command isn't silently dropped while the OSSM is mid-stroke.
-  if (i === speedIndex()) writeControlReliable(payload).catch(e => log("Write failed: " + e));
-  else writeControl(payload).catch(e => log("Write failed: " + e));
+  if (i === speedIndex()) writeControlReliable(payload).catch(e => handleWriteError(e, "Speed"));
+  else writeControl(payload).catch(e => handleWriteError(e, BASE_NAMES[i]));
   buildInterface();
 }
 function setSpeed(v) {
@@ -1144,7 +1246,7 @@ function rampSpeed(from, to) {
       const spd = getSetting(SPEED_KEY);
       spd.value = cur;
       settings[SPEED_KEY] = spd;
-      if (final) await writeControlReliable(speedIndex() + ":" + cur + ",");
+      if (final) await writeControlReliable(speedIndex() + ":" + cur + ",").catch(e => handleWriteError(e, "Speed"));
       else await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
     }
     if (token !== speedRampToken) return; // cancelled mid-write
@@ -1185,7 +1287,7 @@ function setModifier(bi, mi, v) {
   s.value = v;
   settings[key] = s;
   activeModifierIndex = mi; // highlight the moved modifier
-  writeControl(`${bi}:${mi}:${v},`).catch(e => log("Write failed: " + e));
+  writeControl(`${bi}:${mi}:${v},`).catch(e => handleWriteError(e, BASE_NAMES[bi] + " · " + MODIFIER_NAMES[mi]));
   buildInterface();
 }
 function machineRunningState() {
@@ -1249,6 +1351,7 @@ function updateHeaderStopButton() {
 }
 function emergencyStop() {
   modeWatchPausedUntil = Date.now() + 15000; // keep the watchdog from re-entering the previous mode
+  monitor("⚠ emergency stop", "warn");
   if (connected && stdCmd) stdWriteReliable("go:menu");
   const v = $("funVideo");
   if (v && !v.paused) { try { v.pause(); } catch (e) {} }
@@ -1301,12 +1404,12 @@ function toggleStart() {
   }
   if (appMode === "std") {
     if (!machineRunningState()) { log("Waiting for the OSSM to finish homing…"); return; }
-    if (stdRunning) rampSpeed(stdValues.speed, 0);
-    else rampSpeed(stdValues.speed, stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED);
+    if (stdRunning) { monitor("OSSM stopped"); rampSpeed(stdValues.speed, 0); }
+    else { monitor("OSSM started"); rampSpeed(stdValues.speed, stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED); }
     return;
   }
-  if (speed() > 0) rampSpeed(speed(), 0);
-  else rampSpeed(speed(), lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED);
+  if (speed() > 0) { monitor("OSSM stopped"); rampSpeed(speed(), 0); }
+  else { monitor("OSSM started"); rampSpeed(speed(), lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED); }
 }
 
 function setLocal(key, v) {
@@ -3005,6 +3108,7 @@ function funStartStreaming() {
   if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
   const wasPlaying = funState.playing;
   funState.playing = true;
+  monitor("streaming started");
   if (!wasPlaying) syncFunToTime(currentPlaybackMs());
   stdWrite("set:speed:" + funState.maxSpeed);
   stdWrite("set:max:" + funState.maxDepth);
@@ -3062,6 +3166,7 @@ function funStreamTick() {
 }
 function funStopStreaming() {
   funState.playing = false;
+  monitor("streaming stopped");
   if (funState.timer) { clearInterval(funState.timer); funState.timer = null; }
   updateStartButton();
 }
@@ -4093,7 +4198,8 @@ function requestMode(command) {
   if (!stdCmd) return;
   const token = ++modeSwitchToken;
   if (modeSwitchTimer) { clearInterval(modeSwitchTimer); modeSwitchTimer = null; }
-  stdWrite("go:menu"); // return to menu first — this works from any mode
+  monitorTx("mode → " + stdCmdLabel(command));
+  stdWriteReliable("go:menu"); // return to menu first — this works from any mode
   // Wait for the device to report menu before sending the mode command.
   // If go:menu was dropped (e.g. the device was still homing), re-send it once,
   // then send the command anyway — kept short so homing starts quickly.
@@ -4105,15 +4211,15 @@ function requestMode(command) {
     const s = stdStateName || "";
     if (s === "menu" || s === "menu.idle") {
       clearInterval(modeSwitchTimer); modeSwitchTimer = null;
-      stdWrite(command);
+      stdWriteReliable(command);
     } else if (attempts >= 20) {
       if (!resent) {
         resent = true;
         attempts = 15; // give the re-sent go:menu ~0.5s to reach the menu
-        stdWrite("go:menu");
+        stdWriteReliable("go:menu");
       } else {
         clearInterval(modeSwitchTimer); modeSwitchTimer = null;
-        stdWrite(command);
+        stdWriteReliable(command);
       }
     }
   }, 100);
@@ -5139,7 +5245,7 @@ setInterval(() => {
   // driven by the video play/pause events, not by BLE state.)
   if (appMode === "fun" && funState.playing) return;
   if (speedRampActive) return; // the ramp owns speed; skip device reads mid-ramp
-  stdState.readValue().then(v => {
+  gattOp(() => stdState.readValue()).then(v => {
     const before = stdStateName;
     parseStdState(decode(v));
     if (appMode === "ap") enforceModeAvailability();
