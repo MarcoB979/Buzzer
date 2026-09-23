@@ -637,20 +637,20 @@ const STOP_RESEND_MS = 150;    // delay before re-sending a stop command
 const PREVIEW_REDRAW_MS = 250; // min interval between funscript preview redraws
 const FUN_BUFFER_MAX = 500;    // safety cap: bounds how long the OSSM keeps moving after Stop
 
-const BASE_NAMES = ["Max Depth", "Min Depth", "In Speed", "Out Speed", "In Accel", "Out Accel"];
+const BASE_NAMES = ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel"];
 const BASE_COLORS = ["#ff0c00", "#ff8100", "#ffff00", "#00ff00", "#0000ff", "#ac8dee"];
 const MODIFIER_NAMES = ["Amplitude", "Steps to Min", "Steps at Min", "Steps to Max", "Steps at Max", "Offset"];
 const MOD_COLORS = ["#38bdf8", "#34d399", "#fbbf24", "#f87171", "#c084fc", "#94a3b8"];
 const SPEED_KEY = "SP";
 
 // Firmware defaults (OSSM-Lite advanced_penetration_structs.h).
-const BASE_DEFAULTS = [10, 0, 100, 100, 40, 40];   // Max Depth, Min Depth, In Speed, Out Speed, In Accel, Out Accel
+const BASE_DEFAULTS = [10, 0, 100, 100, 40, 40];   // Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel
 const SPEED_DEFAULT = 0;
 const MODIFIER_DEFAULTS = [100, 1, 0, 1, 0, 0];    // Amplitude, Steps to Min, Steps at Min, Steps to Max, Steps at Max, Offset
 
 // Firmware names -> canonical keys (used when parsing CONFIG strings).
 const BASE_ALIAS = {
-  "Max Depth": "Max Depth", "Min Depth": "Min Depth",
+  "Max Depth": "Max Pos", "Min Depth": "Min Pos",
   "In Speed": "In Speed", "Out Speed": "Out Speed",
   "In Accel": "In Accel", "Out Accel": "Out Accel"
 };
@@ -661,7 +661,7 @@ const MODIFIER_ALIAS = {
   "Offset": "Offset"
 };
 
-// Combined-key dictionary: settings["Max Depth"], settings["Max DepthAmplitude"], settings["In SpeedSteps to Min"], settings["SP"], ...
+// Combined-key dictionary: settings["Max Pos"], settings["Max PosAmplitude"], settings["In SpeedSteps to Min"], settings["SP"], ...
 // Each entry: { min, max, value }.
 // Seeded with the OSSM-Lite advanced-penetration firmware defaults so the graph
 // and tabs render consistently before the device is connected.
@@ -1011,18 +1011,15 @@ async function refreshStdValues() {
 // ---------- Commands ----------
 function baseRange(i) {
   const s = getSetting(baseKey(i));
-  let lo = s.min, hi = s.max;
-  if (i === 0) lo = Math.max(lo, Math.round(settingValue(BASE_NAMES[1])));
-  else if (i === 1) hi = Math.min(hi, Math.round(settingValue(BASE_NAMES[0])));
-  return { min: lo, max: hi };
+  // Positions are independent 0-100 sliders — no coupling between Min Pos and
+  // Max Pos (previously the Min Pos slider was capped by the Max Pos value).
+  return { min: s.min, max: s.max };
 }
 
 function setBase(i, v) {
   const key = baseKey(i);
   const s = getSetting(key);
   v = clamp(Math.round(v), s.min, s.max);
-  if (i === 0) v = Math.max(v, Math.round(settingValue(BASE_NAMES[1])));
-  else if (i === 1) v = Math.min(v, Math.round(settingValue(BASE_NAMES[0])));
   s.value = v;
   settings[key] = s;
   if (i >= 0 && i < BASE_NAMES.length) activeBaseIndex = i; // highlight the moved setting
@@ -1620,15 +1617,14 @@ function buildStdSliders() {
   const wrap = $("sliders-wrapper");
   wrap.innerHTML = "";
 
-  wrap.appendChild(sliderEl("Max Depth", 0, 100, stdValues.max, BASE_COLORS[0], (v) => {
+  wrap.appendChild(sliderEl("Max Pos", 0, 100, stdValues.max, BASE_COLORS[0], (v) => {
     stdValues.max = v;
-    if (stdValues.min > stdValues.max) { stdValues.min = stdValues.max; stdWrite("set:min:" + stdValues.min); }
     stdWrite("set:max:" + v);
     saveStdValues();
     drawGraph();
   }));
-  wrap.appendChild(sliderEl("Min Depth", 0, stdValues.max, stdValues.min, BASE_COLORS[1], (v) => {
-    stdValues.min = Math.min(v, stdValues.max);
+  wrap.appendChild(sliderEl("Min Pos", 0, 100, stdValues.min, BASE_COLORS[1], (v) => {
+    stdValues.min = v;
     stdWrite("set:min:" + stdValues.min);
     saveStdValues();
     drawGraph();
@@ -1831,7 +1827,7 @@ function drawMainGraph() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const { x: xMin, y: yMin, w: xSpan, h: ySpan } = plotBounds();
 
-  const topVal = sv("Max Depth", 50), bottomVal = sv("Min Depth", 50);
+  const topVal = sv("Max Pos", 50), bottomVal = sv("Min Pos", 50);
   const riseVal = sv("In Speed", 1), fallVal = sv("Out Speed", 1);
   const curveIn = sv("In Accel", 50), curveOut = sv("Out Accel", 50);
 
@@ -1844,8 +1840,8 @@ function drawMainGraph() {
   const yMinBound = Math.min(yMax, yMinDepth);
   const yMaxBound = Math.max(yMax, yMinDepth);
   const diff = yMinDepth - yMax;
-  const yMaxMod = (1 - sv("Max DepthAmplitude", 100) / 100) * diff + yMax;
-  const yMinMod = yMinDepth - (1 - sv("Min DepthAmplitude", 100) / 100) * diff;
+  const yMaxMod = (1 - sv("Max PosAmplitude", 100) / 100) * diff + yMax;
+  const yMinMod = yMinDepth - (1 - sv("Min PosAmplitude", 100) / 100) * diff;
 
   const a = Math.max(1, riseVal), b = Math.max(1, fallVal);
   const am = Math.max(1, sv("In SpeedAmplitude", 100) / 100 * a);
@@ -1941,7 +1937,7 @@ function drawModGraph() {
     const modValueRatio = 1 - sv(name + "Amplitude", 100) / 100;
 
     let strokeRatio = 1 - baseValueRatio;
-    if (controlIndex < 2) strokeRatio = (sv("Max Depth", 50) - sv("Min Depth", 50)) / 100;
+    if (controlIndex < 2) strokeRatio = (sv("Max Pos", 50) - sv("Min Pos", 50)) / 100;
 
     const baseY = yMin + ySpan * baseValueRatio;
     let modY = baseY + ySpan * strokeRatio * modValueRatio;
@@ -2524,13 +2520,13 @@ function buildFunControls() {
   settings.appendChild(st);
 
   wrap.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }));
-  funMaxDepthSlider = sliderEl("Max Depth", 1, 100, funState.maxDepth, "#ff0c00", v => {
+  funMaxDepthSlider = sliderEl("Max Pos", 1, 100, funState.maxDepth, "#ff0c00", v => {
     funState.maxDepth = v;
     if (funState.minDepth > v) { funState.minDepth = v; if (funMinDepthSlider) funMinDepthSlider.setValue(v); }
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
   });
-  funMinDepthSlider = sliderEl("Min Depth", 0, 99, funState.minDepth, "#ff8100", v => {
+  funMinDepthSlider = sliderEl("Min Pos", 0, 99, funState.minDepth, "#ff8100", v => {
     const clamped = Math.min(v, funState.maxDepth);
     funState.minDepth = clamped;
     if (clamped !== v) funMinDepthSlider.setValue(clamped);
@@ -4214,10 +4210,10 @@ const GP_ACTIONS = [
   { id:"mode",      group:"general", label:"Mode toggle",     mode:"both", help:"Switches between the Advanced, Standard and Funscript screens." },
   { id:"speedUp",   group:"general", label:"Speed up",        mode:"both", repeat:true, help:"Stroke speed. Standard = engine speed; Advanced = the Speed value; Funscript = Max Speed." },
   { id:"speedDown", group:"general", label:"Speed down",      mode:"both", repeat:true, help:"Stroke speed. Standard = engine speed; Advanced = the Speed value; Funscript = Max Speed." },
-  { id:"maxUp",     group:"general", label:"Max depth up",    mode:"both",  repeat:true, help:"Increases the Max depth position (stroke goes deeper). Works in Standard, Advanced and Funscript." },
-  { id:"maxDown",   group:"general", label:"Max depth down",  mode:"both",  repeat:true, help:"Decreases the Max depth position. Works in Standard, Advanced and Funscript." },
-  { id:"minUp",     group:"general", label:"Min depth up",    mode:"both",  repeat:true, help:"Increases the Min depth position (stroke starts deeper). Works in Standard, Advanced and Funscript." },
-  { id:"minDown",   group:"general", label:"Min depth down",  mode:"both",  repeat:true, help:"Decreases the Min depth position. Works in Standard, Advanced and Funscript." },
+  { id:"maxUp",     group:"general", label:"Max pos up",    mode:"both",  repeat:true, help:"Increases the Max position (stroke goes deeper). Works in Standard, Advanced and Funscript." },
+  { id:"maxDown",   group:"general", label:"Max pos down",  mode:"both",  repeat:true, help:"Decreases the Max position. Works in Standard, Advanced and Funscript." },
+  { id:"minUp",     group:"general", label:"Min pos up",    mode:"both",  repeat:true, help:"Increases the Min position (stroke starts deeper). Works in Standard, Advanced and Funscript." },
+  { id:"minDown",   group:"general", label:"Min pos down",  mode:"both",  repeat:true, help:"Decreases the Min position. Works in Standard, Advanced and Funscript." },
   { id:"sensationUp",   group:"general", label:"Sensation up",   mode:"std", repeat:true, help:"Standard mode: increases sensation 0–100 (50 = neutral)." },
   { id:"sensationDown", group:"general", label:"Sensation down", mode:"std", repeat:true, help:"Standard mode: decreases sensation 0–100 (50 = neutral)." },
   { id:"colLeft",  group:"general", label:"Hide/show sliders (◀)",  mode:"both", help:"Landscape: toggles the left sliders column." },
