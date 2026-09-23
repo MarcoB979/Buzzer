@@ -34,6 +34,7 @@ jobs:
         run: |
           STAMP="$(TZ=Europe/Amsterdam date +'%Y-%m-%d %H:%M')"
           sed -i "s/__BUILD_TIME__/${STAMP}/g" ./Buzzer/index.html
+          sed -i "s/__BUILD_TIME__/${STAMP}/g" ./Buzzer/development/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
