@@ -59,6 +59,7 @@
   #sliders-wrapper { order: 7; }
   #reset-row { order: 8; }
   #mode-row { order: 9; }
+  #kofi-link { order: 9; }
   #bind-panel { order: 10; }
   #presets-panel { order: 11; }
   .start-stop-row { order: 12; }
@@ -87,6 +88,9 @@
   .cs-ic { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; flex: 0 0 auto; color: #94a3b8; font-size: 11px; }
   .cs-ic svg { width: 100%; height: 100%; display: block; }
   .cs-tx { color: #cbd5e1; }
+  .kofi-link { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: .72rem; color: var(--muted); text-decoration: none; background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; }
+  .kofi-link:hover { color: #fff; border-color: #38bdf8; }
+  .kofi-link .kofi-cup { font-size: .85rem; }
   .bind-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .bind-panel summary { list-style: none; cursor: pointer; user-select: none; font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
   .bind-panel summary::-webkit-details-marker { display: none; }
@@ -489,6 +493,10 @@
         <button id="modeFun" class="mode-btn">Funscript</button>
       </div>
     </div>
+
+    <a class="kofi-link" id="kofi-link" href="https://ko-fi.com/kinkster1979" target="_blank" rel="noopener" title="Support Buzzer on Ko-fi">
+      <span class="kofi-cup">☕</span><span>Support on Ko-fi</span>
+    </a>
 
     <details class="presets-panel" id="presets-panel">
       <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
