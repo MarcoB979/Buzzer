@@ -1638,8 +1638,20 @@ function scrollActiveSliderIntoView() {
   const role = viewMode === "mod" ? "mod" : "base";
   const el = wrap.querySelector(`.slider-group[data-role="${role}"][data-index="${idx}"]`);
   if (!el) return;
-  try { el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
-  catch (e) { el.scrollIntoView(); }
+
+  // In landscape/wide the sliders panel is its own scroll container with a
+  // sticky "Show all" toggle at the top. Scroll the container directly and
+  // leave room for that sticky header, so the active slider lands fully
+  // visible below it — exactly as a manual scroll would.
+  if (wrap.scrollHeight > wrap.clientHeight) {
+    const sticky = wrap.querySelector(".slider-group:first-child:has(.switch)");
+    const headerH = sticky ? sticky.offsetHeight : 0;
+    const relTop = el.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop;
+    wrap.scrollTo({ top: Math.max(0, relTop - headerH), behavior: "smooth" });
+  } else {
+    try { el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+    catch (e) { el.scrollIntoView(); }
+  }
 }
 
 function buildStdSliders() {
