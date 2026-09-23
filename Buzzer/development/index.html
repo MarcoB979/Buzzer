@@ -80,13 +80,16 @@
   .ble-status.small { font-size: .7rem; }
   .header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
   .screen-header { flex: 1; min-width: 0; text-align: left; font-size: 1.05rem; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .conn-dot { width: 10px; height: 10px; border-radius: 50%; background-color: #22c55e; flex: 0 0 auto; box-shadow: 0 0 6px rgba(34, 197, 94, 0.8); }
+  .conn-status { display: flex; flex-direction: column; align-items: stretch; gap: 2px; font-size: .66rem; font-family: monospace; flex: 0 0 auto; }
+  .cs-row { display: flex; align-items: center; gap: 5px; line-height: 1; white-space: nowrap; }
+  .cs-dot { width: 7px; height: 7px; border-radius: 50%; background: #475569; flex: 0 0 auto; }
+  .cs-dot.ossm.on { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.8); }
+  .cs-dot.pad.on { background: #3b82f6; box-shadow: 0 0 6px rgba(59, 130, 246, 0.8); }
+  .cs-ic { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; flex: 0 0 auto; color: #94a3b8; font-size: 11px; }
+  .cs-ic svg { width: 100%; height: 100%; display: block; }
+  .cs-tx { color: #cbd5e1; }
   .pad-status { font-size: .75rem; color: var(--muted); text-align: center; margin-bottom: 12px; font-family: monospace; }
   .pad-status.active { color: #22c55e; }
-  .focus-status { display: flex; align-items: center; gap: 6px; font-size: .7rem; color: var(--muted); font-family: monospace; flex: 0 1 auto; white-space: nowrap; overflow: hidden; min-width: 0; }
-  .focus-status .fs-dot { width: 7px; height: 7px; border-radius: 50%; background: #64748b; flex: 0 0 auto; }
-  .focus-status .fs-dot.on { background: #22c55e; }
-  .focus-status .fs-sep { color: #475569; }
   .bind-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .bind-panel summary { list-style: none; cursor: pointer; user-select: none; font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
   .bind-panel summary::-webkit-details-marker { display: none; }
@@ -168,7 +171,6 @@
   .fun-placeholder { color: var(--muted); font-size: .9rem; padding: 40px; text-align: center; }
   .phone-container.fun .col-left { display: none; }
   .phone-container.fun .col-right { display: none; }
-  .phone-container.fun .conn-dot { display: none !important; }
   /* Force screen: apply the funscript landscape layout even in portrait (foldables). */
   body.force-fun { padding: 4px; }
   body.force-fun .phone-container.fun {
@@ -358,7 +360,6 @@
       align-items: start;
     }
     .phone-container.hide-left.hide-right .header-row { grid-area: header; }
-    .phone-container.hide-left.hide-right .conn-dot { display: none !important; }
     .phone-container.hide-left.hide-right .visualizer-area { grid-area: visual; }
     .phone-container.hide-left.hide-right .start-stop-row { grid-area: start; align-self: stretch; margin: 0; width: auto; }
     .phone-container.hide-left.hide-right .start-stop-row #btnStart { height: 100%; min-height: 88px; padding: 8px 6px; font-size: .85rem; }
@@ -425,12 +426,11 @@
   <div class="col col-center" id="col-center">
     <div class="header-row">
       <button class="col-toggle" id="toggleColLeft" title="Show / hide sliders column">◀</button>
-      <span class="conn-dot" id="conn-dot" style="display:none;"></span>
       <div class="screen-header">
         <div id="active-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">OSSM Standard</div>
         <div class="build-info" id="buildInfo" style="font-size:.62rem;color:#64748b;font-weight:normal;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
       </div>
-      <div class="focus-status" id="focus-status" style="display:none;"></div>
+      <span class="conn-status" id="conn-status"></span>
       <button class="ble-btn small" id="header-connect" style="display:none;">Connect</button>
       <button class="ble-btn small danger" id="header-disconnect" style="display:none;">Disconnect</button>
       <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
@@ -847,7 +847,6 @@ async function connect() {
     lastNonZeroSpeed = speed() > 0 ? speed() : 0;
     setConnectingUI(false);
     $("ble-panel").style.display = "none";
-    $("conn-dot").style.display = "inline-block";
     $("header-disconnect").style.display = "inline-block";
     $("header-stop").style.display = "inline-block";
     buildInterface();
@@ -867,7 +866,6 @@ function onDisconnected() {
   firmwareKind = "unknown";
   updateFocusStatus();
   $("ble-panel").style.display = "";
-  $("conn-dot").style.display = "none";
   $("header-disconnect").style.display = "none";
   $("header-stop").style.display = "none";
   log("Disconnected from OSSM.");
@@ -1337,13 +1335,22 @@ function placeStartButton() {
   else anchor = $("sliders-wrapper");
   if (anchor && anchor.nextElementSibling !== row) anchor.insertAdjacentElement("afterend", row);
 }
+const OSSM_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<line x1="3.5" y1="5.5" x2="19" y2="5.5"/>' +
+  '<circle cx="20.5" cy="5.5" r="1.3"/>' +
+  '<rect x="7.5" y="8.5" width="9" height="10" rx="1.6"/>' +
+  '<line x1="10" y1="18.5" x2="7.5" y2="21.5"/>' +
+  '<line x1="14" y1="18.5" x2="16.5" y2="21.5"/>' +
+  '</svg>';
 let lastFocusStatusHtml = "";
 function updateFocusStatus() {
-  const el = $("focus-status");
+  const el = $("conn-status");
   if (!el) return;
-  const ble = connected ? "Connected" : "Disconnected";
-  const html = `<span class="fs-dot${connected ? " on" : ""}"></span><span>${ble}</span>` +
-               (padStateText ? `<span class="fs-sep">·</span><span>${padStateText}</span>` : "");
+  const ossmOn = connected;
+  const padOn = !!padStateText;
+  const html =
+    `<span class="cs-row"><span class="cs-dot ossm${ossmOn ? " on" : ""}"></span><span class="cs-ic">${OSSM_ICON}</span><span class="cs-tx">OSSM</span></span>` +
+    `<span class="cs-row"><span class="cs-dot pad${padOn ? " on" : ""}"></span><span class="cs-ic">🎮</span><span class="cs-tx">Controller</span></span>`;
   if (html === lastFocusStatusHtml) return; // avoid innerHTML churn every poll
   lastFocusStatusHtml = html;
   el.innerHTML = html;
@@ -1410,7 +1417,6 @@ function buildInterfaceNow() {
   if (apBtn) { apBtn.style.display = apAvailable() ? "" : "none"; apBtn.classList.toggle("active", !isStd && !isFun); }
   $("modeStd").classList.toggle("active", isStd);
   const mf = $("modeFun"); if (mf) mf.classList.toggle("active", isFun);
-  const fst = $("focus-status"); if (fst) fst.style.display = (focusedMode() || isFun) ? "" : "none";
   const hc = $("header-connect");
   if (hc) {
     hc.style.display = (!connected) ? "" : "none";
