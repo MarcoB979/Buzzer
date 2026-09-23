@@ -1634,6 +1634,18 @@ function scrollActiveSliderIntoView() {
   const idx = viewMode === "mod"
     ? clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1)
     : clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
+
+  // Returning to the first control: also reveal the "Show all" toggle that
+  // sits above the sliders, so it's not left out of reach.
+  if (idx === 0) {
+    const toggle = wrap.querySelector(".slider-group:has(.switch)");
+    if (toggle) {
+      try { toggle.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+      catch (e) { toggle.scrollIntoView(); }
+    }
+    return;
+  }
+
   const role = viewMode === "mod" ? "mod" : "base";
   const el = wrap.querySelector(`.slider-group[data-role="${role}"][data-index="${idx}"]`);
   if (!el) return;
