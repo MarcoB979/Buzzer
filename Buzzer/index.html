@@ -629,6 +629,8 @@ let speedRampDown = false;
 let speedRampToken = 0;
 let speedRampEnabled = true;
 try { speedRampEnabled = localStorage.getItem("ossm-speed-ramp") !== "0"; } catch (e) {}
+let speedRampActive = false;     // true while the ramp is driving speed (incl. settle window)
+let speedRampSettleTimer = null; // post-ramp reconcile timer
 let apSpeedSeq = 0;
 let stdSpeedSeq = 0;
 const STOP_RESEND_MS = 150;    // delay before re-sending a stop command
@@ -750,7 +752,10 @@ function parseStatus(raw) {
     const parts = entry.split(":");
     if (i === speedIndex()) {
       const v = parseFloat(parts[0]);
-      if (!isNaN(v)) {
+      if (!isNaN(v) && !speedRampActive) {
+        // While a ramp is driving speed, the device's own report (async and
+        // quantized) must not overwrite the commanded value, or the displayed
+        // number bounces (e.g. 5 → 4 → 6) and the ramp seems to miss its target.
         const s = getSetting(SPEED_KEY);
         s.value = clamp(v, s.min, s.max);
         settings[SPEED_KEY] = s;
@@ -902,7 +907,7 @@ function parseStdState(raw) {
     if ((stdStateName || "").indexOf("strokeEngine") === 0) applyStdSafeValues();
     return;
   }
-  if (typeof j.speed === "number") stdValues.speed = Math.round(j.speed);
+  if (typeof j.speed === "number" && !speedRampActive) stdValues.speed = Math.round(j.speed);
   if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
   if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
@@ -1043,10 +1048,14 @@ function setSpeed(v) {
   }
 }
 
-const SPEED_RAMP_MS = 90;
+const SPEED_RAMP_MS = 40;         // ramp tick interval
+const SPEED_RAMP_STEP = 1;        // speed units per tick (linear, monotonic ramp)
+const SPEED_RAMP_SETTLE_MS = 350; // delay before reconciling with the device's real speed
 function stopSpeedRamp() {
   speedRampToken++;
   if (speedRampTimer) { clearTimeout(speedRampTimer); speedRampTimer = null; }
+  speedRampActive = false;
+  if (speedRampSettleTimer) { clearTimeout(speedRampSettleTimer); speedRampSettleTimer = null; }
   speedRampTarget = 0;
   speedRampDown = false;
 }
@@ -1093,14 +1102,15 @@ function rampSpeed(from, to) {
   else if (appMode === "ap") { if (to > 0) lastNonZeroSpeed = to; }
   speedRampTarget = to;
   speedRampDown = to < from;
+  speedRampActive = true;
   const token = speedRampToken;
   let cur = from;
-  const t0 = performance.now();
   const tick = async () => {
     if (token !== speedRampToken || !connected || !stdCmd || (appMode !== "std" && appMode !== "ap")) return;
-    const t = performance.now() - t0;
-    const step = t < 800 ? 1 : (t < 2000 ? 2 : (t < 4000 ? 4 : 8));
-    cur = speedRampDown ? Math.max(to, cur - step) : Math.min(to, cur + step);
+    // Linear, monotonic ramp: one fixed step per tick, snapped exactly onto the
+    // target on the final tick. No escalating step sizes and no overshoot, so
+    // the speed always reaches (and lands on) the target, including 0.
+    cur = speedRampDown ? Math.max(to, cur - SPEED_RAMP_STEP) : Math.min(to, cur + SPEED_RAMP_STEP);
     const final = cur === to;
     if (appMode === "std") {
       // Keep local state in lock-step with the ramp so a mid-ramp Stop/Start
@@ -1118,10 +1128,35 @@ function rampSpeed(from, to) {
       else await writeControl(speedIndex() + ":" + cur + ",").catch(() => {});
     }
     if (token !== speedRampToken) return; // cancelled mid-write
-    if (final) { stopSpeedRamp(); return; }
+    if (final) { finishSpeedRamp(token); return; }
     speedRampTimer = setTimeout(tick, SPEED_RAMP_MS);
   };
   speedRampTimer = setTimeout(tick, SPEED_RAMP_MS);
+}
+// Ends the ramp, keeps suppressing device speed echoes during a short settle
+// window, then reconciles the displayed speed with what the OSSM reports.
+function finishSpeedRamp(token) {
+  speedRampTimer = null;
+  speedRampTarget = 0;
+  speedRampDown = false;
+  speedRampSettleTimer = setTimeout(async () => {
+    speedRampSettleTimer = null;
+    if (token !== speedRampToken || !connected) return; // a newer ramp owns the state now
+    try {
+      if (appMode === "std" && stdState) {
+        speedRampActive = false;
+        parseStdState(decode(await stdState.readValue()));
+        updateStartButton();
+        buildInterface();
+      } else if (appMode === "ap" && stsChar) {
+        speedRampActive = false;
+        parseStatus(await readStr(stsChar));
+        buildInterface();
+      } else {
+        speedRampActive = false;
+      }
+    } catch (e) { speedRampActive = false; }
+  }, SPEED_RAMP_SETTLE_MS);
 }
 function setModifier(bi, mi, v) {
   const key = modifierKey(bi, mi);
@@ -5042,6 +5077,7 @@ setInterval(() => {
   // and cause periodic desync with the video. (In fun mode the Start button is
   // driven by the video play/pause events, not by BLE state.)
   if (appMode === "fun" && funState.playing) return;
+  if (speedRampActive) return; // the ramp owns speed; skip device reads mid-ramp
   stdState.readValue().then(v => {
     const before = stdStateName;
     parseStdState(decode(v));
