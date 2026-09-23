@@ -2676,6 +2676,20 @@ function buildFunControls() {
     funLog(demoMode ? "Demo mode on — no OSSM needed." : "Demo mode off.");
   };
   testRow.appendChild(demoBtn);
+  const forceBtn = document.createElement("button");
+  forceBtn.type = "button"; forceBtn.className = "fun-btn";
+  forceBtn.textContent = forceFunLayout ? "Force screen ✓" : "Force screen";
+  forceBtn.title = "Force the Funscript landscape layout even in portrait. Turn off to show the rotate hint again.";
+  forceBtn.style.background = forceFunLayout ? "#16a34a" : "";
+  forceBtn.onclick = () => {
+    forceFunLayout = !forceFunLayout;
+    try { localStorage.setItem("ossm-fun-force", forceFunLayout ? "1" : "0"); } catch (e) {}
+    applyFunLayout();
+    buildFunVideo();
+    forceBtn.textContent = forceFunLayout ? "Force screen ✓" : "Force screen";
+    forceBtn.style.background = forceFunLayout ? "#16a34a" : "";
+  };
+  testRow.appendChild(forceBtn);
   sec.appendChild(testRow);
 
   const favSec = document.createElement("div");
