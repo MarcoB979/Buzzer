@@ -1316,6 +1316,7 @@ function resetAllValues() {
 let viewMode = "main";          // "main" | "mod"
 let activeBaseIndex = 0;        // 0..5 (main base controls)
 let activeModifierIndex = 0;    // 0..5 (modifier type)
+let scrollSlidersToActive = false; // when true, scroll the slider list to the active control after the next rebuild
 let presetSelection = "";       // currently selected preset in the dropdown
 let showAll = (window.matchMedia && (window.matchMedia("(orientation: landscape)").matches || window.matchMedia("(min-width: 700px)").matches)); // wide/landscape defaults to showing all sliders
 let modifierRowVisible = (window.matchMedia && (window.matchMedia("(orientation: landscape)").matches || window.matchMedia("(min-width: 700px)").matches)); // show modifier boxes by default when wide/landscape
@@ -1429,6 +1430,10 @@ function buildInterfaceNow() {
   if (!isFun) { buildSpeed(); resizeCanvas(); drawGraph(); buildWatchPanel(); }
   placeStartButton();
   applyFunLayout();
+  if (scrollSlidersToActive) {
+    scrollSlidersToActive = false;
+    scrollActiveSliderIntoView();
+  }
 }
 
 function buildTabs() {
@@ -1459,6 +1464,7 @@ function buildTabs() {
       if (activeBaseIndex === i) modifierRowVisible = !modifierRowVisible;
       else { activeBaseIndex = i; modifierRowVisible = true; }
       viewMode = "main";
+      requestSliderScroll();
       buildInterface();
     };
     baseRow.appendChild(d);
@@ -1472,7 +1478,7 @@ function buildTabs() {
     const modActive = viewMode === "mod";
     MODIFIER_NAMES.forEach((name, mi) => {
       const d = mk(Math.round(settingValue(BASE_NAMES[bi] + name)), modActive && mi === activeModifierIndex, activeColor, name, name, true);
-      d.onclick = () => { activeModifierIndex = mi; viewMode = "mod"; buildInterface(); };
+      d.onclick = () => { activeModifierIndex = mi; viewMode = "mod"; requestSliderScroll(); buildInterface(); };
       modRow.appendChild(d);
     });
   }
@@ -1563,7 +1569,9 @@ function buildSliders() {
     if (viewMode === "main") {
       for (let i = 0; i < BASE_NAMES.length; i++) {
         const r = baseRange(i);
-        wrap.appendChild(sliderEl(BASE_NAMES[i], r.min, r.max, Math.round(settingValue(BASE_NAMES[i])), BASE_COLORS[i], (v) => setBase(i, v)));
+        const el = sliderEl(BASE_NAMES[i], r.min, r.max, Math.round(settingValue(BASE_NAMES[i])), BASE_COLORS[i], (v) => setBase(i, v));
+        el.dataset.role = "base"; el.dataset.index = i;
+        wrap.appendChild(el);
       }
     } else {
       const selGroup = document.createElement("div");
@@ -1576,13 +1584,15 @@ function buildSliders() {
         if (i === activeBaseIndex) o.selected = true;
         sel.appendChild(o);
       }
-      sel.onchange = () => { activeBaseIndex = parseInt(sel.value, 10); activeModifierIndex = 0; buildInterface(); };
+      sel.onchange = () => { activeBaseIndex = parseInt(sel.value, 10); activeModifierIndex = 0; requestSliderScroll(); buildInterface(); };
       selGroup.appendChild(sel);
       wrap.appendChild(selGroup);
 
       MODIFIER_NAMES.forEach((name, mi) => {
         const s = getSetting(BASE_NAMES[bi] + name);
-        wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v)));
+        const el = sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v));
+        el.dataset.role = "mod"; el.dataset.index = mi;
+        wrap.appendChild(el);
       });
     }
   } else {
@@ -1611,6 +1621,20 @@ function buildFocusedSliders() {
     const s = getSetting(BASE_NAMES[bi] + name);
     wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), BASE_COLORS[bi], (v) => setModifier(bi, mi, v)));
   }
+}
+
+function requestSliderScroll() { scrollSlidersToActive = true; }
+function scrollActiveSliderIntoView() {
+  const wrap = $("sliders-wrapper");
+  if (!wrap) return;
+  const idx = viewMode === "mod"
+    ? clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1)
+    : clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
+  const role = viewMode === "mod" ? "mod" : "base";
+  const el = wrap.querySelector(`.slider-group[data-role="${role}"][data-index="${idx}"]`);
+  if (!el) return;
+  try { el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+  catch (e) { el.scrollIntoView(); }
 }
 
 function buildStdSliders() {
@@ -4708,6 +4732,7 @@ function gpNav(delta) {
     activeBaseIndex = clamp(activeBaseIndex + delta, 0, BASE_NAMES.length - 1);
     modifierRowVisible = true;
   }
+  requestSliderScroll();
   buildInterface();
 }
 function gpValueStep(delta, mag) {
@@ -4723,10 +4748,12 @@ function gpValueStep(delta, mag) {
 function gpModEnter() {
   viewMode = "mod";
   modifierRowVisible = true;
+  requestSliderScroll();
   buildInterface();
 }
 function gpModBack() {
   viewMode = "main";
+  requestSliderScroll();
   buildInterface();
 }
 function gpPresetNav(delta) {
