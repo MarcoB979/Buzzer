@@ -337,7 +337,6 @@
     #col-left > *, #col-center > *, #col-right > * { order: 0; }
     .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; padding: 0; }
     #sliders-wrapper { flex: 1 1 auto; overflow-y: auto; }
-    #sliders-wrapper > .slider-group:first-child:has(.switch) { position: sticky; top: 0; background: var(--panel-bg); z-index: 2; padding-bottom: 4px; }
     .start-stop-row { position: static; padding-top: 0; margin-top: auto; }
     .meter-bar { height: 105px; }
     canvas { width: 250px; }
@@ -1638,20 +1637,8 @@ function scrollActiveSliderIntoView() {
   const role = viewMode === "mod" ? "mod" : "base";
   const el = wrap.querySelector(`.slider-group[data-role="${role}"][data-index="${idx}"]`);
   if (!el) return;
-
-  // In landscape/wide the sliders panel is its own scroll container with a
-  // sticky "Show all" toggle at the top. Scroll the container directly and
-  // leave room for that sticky header, so the active slider lands fully
-  // visible below it — exactly as a manual scroll would.
-  if (wrap.scrollHeight > wrap.clientHeight) {
-    const sticky = wrap.querySelector(".slider-group:first-child:has(.switch)");
-    const headerH = sticky ? sticky.offsetHeight : 0;
-    const relTop = el.getBoundingClientRect().top - wrap.getBoundingClientRect().top + wrap.scrollTop;
-    wrap.scrollTo({ top: Math.max(0, relTop - headerH), behavior: "smooth" });
-  } else {
-    try { el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
-    catch (e) { el.scrollIntoView(); }
-  }
+  try { el.scrollIntoView({ block: "nearest", behavior: "smooth" }); }
+  catch (e) { el.scrollIntoView(); }
 }
 
 function buildStdSliders() {
