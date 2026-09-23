@@ -796,18 +796,49 @@ function setConnectingUI(on) {
   if (bt) bt.textContent = on ? "OSSM: Connecting…" : (bt.textContent === "OSSM: Connecting…" ? "OSSM: Disconnected" : bt.textContent);
 }
 
+function bluetoothTimeout(p, ms) {
+  let timer;
+  return Promise.race([
+    p,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("timeout")), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+// Tries to silently reconnect to a previously-paired OSSM before showing the
+// standard picker. The browser remembers devices by address, so a renamed OSSM
+// is still found here — we confirm it's the OSSM by its service UUID.
+async function acquireDevice() {
+  if (navigator.bluetooth.getDevices) {
+    let known = [];
+    try { known = await navigator.bluetooth.getDevices(); } catch (e) {}
+    for (const d of known) {
+      try {
+        const srv = await bluetoothTimeout(d.gatt.connect(), 4000);
+        await bluetoothTimeout(srv.getPrimaryService(SERVICE_UUID), 4000);
+        return { device: d, server: srv };
+      } catch (e) {
+        try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e2) {}
+      }
+    }
+  }
+  const d = await navigator.bluetooth.requestDevice({
+    filters: [{ services: [SERVICE_UUID] }],
+    optionalServices: [SERVICE_UUID, LEGACY_SERVICE_UUID]
+  });
+  const srv = await d.gatt.connect();
+  return { device: d, server: srv };
+}
+
 async function connect() {
   if (!navigator.bluetooth) { log("Web Bluetooth not available. Use Chrome/Edge over HTTPS or localhost."); return; }
   setConnectingUI(true);
-  log("Requesting device…");
+  log("Looking for the OSSM…");
   try {
-    device = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [SERVICE_UUID] }],
-      optionalServices: [SERVICE_UUID, LEGACY_SERVICE_UUID]
-    });
+    const acquired = await acquireDevice();
+    device = acquired.device;
+    server = acquired.server;
     device.addEventListener("gattserverdisconnected", onDisconnected);
     log("Connecting to " + (device.name || "OSSM") + "…");
-    server = await device.gatt.connect();
     const svc = await server.getPrimaryService(SERVICE_UUID);
     ctlChar = await svc.getCharacteristic(CONTROL_UUID);
     cfgChar = await svc.getCharacteristic(CONFIG_UUID);
