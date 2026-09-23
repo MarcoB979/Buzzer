@@ -2683,7 +2683,6 @@ function buildFunControls() {
   forceBtn.style.background = forceFunLayout ? "#16a34a" : "";
   forceBtn.onclick = () => {
     forceFunLayout = !forceFunLayout;
-    try { localStorage.setItem("ossm-fun-force", forceFunLayout ? "1" : "0"); } catch (e) {}
     applyFunLayout();
     buildFunVideo();
     forceBtn.textContent = forceFunLayout ? "Force screen ✓" : "Force screen";
@@ -2778,8 +2777,7 @@ function buildFunControls() {
   if (vs) vs.style.display = funControlsCollapsed ? "none" : "";
 }
 
-let forceFunLayout = false;
-try { forceFunLayout = localStorage.getItem("ossm-fun-force") === "1"; } catch (e) {}
+let forceFunLayout = false; // session-only: resets on reload
 function applyFunLayout() {
   document.body.classList.toggle("force-fun", !!(forceFunLayout && appMode === "fun"));
 }
@@ -2793,7 +2791,6 @@ function buildFunVideo() {
     const fb = $("funForceBtn");
     if (fb) fb.onclick = () => {
       forceFunLayout = true;
-      try { localStorage.setItem("ossm-fun-force", "1"); } catch (e) {}
       applyFunLayout();
       buildFunVideo();
     };
