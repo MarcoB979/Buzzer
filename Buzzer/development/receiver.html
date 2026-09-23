@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buzzer Receiver</title>
+<script src="https://www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
+<style>
+  html, body { margin:0; padding:0; background:#000; width:100%; height:100%; overflow:hidden; }
+  video { width:100vw; height:100vh; object-fit:contain; background:#000; }
+  #status { position:fixed; bottom:18px; left:0; right:0; text-align:center; color:#94a3b8;
+            font:14px/1.4 system-ui,sans-serif; z-index:10; text-shadow:0 1px 2px #000; pointer-events:none; }
+</style>
+</head>
+<body>
+<video id="v" playsinline></video>
+<div id="status">Local receiver: Waiting for a video…</div>
+<script>
+// Buzzer custom Cast receiver.
+// Receives a local video file from the phone over a WebRTC DataChannel
+// (signaled through the Cast custom-message channel) and plays it on the TV.
+// No upload, no server, no storage — the bytes go straight phone → TV over WiFi.
+const NS = "urn:x-cast:com.buzzer.local";
+const video = document.getElementById("v");
+const statusEl = document.getElementById("status");
+if (!window.cast || !cast.framework) {
+  statusEl.textContent = "Receiver SDK failed to load.";
+  throw new Error("Cast receiver SDK unavailable");
+}
+const context = cast.framework.CastReceiverContext.getInstance();
+
+let pc = null, channel = null;
+let chunks = [], received = 0, totalSize = 0, mime = "";
+let finished = false, answered = false, answering = false;
+let mseMode = false, mseStarted = false;
+let mediaSource = null;
+let mseTracks = {};   // trackId -> { mime, sb, queue: [], busy }
+let pendingSegs = []; // { id, buffer } received before SourceBuffers are ready
+let sbError = false;
+let firstAppendTime = 0;
+let currentTrackId = 1;
+let expectStreamInfo = false;
+
+function send(obj) {
+  try { context.sendCustomMessage(NS, undefined, obj); } catch (e) {
+    setStatus("Message send failed: " + (e && e.message));
+  }
+}
+function waitIceComplete(pc, timeoutMs) {
+  return new Promise(resolve => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    if (pc.iceGatheringState === "complete") { finish(); return; }
+    try { pc.addEventListener("icegatheringstatechange", () => { if (pc.iceGatheringState === "complete") finish(); }); } catch (e) {}
+    setTimeout(finish, timeoutMs);
+  });
+}
+function setStatus(s) { statusEl.textContent = s; }
+function pushStatus() {
+  send({ type: "status", t: video.currentTime || 0, playing: !video.paused, duration: video.duration || 0 });
+}
+setInterval(pushStatus, 250);
+// Safety net: if MSE never actually starts playing, fall back to whole-file buffering.
+setInterval(() => {
+  if (mseMode && !mseStarted && firstAppendTime && (Date.now() - firstAppendTime) > 6000) {
+    fallbackToBlob("MSE playback timeout");
+  }
+}, 1000);
+
+function createPeer() {
+  cleanupPeer();
+  answered = false;
+  try { pc = new RTCPeerConnection({ iceServers: [] }); }
+  catch (e) { setStatus("WebRTC not supported on this TV"); send({ type: "error", msg: "WebRTC unavailable: " + (e && e.message) }); return; }
+  pc.oniceconnectionstatechange = () => {
+    if (pc && pc.iceConnectionState === "failed") setStatus("ICE failed — are phone & TV on the same WiFi?");
+  };
+  pc.ondatachannel = e => {
+    channel = e.channel;
+    channel.binaryType = "arraybuffer";
+    channel.onmessage = onData;
+    channel.onclose = () => {
+      if (received === 0) { setStatus("Connection closed."); return; }
+      completePlayback();
+    };
+    setStatus(mseMode ? "Buffering…" : "Uploading to TV…");
+  };
+}
+
+let lastStatusUpdate = 0;
+function onData(ev) {
+  if (typeof ev.data === "string") {
+    const mm = String(ev.data).match(/^T:(\d+)$/);
+    if (mm) currentTrackId = parseInt(mm[1], 10);
+    return;
+  }
+  const len = ev.data.byteLength || 0;
+  // Keep chunks for the blob fallback only until MSE playback has actually started.
+  if (!(mseMode && mseStarted)) chunks.push(ev.data);
+  received += len;
+  const now = Date.now();
+  if (now - lastStatusUpdate > 200) {
+    lastStatusUpdate = now;
+    if (mseMode) {
+      setStatus((mseStarted ? "Streaming… " : "Buffering… ") + (totalSize > 0 ? Math.min(99, Math.round(received / totalSize * 100)) + "%" : Math.round(received / 1048576) + " MB"));
+    } else if (totalSize > 0) setStatus("Uploading to TV: " + Math.round(received / 1048576) + " MB of " + Math.round(totalSize / 1048576) + " MB");
+    else setStatus("Uploading to TV: " + Math.round(received / 1048576) + " MB");
+  }
+  if (mseMode) {
+    if (!mediaSource) initMediaSource();
+    const t = mseTracks[currentTrackId];
+    if (t && t.sb) trackAppend(t, ev.data);
+    else pendingSegs.push({ id: currentTrackId, buffer: ev.data });
+    maybeStartMsePlayback();
+    if (!expectStreamInfo && totalSize > 0 && received >= totalSize) completePlayback();
+  } else {
+    if (expectStreamInfo) pendingSegs.push({ id: currentTrackId, buffer: ev.data });
+    if (!expectStreamInfo && totalSize > 0 && received >= totalSize) finish();
+  }
+}
+function initMediaSource() {
+  try {
+    mediaSource = new MediaSource();
+    video.src = URL.createObjectURL(mediaSource);
+    video.onended = () => {
+      video.pause();
+      send({ type: "status", t: video.duration || 0, playing: false, duration: video.duration || 0 });
+    };
+    video.onerror = () => { setStatus("This file format cannot be played by the TV."); send({ type: "error", msg: "Unsupported video format on TV." }); };
+    mediaSource.addEventListener("sourceopen", () => {
+      let ok = true;
+      for (const id in mseTracks) {
+        const t = mseTracks[id];
+        try {
+          t.sb = mediaSource.addSourceBuffer(t.mime);
+          t.sb.addEventListener("updateend", () => { t.busy = false; trackPump(t); });
+          t.sb.addEventListener("error", () => { if (!mseStarted) fallbackToBlob("MSE codec error"); else setStatus("Playback error on TV."); });
+        } catch (e) {
+          ok = false;
+          send({ type: "error", msg: "MSE setup failed: " + ((e && e.message) || "unknown") + " (" + t.mime + ")" });
+        }
+      }
+      if (!ok) { fallbackToBlob("MSE setup failed"); return; }
+      const p = pendingSegs; pendingSegs = [];
+      for (const seg of p) {
+        const t = mseTracks[seg.id];
+        if (t && t.sb) trackAppend(t, seg.buffer);
+      }
+    });
+  } catch (e) {
+    fallbackToBlob("MediaSource unavailable");
+  }
+}
+function trackAppend(track, buf) {
+  track.queue.push(buf);
+  trackPump(track);
+}
+function trackPump(track) {
+  if (track.busy || !track.sb || track.queue.length === 0) return;
+  track.busy = true;
+  const buf = track.queue.shift();
+  try {
+    track.sb.appendBuffer(buf);
+  } catch (e) {
+    track.busy = false;
+    track.queue.unshift(buf);
+    setTimeout(() => trackPump(track), 200);
+  }
+}
+function maybeStartMsePlayback() {
+  if (mseStarted || !mediaSource) return;
+  const ids = Object.keys(mseTracks);
+  if (!ids.length) return;
+  for (const id of ids) if (!mseTracks[id].sb) return;
+  if (!firstAppendTime) firstAppendTime = Date.now();
+  try {
+    let minEnd = Infinity, hasRange = false;
+    for (const id of ids) {
+      const b = mseTracks[id].sb.buffered;
+      if (b && b.length > 0) { hasRange = true; minEnd = Math.min(minEnd, b.end(b.length - 1)); }
+    }
+    if (hasRange && minEnd - video.currentTime >= 0.5) {
+      mseStarted = true;
+      chunks = []; // no longer need the whole-file fallback copy
+      video.play().catch(() => {});
+      setStatus("Playing…");
+    }
+  } catch (e) {}
+}
+function fallbackToBlob(reason) {
+  if (!mseMode) return;
+  mseMode = false; sbError = true; mseStarted = false;
+  for (const id in mseTracks) { const t = mseTracks[id]; if (t.sb) { try { t.sb.abort(); } catch (e) {} } }
+  mseTracks = {}; pendingSegs = [];
+  if (mediaSource) { try { if (mediaSource.readyState === "open") mediaSource.endOfStream(); } catch (e) {} }
+  mediaSource = null;
+  try { video.removeAttribute("src"); video.load(); } catch (e) {}
+  setStatus("Buffering whole file…" + (reason ? " (" + reason + ")" : ""));
+  if (!expectStreamInfo && totalSize > 0 && received >= totalSize) finish();
+}
+function completePlayback() {
+  if (finished) return;
+  if (!mseMode || !mseStarted) { finish(); return; }
+  finished = true;
+  const anyBusy = () => Object.keys(mseTracks).some(id => mseTracks[id].busy || mseTracks[id].queue.length > 0);
+  const tryEnd = () => {
+    if (anyBusy()) { setTimeout(tryEnd, 150); return; }
+    try { if (mediaSource && mediaSource.readyState === "open") mediaSource.endOfStream(); } catch (e) {}
+    try { video.play().catch(() => {}); } catch (e) {}
+    setStatus("Ready");
+  };
+  tryEnd();
+}
+
+function finish() {
+  if (finished) return;
+  finished = true;
+  setStatus("Preparing…");
+  const blob = new Blob(chunks, { type: mime || "" });
+  chunks = [];
+  const url = URL.createObjectURL(blob);
+  video.src = url;
+  video.onloadedmetadata = () => {
+    setStatus("Ready");
+    pushStatus();
+    video.play().catch(() => setStatus("Ready — press play on your phone"));
+  };
+  video.onended = () => {
+    video.pause();
+    send({ type: "status", t: video.duration || 0, playing: false, duration: video.duration || 0 });
+  };
+  video.onerror = () => { setStatus("This file format cannot be played by the TV."); send({ type: "error", msg: "Unsupported video format on TV." }); };
+}
+
+function cleanupPeer() {
+  if (channel) { try { channel.close(); } catch (e) {} }
+  if (pc) { try { pc.close(); } catch (e) {} }
+  channel = null; pc = null;
+}
+
+function onMessage(event) {
+  let m = event && (event.data !== undefined ? event.data : event.message);
+  if (typeof m === "string") {
+    try { m = JSON.parse(m); if (typeof m === "string") m = JSON.parse(m); } catch (e) { return; }
+  }
+  m = (m && typeof m === "object") ? m : {};
+  try {
+    if (m.type === "hello") {
+      // Ignore duplicate hellos once data is already flowing.
+      if (received > 0 || (channel && channel.readyState === "open")) return;
+      totalSize = m.size || 0;
+      mime = m.mime || "";
+      received = 0; chunks = []; finished = false;
+      mseMode = false; mseStarted = false; sbError = false; firstAppendTime = 0;
+      mseTracks = {}; pendingSegs = []; currentTrackId = 1; expectStreamInfo = false;
+      const meta = m.meta || {};
+      expectStreamInfo = !!(meta.remux);
+      // Progressive MSE only for truly streamable containers: WebM or fragmented MP4.
+      // Regular (non-fragmented) MP4 is remuxed by the phone (see stream-info).
+      const streamable = meta.codecs && (meta.container === "webm" || meta.fragmented);
+      if (streamable) {
+        const container = meta.container === "webm" ? "video/webm" : "video/mp4";
+        const mimeStr = container + "; codecs=\"" + meta.codecs + "\"";
+        try {
+          if (window.MediaSource && MediaSource.isTypeSupported(mimeStr)) {
+            mseMode = true;
+            mseTracks = { 1: { mime: mimeStr, sb: null, queue: [], busy: false } };
+            currentTrackId = 1;
+          }
+        } catch (e) {}
+      }
+      setStatus(mseMode ? "Streaming…" : "Uploading to TV…");
+    } else if (m.type === "offer") {
+      if (answered && pc) { send({ type: "answer", sdp: pc.localDescription ? pc.localDescription.sdp : "" }); return; }
+      if (answering) return;
+      answering = true;
+      setStatus("Negotiating…");
+      createPeer();
+      const localPc = pc;
+      if (!localPc) { answering = false; return; }
+      localPc.setRemoteDescription({ type: "offer", sdp: m.sdp })
+        .then(() => localPc.createAnswer())
+        .then(a => localPc.setLocalDescription(a))
+        .then(() => waitIceComplete(localPc, 1500))
+        .then(() => { answered = true; answering = false; send({ type: "answer", sdp: localPc.localDescription.sdp }); setStatus("Answered — connecting…"); })
+        .catch(e => { answering = false; send({ type: "error", msg: "Signaling failed: " + (e && e.message) }); });
+    } else if (m.type === "seek") {
+      try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
+      pushStatus();
+    } else if (m.type === "stream-info") {
+      const tracks = (m.tracks && m.tracks.length) ? m.tracks : [];
+      const byId = {};
+      let allOk = tracks.length > 0;
+      for (const t of tracks) {
+        const codec = String(t.codec || "").replace(/\s/g, "");
+        byId[t.id] = { mime: "video/mp4; codecs=\"" + codec + "\"", sb: null, queue: [], busy: false };
+        let sup = false;
+        try { sup = !!(window.MediaSource && MediaSource.isTypeSupported(byId[t.id].mime)); } catch (e) {}
+        if (!sup) allOk = false;
+      }
+      if (allOk) {
+        mseMode = true; sbError = false; firstAppendTime = 0;
+        // Keep totalSize from hello (original file size) for the % progress;
+        // completion for a remuxed stream is via channel close, not byte count.
+        mseTracks = byId;
+        setStatus("Streaming…");
+      } else {
+        let combined = "";
+        try { combined = tracks.map(t => String(t.codec || "").replace(/\s/g, "")).join(","); } catch (e) {}
+        let canPlay = "";
+        try { canPlay = video.canPlayType("video/mp4; codecs=\"" + combined + "\"") || ""; } catch (e) {}
+        if (canPlay) {
+          send({ type: "error", msg: "TV can't stream this codec — buffering full file instead." });
+          setStatus("Buffering full file…");
+        } else {
+          setStatus("Codec not supported by the TV.");
+          send({ type: "error", fatal: true, msg: "Codec not supported by the TV." });
+        }
+      }
+    } else if (m.type === "volume") {
+      try { video.volume = Math.max(0, Math.min(1, Number(m.v) || 0)); } catch (e) {}
+    } else if (m.type === "mute") {
+      try { video.muted = !!m.m; } catch (e) {}
+    } else if (m.type === "play") {
+      video.play().catch(() => {});
+      pushStatus();
+    } else if (m.type === "pause") {
+      video.pause();
+      pushStatus();
+    } else if (m.type === "stop") {
+      video.pause();
+      try { video.removeAttribute("src"); video.load(); } catch (e) {}
+      chunks = []; received = 0; totalSize = 0; finished = false;
+      mseMode = false; mseStarted = false; sbError = false; firstAppendTime = 0;
+      mseTracks = {}; pendingSegs = []; currentTrackId = 1; expectStreamInfo = false;
+      if (mediaSource) { try { if (mediaSource.readyState === "open") mediaSource.endOfStream(); } catch (e) {} }
+      mediaSource = null;
+      cleanupPeer();
+      setStatus("Waiting for a video…");
+    }
+  } catch (e) {
+    send({ type: "error", msg: (e && e.message) || "receiver error" });
+  }
+}
+
+context.addCustomMessageListener(NS, onMessage);
+try {
+  const p = context.start();
+  if (p && typeof p.then === "function") p.then(() => send({ type: "ready" })).catch(() => send({ type: "ready" }));
+  else setTimeout(() => send({ type: "ready" }), 300);
+} catch (e) {
+  setTimeout(() => send({ type: "ready" }), 300);
+}
+</script>
+</body>
+</html>
