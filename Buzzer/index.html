@@ -1378,6 +1378,14 @@ function updateStartButton() {
   const isFun = appMode === "fun";
   const isStd = appMode === "std";
   const runningNow = isFun ? funState.playing : (isStd ? stdRunning : speed() > 0);
+  // Funscript mode: the Start button does nothing until a video is loaded,
+  // so show it disabled with a hint instead of a misleading green "Start".
+  if (isFun && !funState.videoUrl) {
+    b.disabled = true;
+    b.textContent = "Load video first...";
+    b.classList.remove("stop");
+    return;
+  }
   if (!connected || machineRunningState()) {
     b.disabled = false;
     b.textContent = runningNow ? "Stop" : "Start";
@@ -3029,6 +3037,7 @@ function setFunVideo(url, name) {
   const nv = $("funVideoName"); if (nv) nv.textContent = name;
   buildFunVideo();
   updateCastButton();
+  updateStartButton();
 }
 function getExtractorUrl() {
   try { return (localStorage.getItem("ossm-extractor-url") || "").trim().replace(/\/+$/, ""); } catch (e) { return ""; }
@@ -3164,6 +3173,7 @@ async function loadVideoUrl(input) {
     const nv = $("funVideoName"); if (nv) nv.textContent = name;
     buildFunVideo();
     updateCastButton();
+    updateStartButton();
     const v = $("funVideo");
     if (v) {
       if (funState.hls) funState.hls.destroy();
