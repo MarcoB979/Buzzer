@@ -57,6 +57,8 @@
   /* Portrait: restore the original single-column order */
   #ble-panel { order: 1; }
   .header-row { order: 2; }
+  .fun-video { order: 3; }
+  .fun-preview-wrap { order: 3; }
   #tabs-wrapper { order: 4; }
   .visualizer-area { order: 5; }
   #speed-control { order: 6; }
@@ -180,7 +182,7 @@
   .fun-placeholder { color: var(--muted); font-size: .9rem; padding: 40px; text-align: center; }
   .fun-panel { background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
   .phone-container.fun .col-left { display: none; }
-  .phone-container.fun .col-right { display: none; }
+  .phone-container.fun .col-right { display: contents; }
   /* Force screen: apply the funscript landscape layout even in portrait (foldables). */
   body.force-fun { padding: 4px; }
   body.force-fun .phone-container.fun {
