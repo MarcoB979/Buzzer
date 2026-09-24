@@ -2482,7 +2482,7 @@ const funState = {
   videoUrl: null, videoName: "", scriptName: "",
   castUrl: null, uploading: false, localFile: null, fileMeta: null, hls: null,
   rawActions: [], actions: [],
-  maxSpeed: 100, maxDepth: 100, minDepth: 0, buffer: 100, sensation: 50,
+  maxSpeed: 100, maxDepth: 20, minDepth: 0, buffer: 100, sensation: 50,
   reverse: false, simplify: true,
   offsetMs: 0,
   lastSentPos: null, rampTo: null,
@@ -4415,7 +4415,7 @@ function enterApMode() {
 $("modeAp").onclick = () => { if (!apAvailable()) return; if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); enterApMode(); };
 $("modeStd").onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
 const mFun = $("modeFun");
-if (mFun) mFun.onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); appMode = "fun"; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
+if (mFun) mFun.onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); appMode = "fun"; funState.maxDepth = 20; if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
 function setDemoMode(on) {
