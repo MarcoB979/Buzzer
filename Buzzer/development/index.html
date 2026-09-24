@@ -144,15 +144,15 @@
   .pad-debug summary { list-style: none; cursor: pointer; user-select: none; font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
   .pad-debug summary::-webkit-details-marker { display: none; }
   .pad-debug pre { font-family: 'Courier New', monospace; font-size: .7rem; color: #38bdf8; white-space: pre-wrap; margin: 8px 0 0; }
-  .tabs-container { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .tabs-container { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
   .tab-row { display: flex; justify-content: space-between; gap: 4px; }
   .tab-box {
     flex: 1; background-color: #3a3a3a; border-radius: 4px; text-align: center;
-    padding: 6px 2px; font-size: .78rem; font-weight: bold; color: var(--text-color);
+    padding: 3px 2px; font-size: .78rem; font-weight: bold; color: var(--text-color);
     border: 2px solid transparent; cursor: pointer;
   }
-  .tab-value { font-size: .85rem; font-weight: bold; line-height: 1.1; }
-  .tab-name { font-size: .55rem; font-weight: normal; line-height: 1.1; margin-top: 2px; }
+  .tab-value { font-size: .78rem; font-weight: bold; line-height: 1.1; }
+  .tab-name { font-size: .52rem; font-weight: normal; line-height: 1.1; margin-top: 1px; }
   .visualizer-area { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 16px; }
   .meter-col { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 0 0 auto; }
   .meter-bar { width: 12px; height: 132px; background-color: var(--panel-bg); border: 2px solid var(--border-color); border-radius: 4px; position: relative; overflow: hidden; }
@@ -371,7 +371,7 @@
     .meter-bar { height: 105px; }
     canvas { width: 250px; }
     /* Stretch the graph + meters to fill the column height (capped on tall screens) */
-    .phone-container:not(.hide-left.hide-right) .visualizer-area { flex: 1 1 auto; min-height: 60px; margin-bottom: 0; max-height: 520px; align-items: stretch; }
+    .phone-container:not(.hide-left.hide-right) .visualizer-area { flex: 1 1 auto; min-height: 0; margin-bottom: 0; max-height: 520px; align-items: stretch; }
     .phone-container:not(.hide-left.hide-right) .visualizer-area canvas { flex: 1 1 0; width: auto; height: auto; min-width: 0; min-height: 0; }
     .phone-container:not(.hide-left.hide-right) .visualizer-area .meter-bar { height: auto; flex: 1 1 0; }
     #btnStart { padding: 10px; font-size: .9rem; }
