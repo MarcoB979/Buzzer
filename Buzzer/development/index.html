@@ -292,6 +292,10 @@
   .watch-load input[type=text] { flex: 1; min-width: 0; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 6px 8px; font-size: .78rem; }
   .watch-load .ble-btn { font-size: .75rem; padding: 6px 10px; flex: 0 0 auto; }
   .watch-empty { font-size: .75rem; color: var(--muted); }
+  .watch-favs { border-top: 1px solid var(--border-color); margin-top: 2px; padding-top: 6px; }
+  .watch-favs-title { font-size: .7rem; color: #facc15; margin-bottom: 4px; }
+  .watch-favs .fun-row { margin-bottom: 4px; }
+  .watch-favs .fun-btn { font-size: .72rem; padding: 6px 8px; }
   .watch-body .fun-cast-overlay { position: static; inset: auto; }
   #presetList { display: flex; gap: 8px; align-items: center; }
   #presetList select { flex: 1; width: auto; min-width: 0; }
@@ -511,8 +515,13 @@
         <div class="watch-load">
           <input type="text" id="watchUrlInput" placeholder="Video URL or Pornhub ID…">
           <button class="ble-btn" id="watchUrlGo" type="button">Load</button>
+          <button class="ble-btn" id="watchFavBtn" type="button" title="Add / remove current URL from favorites">☆</button>
           <button class="ble-btn" id="watchFileBtn" type="button">📁 File</button>
           <input type="file" id="watchFileInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg,application/octet-stream" style="display:none;">
+        </div>
+        <div class="watch-favs">
+          <div class="watch-favs-title">⭐ Favorites</div>
+          <div id="watchFavList"></div>
         </div>
         <div class="watch-empty" id="watchEmpty">No video loaded yet.</div>
         <button class="ble-btn" id="watchCastBtn" type="button">Cast to TV</button>
@@ -2518,18 +2527,16 @@ function getFavorites() {
 function saveFavorites(list) {
   try { localStorage.setItem("ossm-fun-favorites", JSON.stringify((list || []).slice(0, 25))); } catch (e) {}
 }
-function renderFavorites() {
-  const list = $("funFavList");
-  if (!list) return;
-  list.innerHTML = "";
+function makeFavoriteRows(onLoad) {
   const favs = getFavorites();
+  const frag = document.createDocumentFragment();
   if (!favs.length) {
     const h = document.createElement("div");
     h.className = "fun-file";
     h.style.cssText = "font-size:.68rem;opacity:.7;";
     h.textContent = "No favorites yet — load a URL and press ⭐.";
-    list.appendChild(h);
-    return;
+    frag.appendChild(h);
+    return frag;
   }
   for (const url of favs) {
     const row = document.createElement("div");
@@ -2541,11 +2548,7 @@ function renderFavorites() {
     link.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:#1e293b;color:#7dd3fc;";
     link.textContent = url;
     link.title = "Load " + url;
-    link.onclick = () => {
-      const ph = $("funPhId");
-      if (ph) ph.value = url;
-      loadVideoUrl(url);
-    };
+    link.onclick = () => onLoad(url);
     const del = document.createElement("button");
     del.type = "button";
     del.className = "fun-btn";
@@ -2555,17 +2558,50 @@ function renderFavorites() {
     del.onclick = () => {
       saveFavorites(getFavorites().filter(u => u !== url));
       renderFavorites();
-      const star = $("funFavBtn");
-      const ph = $("funPhId");
-      if (star && ph) {
-        const inFav = getFavorites().includes(ph.value.trim());
-        star.textContent = inFav ? "★" : "☆";
-        star.style.color = inFav ? "#facc15" : "";
-      }
+      renderWatchFavorites();
+      updateFunFavStar();
+      updateWatchFavStar();
     };
     row.appendChild(link); row.appendChild(del);
-    list.appendChild(row);
+    frag.appendChild(row);
   }
+  return frag;
+}
+function renderFavorites() {
+  const list = $("funFavList");
+  if (!list) return;
+  list.innerHTML = "";
+  list.appendChild(makeFavoriteRows((url) => {
+    const ph = $("funPhId");
+    if (ph) ph.value = url;
+    loadVideoUrl(url);
+  }));
+}
+function renderWatchFavorites() {
+  const list = $("watchFavList");
+  if (!list) return;
+  list.innerHTML = "";
+  list.appendChild(makeFavoriteRows((url) => {
+    const inp = $("watchUrlInput");
+    if (inp) inp.value = url;
+    loadWatchUrl(url);
+  }));
+}
+function updateFunFavStar() {
+  const star = $("funFavBtn");
+  const ph = $("funPhId");
+  if (!star || !ph) return;
+  const inFav = getFavorites().includes(ph.value.trim());
+  star.textContent = inFav ? "★" : "☆";
+  star.style.color = inFav ? "#facc15" : "";
+}
+function updateWatchFavStar() {
+  const star = $("watchFavBtn");
+  const inp = $("watchUrlInput");
+  if (!star || !inp) return;
+  const inFav = getFavorites().includes(inp.value.trim());
+  star.textContent = inFav ? "★" : "☆";
+  star.style.color = inFav ? "#facc15" : "";
 }
 
 function buildFunControls() {
@@ -3261,6 +3297,7 @@ async function loadVideoUrl(input) {
 }
 
 function funStartStreaming() {
+  if (appMode !== "fun") return; // never drive the rail from a cast in Standard/Advanced
   if (!funState.actions.length) { funLog("No funscript loaded."); return; }
   if (!stdCmd && !demoMode) { funLog("Connect to the OSSM to stream."); return; }
   if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
@@ -4201,6 +4238,7 @@ function buildWatchPanel() {
     btn.disabled = !castAvailable;
   }
   setCastOverlay(castConnected);
+  renderWatchFavorites();
 }
 function watchCast() {
   if (!castContext || castConnected) return;
@@ -4229,9 +4267,9 @@ function setWatchVideo(url, name, localFile) {
   funState.fileMeta = null;
   buildWatchPanel();
 }
-async function loadWatchUrl() {
+async function loadWatchUrl(rawOverride) {
   const inp = $("watchUrlInput");
-  const raw = (inp ? inp.value : "").trim();
+  const raw = (rawOverride !== undefined ? String(rawOverride) : (inp ? inp.value : "")).trim();
   if (!raw) { log("Enter a video URL or Pornhub ID."); return; }
   const pageUrl = /^https?:\/\//i.test(raw)
     ? raw
@@ -4511,6 +4549,27 @@ const wcb = $("watchCastBtn"); if (wcb) wcb.onclick = watchCast;
 const wgo = $("watchUrlGo"); if (wgo) wgo.onclick = () => loadWatchUrl();
 const wfb = $("watchFileBtn"); if (wfb) wfb.onclick = () => { const fi = $("watchFileInput"); if (fi) fi.click(); };
 const wui = $("watchUrlInput"); if (wui) wui.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); loadWatchUrl(); } });
+const wfav = $("watchFavBtn");
+if (wfav) wfav.onclick = () => {
+  const cur = (wui ? wui.value : "").trim();
+  if (!cur) { log("Enter a video URL first, then press ⭐."); return; }
+  let favs = getFavorites();
+  if (favs.includes(cur)) {
+    favs = favs.filter(u => u !== cur);
+    saveFavorites(favs);
+    log("Removed from favorites.");
+  } else {
+    if (favs.length >= 25) { log("Favorites list is full (25 max)."); return; }
+    favs.unshift(cur);
+    saveFavorites(favs);
+    log("Added to favorites ⭐");
+  }
+  updateWatchFavStar();
+  renderFavorites();
+  renderWatchFavorites();
+};
+if (wui) wui.addEventListener("input", updateWatchFavStar);
+renderWatchFavorites();
 const wfi = $("watchFileInput");
 if (wfi) wfi.addEventListener("change", e => {
   const f = e.target.files && e.target.files[0];
