@@ -1128,7 +1128,7 @@ function onStdState(ev) {
   parseStdState(decode(ev.target.value));
   if (appMode === "ap") enforceModeAvailability();
   else if (appMode === "std") buildInterface();
-  else if (appMode === "fun") updateStartButton();
+  else if (appMode === "fun") { updateStartButton(); funPrePosition(); }
 }
 
 async function stdWrite(cmd) {
@@ -2501,7 +2501,7 @@ const funState = {
   reverse: false, simplify: true,
   offsetMs: 0,
   lastSentPos: null, rampTo: null,
-  nextIdx: 0, playing: false, timer: null
+  nextIdx: 0, playing: false, timer: null, prePosAt: null
 };
 try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.min(FUN_BUFFER_MAX, Math.round(b)); } catch (e) {}
 try { const s = parseFloat(localStorage.getItem("ossm-fun-sensation")); if (isFinite(s) && s >= 0 && s <= 100) funState.sensation = Math.round(s); } catch (e) {}
@@ -2807,6 +2807,7 @@ function buildFunControls() {
     if (funState.minDepth > v) { funState.minDepth = v; if (funMinDepthSlider) funMinDepthSlider.setValue(v); }
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
+    funPrePosition();
   });
   funMinDepthSlider = sliderEl("Min Pos", 0, 99, funState.minDepth, "#ff8100", v => {
     const clamped = Math.min(v, funState.maxDepth);
@@ -3262,6 +3263,7 @@ function funStartStreaming() {
   if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
   const wasPlaying = funState.playing;
   funState.playing = true;
+  funState.prePosAt = null; // video/funscript now drives the rail
   monitor("streaming started");
   if (!wasPlaying) syncFunToTime(currentPlaybackMs());
   stdWrite("set:speed:" + funState.maxSpeed);
@@ -3320,9 +3322,29 @@ function funStreamTick() {
 }
 function funStopStreaming() {
   funState.playing = false;
+  funState.prePosAt = null; // rail position is now unknown (funscript took over)
   monitor("streaming stopped");
   if (funState.timer) { clearInterval(funState.timer); funState.timer = null; }
   updateStartButton();
+}
+function funIsIdleStreaming() {
+  return appMode === "fun" && connected && machineRunningState() && !funState.playing;
+}
+// While idle in streaming mode (after homing, before the video starts), gently
+// move the rail out to the configured Max Pos so the user can position themselves.
+function funPrePosition() {
+  if (!funIsIdleStreaming()) return;
+  const target = Math.round(clamp(funState.maxDepth, 1, 100));
+  if (funState.prePosAt === target) return;
+  const dist = funState.prePosAt === null ? Math.max(10, target) : Math.abs(target - funState.prePosAt);
+  const dur = Math.min(8000, Math.max(1500, Math.round(dist * 100)));
+  stdWrite("set:max:" + funState.maxDepth);
+  stdWrite("set:min:" + funState.minDepth);
+  // Stream position 100 maps to the configured max (set:max above), so this
+  // slowly drives the rail out to the user's Max Pos.
+  writeStream("100:" + dur);
+  funState.prePosAt = target;
+  funLog("Moving to Max Pos " + target + "…");
 }
 function toggleVideoFullscreen() {
   if (appMode !== "fun") return;
@@ -4384,6 +4406,7 @@ function enterStreamingMode() {
   if (connected && stdCmd && !/^streaming/.test(stdStateName || "")) {
     stdStateName = "";
     requestMode("go:streaming");
+    funState.prePosAt = 0; // rail returns to home while homing
     funLog("Switching to streaming — homing…");
   }
   updateStartButton();
@@ -4982,6 +5005,7 @@ function gpStdStep(field, d, mag) {
       if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
       stdWrite("set:max:" + funState.maxDepth);
       stdWrite("set:min:" + funState.minDepth);
+      funPrePosition();
       if (funMaxDepthSlider && funMaxDepthSlider.setValue) funMaxDepthSlider.setValue(funState.maxDepth);
       if (funMinDepthSlider && funMinDepthSlider.setValue) funMinDepthSlider.setValue(funState.minDepth);
     } else if (field === "min") {
