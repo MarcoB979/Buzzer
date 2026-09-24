@@ -2501,7 +2501,7 @@ const funState = {
   reverse: false, simplify: true,
   offsetMs: 0,
   lastSentPos: null, rampTo: null,
-  nextIdx: 0, playing: false, timer: null, prePosAt: null
+  nextIdx: 0, playing: false, timer: null, prePosAt: null, startedOnce: false
 };
 try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.min(FUN_BUFFER_MAX, Math.round(b)); } catch (e) {}
 try { const s = parseFloat(localStorage.getItem("ossm-fun-sensation")); if (isFinite(s) && s >= 0 && s <= 100) funState.sensation = Math.round(s); } catch (e) {}
@@ -3263,6 +3263,7 @@ function funStartStreaming() {
   if (!machineRunningState()) { funLog("Waiting for the OSSM to finish homing…"); return; }
   const wasPlaying = funState.playing;
   funState.playing = true;
+  funState.startedOnce = true; // pre-positioning only applies before the first play
   funState.prePosAt = null; // video/funscript now drives the rail
   monitor("streaming started");
   if (!wasPlaying) syncFunToTime(currentPlaybackMs());
@@ -3328,7 +3329,7 @@ function funStopStreaming() {
   updateStartButton();
 }
 function funIsIdleStreaming() {
-  return appMode === "fun" && connected && machineRunningState() && !funState.playing;
+  return appMode === "fun" && connected && machineRunningState() && !funState.playing && !funState.startedOnce;
 }
 // While idle in streaming mode (after homing, before the video starts), gently
 // move the rail out to the configured Max Pos so the user can position themselves.
@@ -4411,6 +4412,7 @@ function enterStreamingMode() {
     stdStateName = "";
     requestMode("go:streaming");
     funState.prePosAt = 0; // rail returns to home while homing
+    funState.startedOnce = false; // allow pre-positioning for this new session
     funLog("Switching to streaming — homing…");
   }
   updateStartButton();
