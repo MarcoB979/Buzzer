@@ -344,12 +344,25 @@ function onMessage(event) {
 }
 
 context.addCustomMessageListener(NS, onMessage);
+// This is a non-media receiver: the video is fed over WebRTC and played with
+// our own <video>/MSE code, bypassing the CAF media manager. Without this, the
+// receiver looks "idle" to the framework and gets closed mid-playback.
+const dummyMedia = document.createElement("video");
+dummyMedia.style.display = "none";
+document.body.appendChild(dummyMedia);
+try {
+  context.setOptions({
+    disableIdleTimeout: true,
+    maxInactivity: 600,
+    mediaElement: dummyMedia // keep CAF's PlayerManager off our real <video>
+  });
+} catch (e) {}
 try {
   const p = context.start();
-  if (p && typeof p.then === "function") p.then(() => send({ type: "ready" })).catch(() => send({ type: "ready" }));
-  else setTimeout(() => send({ type: "ready" }), 300);
+  if (p && typeof p.then === "function") p.then(() => send({ type: "ready", v: 3 })).catch(() => send({ type: "ready", v: 3 }));
+  else setTimeout(() => send({ type: "ready", v: 3 }), 300);
 } catch (e) {
-  setTimeout(() => send({ type: "ready" }), 300);
+  setTimeout(() => send({ type: "ready", v: 3 }), 300);
 }
 </script>
 </body>
