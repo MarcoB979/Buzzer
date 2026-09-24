@@ -366,12 +366,12 @@
     #col-left > *, #col-center > *, #col-right > * { order: 0; }
     .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; padding: 0; }
     #sliders-wrapper { flex: 1 1 auto; overflow-y: auto; }
-    .start-stop-row { position: static; padding-top: 0; }
-    .speed-line { margin-top: auto; }
+    .start-stop-row { position: static; padding-top: 0; flex-shrink: 0; }
+    .speed-line { margin-top: auto; flex-shrink: 0; }
     .meter-bar { height: 105px; }
     canvas { width: 250px; }
     /* Stretch the graph + meters to fill the column height (capped on tall screens) */
-    .phone-container:not(.hide-left.hide-right) .visualizer-area { flex: 1 1 auto; min-height: 0; margin-bottom: 0; max-height: 520px; align-items: stretch; }
+    .phone-container:not(.hide-left.hide-right) .visualizer-area { flex: 1 1 0; min-height: 0; margin-bottom: 0; max-height: 520px; align-items: stretch; }
     .phone-container:not(.hide-left.hide-right) .visualizer-area canvas { flex: 1 1 0; width: auto; height: auto; min-width: 0; min-height: 0; }
     .phone-container:not(.hide-left.hide-right) .visualizer-area .meter-bar { height: auto; flex: 1 1 0; }
     #btnStart { padding: 10px; font-size: .9rem; }
@@ -654,13 +654,28 @@ let running = false;
 let padStateText = "";       // last gamepad/keyboard status text
 let appMode = "std";         // "ap" (advanced penetration) | "std" (standard home)
 let kofiHidden = false;      // session-only; resets on page refresh
+let kofiForceShow = false;   // user explicitly re-showed it on a short screen
+function isShortScreen() {
+  try {
+    let h = window.innerHeight;
+    if (window.visualViewport && window.visualViewport.height) h = window.visualViewport.height;
+    return h <= 520;
+  } catch (e) { return false; }
+}
+function kofiEffectiveHidden() {
+  return kofiHidden || (isShortScreen() && !kofiForceShow);
+}
 function applyKofi() {
   const w = $("kofi-wrap");
-  if (w) w.classList.toggle("kofi-hidden", kofiHidden);
+  if (w) w.classList.toggle("kofi-hidden", kofiEffectiveHidden());
   const t = $("kofiToggle");
-  if (t) t.style.display = kofiHidden ? "inline-flex" : "none";
+  if (t) t.style.display = kofiEffectiveHidden() ? "inline-flex" : "none";
 }
-function toggleKofi() { kofiHidden = !kofiHidden; applyKofi(); }
+function toggleKofi() {
+  if (kofiEffectiveHidden()) { kofiHidden = false; kofiForceShow = true; }
+  else { kofiHidden = true; kofiForceShow = false; }
+  applyKofi();
+}
 let funControlsCollapsed = false;
 try { funControlsCollapsed = localStorage.getItem("ossm-fun-controls-collapsed") === "1"; } catch (e) {}
 let demoMode = false;
@@ -4289,8 +4304,13 @@ $("header-stop").onclick = emergencyStop;
 const kofiToggleBtn = $("kofiToggle");
 if (kofiToggleBtn) kofiToggleBtn.onclick = toggleKofi;
 const kofiHideBtn = $("kofiHideBtn");
-if (kofiHideBtn) kofiHideBtn.onclick = () => { kofiHidden = true; applyKofi(); };
+if (kofiHideBtn) kofiHideBtn.onclick = () => { kofiHidden = true; kofiForceShow = false; applyKofi(); };
 applyKofi();
+window.addEventListener("resize", applyKofi);
+if (window.visualViewport) {
+  window.visualViewport.addEventListener("resize", applyKofi);
+  window.visualViewport.addEventListener("scroll", applyKofi);
+}
 function toggleFunPreview() {
   funPreviewShown = !funPreviewShown;
   try { localStorage.setItem("ossm-fun-preview-shown", funPreviewShown ? "1" : "0"); } catch (e) {}
