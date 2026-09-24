@@ -57,7 +57,7 @@
   /* Portrait: restore the original single-column order */
   #ble-panel { order: 1; }
   .header-row { order: 2; }
-  .fun-video { order: 3; }
+  .fun-stage { order: 3; }
   .fun-preview-wrap { order: 3; }
   #tabs-wrapper { order: 4; }
   .visualizer-area { order: 5; }
@@ -177,6 +177,8 @@
   .help-body b { color: #fff; }
   .fun-file { font-family: monospace; font-size: .7rem; color: #38bdf8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .fun-video { background: #000; border: 1px solid var(--border-color); border-radius: 8px; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+  .fun-stage { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+  .fun-stage .fun-video { flex: 1 1 auto; min-height: 0; width: 100%; }
   .fun-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   .fun-cast-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: safe center; gap: 6px; background: #0f172a; border-radius: 8px; z-index: 2; overflow-y: auto; padding: 10px; }
   .fun-placeholder { color: var(--muted); font-size: .9rem; padding: 40px; text-align: center; }
@@ -203,11 +205,11 @@
   body.force-fun .phone-container.fun .col-toggle { display: none; }
   body.force-fun .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   body.force-fun .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
-  body.force-fun .phone-container.fun .fun-video { flex: 1 1 auto; min-height: 0; }
+  body.force-fun .phone-container.fun .fun-stage { flex: 1 1 auto; min-height: 0; }
   .fun-status { font-size: .72rem; color: #fbbf24; margin-top: 8px; min-height: 1em; word-break: break-word; }
   .kofi-toggle { display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 7px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; }
   .fun-preview-wrap { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
-  .fun-preview-toggle { align-self: flex-start; background: #1e293b; border: 1px solid var(--border-color); border-radius: 4px; color: #cbd5e1; font-size: .7rem; cursor: pointer; padding: 2px 8px; line-height: 1.2; }
+  .fun-preview-toggle { position: absolute; top: 6px; right: 6px; z-index: 3; background: rgba(30, 41, 59, .85); border: 1px solid var(--border-color); border-radius: 4px; color: #cbd5e1; font-size: .7rem; cursor: pointer; padding: 2px 8px; line-height: 1.2; }
   .fun-preview-wrap canvas { display: block; width: 100%; background: #0f172a; border: 1px solid var(--border-color); border-radius: 6px; }
   .slider-group { margin-bottom: 12px; }
   .slider-group:last-child { margin-bottom: 0; }
@@ -409,7 +411,7 @@
     .phone-container.fun .col-right { display: flex; }
     .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
-    .phone-container.fun .fun-video { flex: 1 1 auto; min-height: 0; }
+    .phone-container.fun .fun-stage { flex: 1 1 auto; min-height: 0; }
     .phone-container.fun.hide-left  .col-left  { display: none; }
     .phone-container.fun.hide-right .col-right { display: none; }
     /* Funscript focused view (both sidebars hidden): full-width video with Start pinned below it */
@@ -488,10 +490,12 @@
       <div class="meter-col"><div class="meter-label">Min</div><div class="meter-bar"><div class="meter-fill" id="right-meter" style="background-color: var(--color-bottom);"></div></div></div>
     </div>
 
-    <div class="fun-video" id="fun-video" style="display:none;"></div>
+    <div class="fun-stage" id="fun-stage" style="display:none;">
+      <div class="fun-video" id="fun-video"></div>
+      <button class="fun-preview-toggle" id="funPreviewToggle" title="Show funscript preview">▴</button>
+    </div>
 
     <div class="fun-preview-wrap" id="fun-preview-wrap" style="display:none;">
-      <button class="fun-preview-toggle" id="funPreviewToggle" title="Show funscript preview">▴</button>
       <canvas id="funPreview"></canvas>
     </div>
 
@@ -1520,7 +1524,7 @@ function placeStartButton() {
   const row = document.querySelector(".start-stop-row");
   if (!row) return;
   let anchor;
-  if (appMode === "fun") anchor = $("fun-video") || $("fun-controls");
+  if (appMode === "fun") anchor = $("fun-stage") || $("fun-video") || $("fun-controls");
   else if (appMode === "std" || focusedMode()) anchor = $("speed-control");
   else anchor = $("tabs-wrapper") || $("speed-control");
   if (anchor && anchor.nextElementSibling !== row) anchor.insertAdjacentElement("afterend", row);
@@ -1591,10 +1595,10 @@ function buildInterfaceNow() {
   $("sliders-wrapper").style.display = isFun ? "none" : "";
   $("speed-control").style.display = isFun ? "none" : "";
   $("fun-controls").style.display = isFun ? "" : "none";
-  $("fun-video").style.display = isFun ? "" : "none";
+  $("fun-stage").style.display = isFun ? "" : "none";
   $("watch-panel").style.display = isFun ? "none" : "";
   if (!isFun) placeWatchPanel();
-  $("fun-preview-wrap").style.display = isFun ? "" : "none";
+  $("fun-preview-wrap").style.display = (isFun && funPreviewShown) ? "" : "none";
   const pv = $("funPreview"); if (pv) pv.style.display = funPreviewShown ? "block" : "none";
   const pvt = $("funPreviewToggle"); if (pvt) { pvt.textContent = funPreviewShown ? "▾" : "▴"; pvt.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
   const va = document.querySelector(".visualizer-area"); if (va) va.style.display = isFun ? "none" : "";
@@ -2981,10 +2985,47 @@ function syncFunToTime(tMs) {
     funState.rampTo = Math.round(clamp(interpFunPos(tMs), 0, 100));
   }
 }
+// Remember the script offset per (video, funscript) combination so the user
+// doesn't have to re-tune it every time they load the same pair.
+const OFFSET_MEMORY_KEY = "ossm-fun-offset-memory";
+function offsetMemory() {
+  try { const j = JSON.parse(localStorage.getItem(OFFSET_MEMORY_KEY) || "{}"); return (j && typeof j === "object") ? j : {}; } catch (e) { return {}; }
+}
+function saveOffsetMemory(mem) {
+  try { localStorage.setItem(OFFSET_MEMORY_KEY, JSON.stringify(mem)); } catch (e) {}
+}
+function currentVideoId() {
+  const u = funState.videoUrl || "";
+  if (u && !/^blob:/i.test(u)) return u;
+  return funState.videoName || "";
+}
+function offsetComboKey() {
+  const vid = currentVideoId().trim();
+  const scr = (funState.scriptName || "").trim();
+  if (!vid && !scr) return "";
+  return vid + "\u0001" + scr;
+}
+function applyRememberedOffset() {
+  const key = offsetComboKey();
+  if (!key) return;
+  const mem = offsetMemory();
+  if (typeof mem[key] === "number") {
+    funState.offsetMs = Math.max(-10000, Math.min(30000, Math.round(mem[key] / 100) * 100));
+    updateOffsetUI();
+  }
+}
+function rememberOffset() {
+  const key = offsetComboKey();
+  if (!key) return;
+  const mem = offsetMemory();
+  mem[key] = funState.offsetMs;
+  saveOffsetMemory(mem);
+}
 function setFunOffset(ms) {
   funState.offsetMs = Math.max(-10000, Math.min(30000, Math.round(ms / 100) * 100));
   if (funState.playing) syncFunToTime(currentPlaybackMs());
   updateOffsetUI();
+  rememberOffset();
 }
 function updateOffsetUI() {
   const v = $("funOffsetVal"), r = $("funOffsetRange");
@@ -3038,6 +3079,8 @@ function setFunVideo(url, name) {
   buildFunVideo();
   updateCastButton();
   updateStartButton();
+  funState.offsetMs = 0;
+  applyRememberedOffset();
 }
 function getExtractorUrl() {
   try { return (localStorage.getItem("ossm-extractor-url") || "").trim().replace(/\/+$/, ""); } catch (e) { return ""; }
@@ -3174,6 +3217,8 @@ async function loadVideoUrl(input) {
     buildFunVideo();
     updateCastButton();
     updateStartButton();
+    funState.offsetMs = 0;
+    applyRememberedOffset();
     const v = $("funVideo");
     if (v) {
       if (funState.hls) funState.hls.destroy();
@@ -4242,6 +4287,8 @@ function toggleFunPreview() {
   try { localStorage.setItem("ossm-fun-preview-shown", funPreviewShown ? "1" : "0"); } catch (e) {}
   const c = $("funPreview");
   if (c) c.style.display = funPreviewShown ? "block" : "none";
+  const wrap = $("fun-preview-wrap");
+  if (wrap) wrap.style.display = funPreviewShown ? "" : "none";
   const btn = $("funPreviewToggle");
   if (btn) { btn.textContent = funPreviewShown ? "▾" : "▴"; btn.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
   if (funPreviewShown) drawFunPreview();
@@ -4429,6 +4476,7 @@ if (fsi) fsi.addEventListener("change", e => {
         .sort((a, b) => a.at - b.at);
     } catch (err) { log("Funscript parse error: " + err.message); funState.rawActions = []; }
     funState.offsetMs = 0;
+    applyRememberedOffset();
     rebuildFunscript();
     updateOffsetUI();
   };
