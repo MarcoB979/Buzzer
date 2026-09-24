@@ -332,8 +332,10 @@
       padding: 8px;
       display: grid;
       grid-template-columns: 250px 1fr 230px;
-      align-items: start;
+      grid-template-rows: minmax(0, 1fr);
+      align-items: stretch;
       gap: 8px;
+      height: calc(100vh - 8px);
     }
     .phone-container.hide-left  { grid-template-columns: 1fr 230px; }
     .phone-container.hide-right { grid-template-columns: 250px 1fr; }
@@ -347,9 +349,14 @@
     #col-left > *, #col-center > *, #col-right > * { order: 0; }
     .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; padding: 0; }
     #sliders-wrapper { flex: 1 1 auto; overflow-y: auto; }
-    .start-stop-row { position: static; padding-top: 0; margin-top: auto; }
+    .start-stop-row { position: static; padding-top: 0; }
+    .speed-line { margin-top: auto; }
     .meter-bar { height: 105px; }
     canvas { width: 250px; }
+    /* Stretch the graph + meters to fill the column height (capped on tall screens) */
+    .phone-container:not(.hide-left.hide-right) .visualizer-area { flex: 1 1 auto; min-height: 0; margin-bottom: 0; max-height: 520px; align-items: stretch; }
+    .phone-container:not(.hide-left.hide-right) .visualizer-area canvas { flex: 1 1 0; width: auto; height: auto; min-width: 0; min-height: 0; }
+    .phone-container:not(.hide-left.hide-right) .visualizer-area .meter-bar { height: auto; flex: 1 1 0; }
     #btnStart { padding: 10px; font-size: .9rem; }
     .wizard-box { max-height: 94vh; overflow-y: auto; }
     .cpp-logger { display: none; }
@@ -385,8 +392,7 @@
     .phone-container.hide-left.hide-right .focused-sliders .slider-name { flex: 0 0 auto; }
     .phone-container.hide-left.hide-right .focused-sliders .slider-row input[type=range] { flex: 1 1 0; order: 0; }
 
-    /* Funscript mode: same grid as other modes; fullscreen collapses to center only */
-    .phone-container.fun { height: calc(100vh - 8px); align-items: stretch; }
+    /* Funscript mode: same grid as other modes */
     .phone-container.fun .col-center { max-height: calc(100vh - 20px); }
     .phone-container.fun .col-left { display: flex; max-height: calc(100vh - 8px); overflow: hidden; }
     .phone-container.fun .col-right { display: flex; }
@@ -412,7 +418,7 @@
     .phone-container .col-left  { grid-area: left; }
     .phone-container .col-center { grid-area: center; }
     .phone-container .col-right { grid-area: right; max-height: none; overflow-y: visible; }
-    .phone-container.fun { grid-template-rows: 1fr auto; }
+    .phone-container { grid-template-rows: minmax(0, 1fr) auto; }
     .phone-container.hide-left { grid-template-columns: 1fr; grid-template-areas: "center" "right"; }
     .phone-container.hide-right { grid-template-columns: 250px 1fr; grid-template-areas: "left center"; }
     .phone-container.hide-left.hide-right { grid-template-columns: 1fr; grid-template-areas: "center"; }
@@ -2396,8 +2402,11 @@ function drawGraph() {
 }
 
 function resizeCanvas() {
+  const wrap = document.querySelector(".visualizer-area");
+  const wide = !!(window.matchMedia && window.matchMedia("(min-width: 700px)").matches);
+  const short = !!(window.matchMedia && window.matchMedia("(orientation: landscape) and (max-height: 520px)").matches);
+  const landscape = wide || short;
   if (focusedMode()) {
-    const wrap = document.querySelector(".visualizer-area");
     if (wrap) {
       const meters = [...wrap.querySelectorAll(".meter-col")];
       const mw = meters.reduce((s, m) => s + m.offsetWidth, 0);
@@ -2407,6 +2416,11 @@ function resizeCanvas() {
       canvas.style.width = avail + "px";
       canvas.style.height = "96px";
     }
+  } else if (landscape && appMode !== "fun") {
+    canvas.width = Math.max(1, Math.round(canvas.clientWidth));
+    canvas.height = Math.max(1, Math.round(canvas.clientHeight));
+    canvas.style.width = "";
+    canvas.style.height = "";
   } else {
     canvas.width = 280;
     canvas.height = 132;
@@ -5329,7 +5343,20 @@ const tcr = $("toggleColRight");
 if (tcr) tcr.onclick = () => toggleColSide(3);
 
 buildInterface();
-window.addEventListener("resize", () => { if (focusedMode()) { resizeCanvas(); drawGraph(); } });
+window.addEventListener("resize", () => { if (appMode !== "fun") { resizeCanvas(); drawGraph(); } });
+// Keep the graph canvas in sync with its displayed size (mode changes, column
+// toggles, and flex settling can resize the visualizer without a window resize).
+if (window.ResizeObserver) {
+  const vaObs = document.querySelector(".visualizer-area");
+  if (vaObs) {
+    let vaRaf = 0;
+    new ResizeObserver(() => {
+      if (appMode === "fun") return;
+      cancelAnimationFrame(vaRaf);
+      vaRaf = requestAnimationFrame(() => { resizeCanvas(); drawGraph(); });
+    }).observe(vaObs);
+  }
+}
 
 const BUILD_TIME = "__BUILD_TIME__";
 (function renderBuildInfo() {
