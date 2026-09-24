@@ -28,6 +28,10 @@
     --color-fall: #00ff00;
     --color-curvein: #0000ff;
     --color-curveout: #ac8dee;
+    --app-vh: 100vh;
+  }
+  @supports (height: 100dvh) {
+    :root { --app-vh: 100dvh; }
   }
   * { box-sizing: border-box; }
   /* Hide scrollbars everywhere but keep scrolling */
@@ -184,16 +188,16 @@
     grid-template-columns: 250px 1fr 0;
     gap: 8px;
     align-items: stretch;
-    height: calc(100vh - 8px);
+    height: calc(var(--app-vh) - 8px);
     max-width: 100%;
     border-radius: 0;
     border-width: 2px;
     padding: 8px;
   }
   body.force-fun .phone-container.fun .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  body.force-fun .phone-container.fun .col-left { display: flex; max-height: calc(100vh - 8px); overflow: hidden; }
+  body.force-fun .phone-container.fun .col-left { display: flex; max-height: calc(var(--app-vh) - 8px); overflow: hidden; }
   body.force-fun .phone-container.fun .col-right { display: none; }
-  body.force-fun .phone-container.fun .col-center { max-height: calc(100vh - 20px); }
+  body.force-fun .phone-container.fun .col-center { max-height: calc(var(--app-vh) - 20px); }
   body.force-fun .phone-container.fun .col-toggle { display: none; }
   body.force-fun .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   body.force-fun .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
@@ -338,7 +342,7 @@
       grid-template-rows: minmax(auto, 1fr) auto;
       align-items: stretch;
       gap: 8px;
-      min-height: calc(100vh - 8px);
+      min-height: calc(var(--app-vh) - 8px);
     }
     .phone-container .col-left  { grid-area: left; }
     .phone-container .col-center { grid-area: center; }
@@ -347,7 +351,7 @@
     .phone-container.hide-right { grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr); grid-template-areas: "left center"; grid-template-rows: minmax(auto, 1fr); }
     .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "center"; grid-template-rows: minmax(auto, 1fr); }
     .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-    .col-left  { max-height: calc(100vh - 20px); }
+    .col-left  { max-height: calc(var(--app-vh) - 20px); }
     .phone-container.hide-left  .col-left  { display: none; }
     .phone-container.hide-right .col-right { display: none; }
     .col > * { margin: 0; }
@@ -363,7 +367,7 @@
     .phone-container:not(.hide-left.hide-right) .visualizer-area canvas { flex: 1 1 0; width: auto; height: auto; min-width: 0; min-height: 0; }
     .phone-container:not(.hide-left.hide-right) .visualizer-area .meter-bar { height: auto; flex: 1 1 0; }
     #btnStart { padding: 10px; font-size: .9rem; }
-    .wizard-box { max-height: 94vh; overflow-y: auto; }
+    .wizard-box { max-height: calc(var(--app-vh) * 0.94); overflow-y: auto; }
     .cpp-logger { display: none; }
 
     /* Focused mode (both sidebars hidden): graph fills width, Start beside it */
@@ -398,8 +402,8 @@
     .phone-container.hide-left.hide-right .focused-sliders .slider-row input[type=range] { flex: 1 1 0; order: 0; }
 
     /* Funscript mode: same grid as other modes */
-    .phone-container.fun .col-center { max-height: calc(100vh - 20px); }
-    .phone-container.fun .col-left { display: flex; max-height: calc(100vh - 8px); overflow: hidden; }
+    .phone-container.fun .col-center { max-height: calc(var(--app-vh) - 20px); }
+    .phone-container.fun .col-left { display: flex; max-height: calc(var(--app-vh) - 8px); overflow: hidden; }
     .phone-container.fun .col-right { display: flex; }
     .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
@@ -418,9 +422,9 @@
       grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr) 230px;
       grid-template-areas: "left center right";
       grid-template-rows: minmax(0, 1fr);
-      height: calc(100vh - 8px);
+      height: calc(var(--app-vh) - 8px);
     }
-    .phone-container .col-right { max-height: calc(100vh - 20px); overflow-y: auto; }
+    .phone-container .col-right { max-height: calc(var(--app-vh) - 20px); overflow-y: auto; }
     .phone-container.hide-left  { grid-template-columns: minmax(40%, 1fr) 230px; grid-template-areas: "center right"; }
     .phone-container.hide-right { grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr); grid-template-areas: "left center"; }
     .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "center"; }
