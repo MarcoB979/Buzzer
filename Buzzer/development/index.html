@@ -430,6 +430,25 @@
     .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "center"; }
   }
 </style>
+<script>
+  // Keep --app-vh in sync with the real visible viewport so the layout never
+  // extends under the mobile address bar (some devices misreport vh/dvh).
+  (function () {
+    function setAppVh() {
+      var h = window.innerHeight;
+      try {
+        if (window.visualViewport && window.visualViewport.height) h = window.visualViewport.height;
+      } catch (e) {}
+      document.documentElement.style.setProperty('--app-vh', h + 'px');
+    }
+    setAppVh();
+    window.addEventListener('resize', setAppVh);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', setAppVh);
+      window.visualViewport.addEventListener('scroll', setAppVh);
+    }
+  })();
+</script>
 </head>
 <body>
 <div class="phone-container">
