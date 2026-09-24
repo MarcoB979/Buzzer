@@ -151,7 +151,7 @@
   canvas { display: block; background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 6px; width: 280px; max-width: 100%; height: auto; flex: 0 1 auto; min-width: 0; }
   .sliders-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 14px; margin-bottom: 16px; }
   .focused-sliders { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; }
-  .fun-controls { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; }
+  .fun-controls { background: transparent; border: none; border-radius: 0; padding: 0; }
   .fun-title { font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
   .fun-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
   .fun-btn { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 6px 10px; font-size: .75rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
@@ -170,6 +170,7 @@
   .fun-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   .fun-cast-overlay { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: safe center; gap: 6px; background: #0f172a; border-radius: 8px; z-index: 2; overflow-y: auto; padding: 10px; }
   .fun-placeholder { color: var(--muted); font-size: .9rem; padding: 40px; text-align: center; }
+  .fun-panel { background: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
   .phone-container.fun .col-left { display: none; }
   .phone-container.fun .col-right { display: none; }
   /* Force screen: apply the funscript landscape layout even in portrait (foldables). */
@@ -382,35 +383,42 @@
     .phone-container.hide-left.hide-right .focused-sliders .slider-name { flex: 0 0 auto; }
     .phone-container.hide-left.hide-right .focused-sliders .slider-row input[type=range] { flex: 1 1 0; order: 0; }
 
-    /* Funscript mode: controls left, video full-width center, settings hidden */
-    .phone-container.fun { grid-template-columns: 250px 1fr 0; }
-    .phone-container.fun .col-left { display: flex; }
-    .phone-container.fun .col-right { display: none; }
-    .phone-container.fun .col-center { max-height: calc(100vh - 20px); }
-    .phone-container.fun .col-toggle { display: none; }
+    /* Funscript mode: same grid as other modes; fullscreen collapses to center only */
     .phone-container.fun { height: calc(100vh - 8px); align-items: stretch; }
-    .phone-container.fun .col-left { max-height: calc(100vh - 8px); overflow: hidden; }
+    .phone-container.fun .col-center { max-height: calc(100vh - 20px); }
+    .phone-container.fun .col-left { display: flex; max-height: calc(100vh - 8px); overflow: hidden; }
+    .phone-container.fun .col-right { display: flex; }
     .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
     .phone-container.fun .fun-video { flex: 1 1 auto; min-height: 0; }
-    .phone-container.fun-settings-hidden { grid-template-columns: 1fr 0; }
-    .phone-container.fun-settings-hidden .col-left { display: none; }
+    .phone-container.fun.fun-settings-hidden { grid-template-columns: 1fr; grid-template-areas: "center"; }
+    .phone-container.fun.fun-settings-hidden .col-left { display: none; }
+    .phone-container.fun.fun-settings-hidden .col-right { display: none; }
+    .phone-container.fun.fun-settings-hidden .kofi-link { display: none; }
+    .phone-container.fun.fun-settings-hidden .fun-preview-wrap { display: none; }
+    .phone-container.fun.hide-left  .col-left  { display: none; }
+    .phone-container.fun.hide-right .col-right { display: none; }
+    /* Funscript focused view (both sidebars hidden): full-width video with Start pinned below it */
+    .phone-container.fun.hide-left.hide-right .col-center { display: flex; }
+    .phone-container.fun.hide-left.hide-right .start-stop-row { width: 100%; }
+    .phone-container.fun.hide-left.hide-right .start-stop-row #btnStart { height: auto; min-height: 0; }
   }
 
   /* Medium screens (foldables & small tablets): two columns, right panel below center */
   @media (min-width: 700px) and (max-width: 899px) {
-    .phone-container:not(.fun) {
+    .phone-container {
       grid-template-columns: 250px 1fr;
       grid-template-areas:
         "left center"
         "left right";
     }
-    .phone-container:not(.fun) .col-left  { grid-area: left; }
-    .phone-container:not(.fun) .col-center { grid-area: center; }
-    .phone-container:not(.fun) .col-right { grid-area: right; max-height: none; overflow-y: visible; }
-    .phone-container:not(.fun).hide-left { grid-template-columns: 1fr; grid-template-areas: "center" "right"; }
-    .phone-container:not(.fun).hide-right { grid-template-columns: 250px 1fr; grid-template-areas: "left center"; }
-    .phone-container:not(.fun).hide-left.hide-right { grid-template-columns: 1fr; grid-template-areas: "center"; }
+    .phone-container .col-left  { grid-area: left; }
+    .phone-container .col-center { grid-area: center; }
+    .phone-container .col-right { grid-area: right; max-height: none; overflow-y: visible; }
+    .phone-container.fun { grid-template-rows: 1fr auto; }
+    .phone-container.hide-left { grid-template-columns: 1fr; grid-template-areas: "center" "right"; }
+    .phone-container.hide-right { grid-template-columns: 250px 1fr; grid-template-areas: "left center"; }
+    .phone-container.hide-left.hide-right { grid-template-columns: 1fr; grid-template-areas: "center"; }
   }
 </style>
 </head>
@@ -441,7 +449,6 @@
       <button class="ble-btn small danger" id="header-disconnect" style="display:none;">Disconnect</button>
       <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
       <button class="fun-settings-toggle" id="funSettingsToggle" title="Fullscreen video (hide settings)" style="display:none;">⤢</button>
-      <button class="ble-btn small" id="funExit" style="display:none;">Exit Funscript</button>
       <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
     </div>
 
@@ -1466,7 +1473,7 @@ function placeStartButton() {
   const row = document.querySelector(".start-stop-row");
   if (!row) return;
   let anchor;
-  if (appMode === "fun") anchor = (funSettingsHidden && $("fun-video")) ? $("fun-video") : $("fun-controls");
+  if (appMode === "fun") anchor = $("fun-video") || $("fun-controls");
   else if (appMode === "std" || focusedMode()) anchor = $("speed-control");
   else anchor = $("sliders-wrapper");
   if (anchor && anchor.nextElementSibling !== row) anchor.insertAdjacentElement("afterend", row);
@@ -1545,7 +1552,6 @@ function buildInterfaceNow() {
   $("fun-preview-wrap").style.display = isFun ? "" : "none";
   const pv = $("funPreview"); if (pv) pv.style.display = funPreviewShown ? "block" : "none";
   const pvt = $("funPreviewToggle"); if (pvt) { pvt.textContent = funPreviewShown ? "▾" : "▴"; pvt.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
-  $("funExit").style.display = isFun ? "" : "none";
   const va = document.querySelector(".visualizer-area"); if (va) va.style.display = isFun ? "none" : "";
 
   const apBtn = $("modeAp");
@@ -2508,6 +2514,7 @@ function buildFunControls() {
   // ▴/▾ button can hide them while keeping the sliders visible.
   const settings = document.createElement("div");
   settings.id = "funVideoSettings";
+  settings.className = "fun-panel";
   wrap.appendChild(settings);
 
   const row1 = document.createElement("div");
@@ -2709,7 +2716,11 @@ function buildFunControls() {
   st.className = "fun-status"; st.id = "funStatus";
   settings.appendChild(st);
 
-  wrap.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }));
+  const slidersBox = document.createElement("div");
+  slidersBox.className = "fun-panel";
+  wrap.appendChild(slidersBox);
+
+  slidersBox.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }));
   funMaxDepthSlider = sliderEl("Max Pos", 1, 100, funState.maxDepth, "#ff0c00", v => {
     funState.maxDepth = v;
     if (funState.minDepth > v) { funState.minDepth = v; if (funMinDepthSlider) funMinDepthSlider.setValue(v); }
@@ -2723,14 +2734,14 @@ function buildFunControls() {
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
   });
-  wrap.appendChild(funMaxDepthSlider);
-  wrap.appendChild(funMinDepthSlider);
+  slidersBox.appendChild(funMaxDepthSlider);
+  slidersBox.appendChild(funMinDepthSlider);
 
   const bufG = document.createElement("div");
   bufG.className = "slider-group";
   bufG.title = "Latency buffer: higher = smoother but more lag; lower = tighter sync but more sensitive to BLE hiccups. The offset auto-adjusts to keep sync.";
   bufG.innerHTML = `<div class="slider-row"><span class="slider-name">Buffer</span><span class="val-num" id="funBufferVal" style="background:#8b5cf6;color:#fff">${funState.buffer}ms</span><button type="button" class="step-btn minus" id="funBufferMinus">−</button><input type="range" id="funBufferRange" min="0" max="${FUN_BUFFER_MAX}" value="${funState.buffer}" step="25"><button type="button" class="step-btn plus" id="funBufferPlus">+</button></div>`;
-  wrap.appendChild(bufG);
+  slidersBox.appendChild(bufG);
   const bufRange = bufG.querySelector("#funBufferRange");
   const bufMinus = bufG.querySelector("#funBufferMinus");
   const bufPlus = bufG.querySelector("#funBufferPlus");
@@ -2743,13 +2754,13 @@ function buildFunControls() {
     try { localStorage.setItem("ossm-fun-sensation", String(v)); } catch (e) {}
     stdWrite("set:sensation:" + v);
   });
-  wrap.appendChild(funSmoothSlider);
+  slidersBox.appendChild(funSmoothSlider);
 
   const offG = document.createElement("div");
   offG.className = "slider-group";
   offG.title = "Shift the funscript relative to the video (e.g. +4.0s if the script starts 4s before the video).";
   offG.innerHTML = `<div class="slider-row"><span class="slider-name">Script offset</span><span class="val-num" id="funOffsetVal" style="background:#64748b;color:#fff">+0.0s</span><button type="button" class="step-btn minus" id="funOffsetMinus">−</button><input type="range" id="funOffsetRange" min="-10000" max="30000" value="0" step="100"><button type="button" class="step-btn plus" id="funOffsetPlus">+</button></div>`;
-  wrap.appendChild(offG);
+  slidersBox.appendChild(offG);
   const offRange = offG.querySelector("#funOffsetRange");
   const offMinus = offG.querySelector("#funOffsetMinus");
   const offPlus = offG.querySelector("#funOffsetPlus");
@@ -4300,8 +4311,6 @@ $("modeAp").onclick = () => { if (!apAvailable()) return; if (modeChangeBlocked(
 $("modeStd").onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
 const mFun = $("modeFun");
 if (mFun) mFun.onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); appMode = "fun"; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
-const fEx = $("funExit");
-if (fEx) fEx.onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = apAvailable() ? "ap" : "std"; buildInterface(); if (appMode === "std") enterStdMode(); };
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
 function setDemoMode(on) {
