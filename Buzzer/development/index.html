@@ -3378,7 +3378,7 @@ let castConnectAt = 0, castFailNotified = false;
 let castWasPlaying = false;
 let castEnded = false;
 let castMode = "media";
-let webrtcPc = null, webrtcChannel = null;
+let webrtcPc = null, webrtcChannel = null, webrtcIntentionalClose = false;
 let webrtcDuration = 0, webrtcPlaying = false;
 let localCastFile = null, castMsgListener = null;
 let webrtcRetryTimer = null, webrtcGotAnswer = false;
@@ -3568,6 +3568,7 @@ function beginWebrtcSignaling() {
     return;
   }
   webrtcGotAnswer = false;
+  webrtcIntentionalClose = false;
   try {
     webrtcPc.onconnectionstatechange = () => {
       const s = webrtcPc && webrtcPc.connectionState;
@@ -3591,7 +3592,7 @@ function beginWebrtcSignaling() {
       }
     };
     webrtcChannel.onerror = () => funLog("Data channel error.");
-    webrtcChannel.onclose = () => { if (funState.playing) funLog("WebRTC channel closed mid-playback."); };
+    webrtcChannel.onclose = () => { if (!webrtcIntentionalClose && castConnected && funState.playing) funLog("WebRTC channel closed mid-playback."); };
   } catch (e) {
     funLog("Data channel failed: " + (e && e.message));
   }
@@ -3684,6 +3685,7 @@ async function sendFileOverChannel(file) {
       while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 100));
       }
+      webrtcIntentionalClose = true;
       try { ch.close(); } catch (e) {}
     }
     if (sent >= file.size) funLog("Casting to TV…");
@@ -3799,6 +3801,7 @@ async function streamRemuxedFile(file) {
   if (ch && ch.readyState === "open") {
     const deadline = Date.now() + 60000;
     while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) await sleepMs(100);
+    webrtcIntentionalClose = true;
     try { ch.close(); } catch (e) {}
   }
   funLog(failed ? "Remux stream stopped early." : "Casting to TV…");
