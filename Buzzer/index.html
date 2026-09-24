@@ -2584,6 +2584,7 @@ function renderWatchFavorites() {
   list.appendChild(makeFavoriteRows((url) => {
     const inp = $("watchUrlInput");
     if (inp) inp.value = url;
+    updateWatchFavStar();
     loadWatchUrl(url);
   }));
 }
