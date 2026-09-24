@@ -163,7 +163,7 @@
   .focused-sliders { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; }
   .fun-controls { background: transparent; border: none; border-radius: 0; padding: 0; }
   .fun-title { font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
-  .fun-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .fun-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
   .fun-btn { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 6px 10px; font-size: .75rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
   .fun-fold { background: #334155; }
   .fun-fold.active { background: #7c3aed; }
@@ -175,7 +175,7 @@
   .help-body li { margin-bottom: 6px; }
   .help-body code { background: #1e293b; border: 1px solid var(--border-color); border-radius: 4px; padding: 1px 5px; font-size: .7rem; color: #38bdf8; }
   .help-body b { color: #fff; }
-  .fun-file { font-family: monospace; font-size: .7rem; color: #38bdf8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fun-file { font-family: monospace; font-size: .7rem; color: #38bdf8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
   .fun-video { background: #000; border: 1px solid var(--border-color); border-radius: 8px; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
   .fun-stage { position: relative; display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
   .fun-stage .fun-video { flex: 1 1 auto; min-height: 0; width: 100%; }
@@ -231,6 +231,10 @@
   .val-input::-webkit-outer-spin-button, .val-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .val-input[type=number] { -moz-appearance: textfield; appearance: textfield; }
   .slider-row input[type=range] { flex: 1 1 100%; order: 10; }
+  .slider-row.compact { flex-direction: column; align-items: stretch; gap: 2px; }
+  .slider-row.compact .slider-head { display: flex; align-items: center; gap: 6px; }
+  .slider-row.compact .slider-track { display: flex; align-items: center; gap: 6px; }
+  .slider-row.compact input[type=range] { flex: 1 1 auto; order: 0; min-width: 40px; }
   .step-btn {
     flex: 0 0 auto; width: 26px; height: 26px;
     background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px;
@@ -1969,24 +1973,40 @@ function makeEditable(el, min, max, onSet) {
   return el;
 }
 
-function sliderEl(name, min, max, value, color, onSet) {
+function sliderEl(name, min, max, value, color, onSet, compact) {
   const g = document.createElement("div");
   g.className = "slider-group";
-  g.innerHTML = `
-    <div class="slider-row">
-      <span class="slider-name">${name}</span>
-      <span class="val-num" style="background:${color}; color:${tabTextColor(color)}">${value}</span>
-      <button type="button" class="step-btn minus">−</button>
-      <input type="range" min="${min}" max="${max}" value="${value}" step="1">
-      <button type="button" class="step-btn plus">+</button>
-    </div>`;
+  if (compact) {
+    g.innerHTML = `
+      <div class="slider-row compact">
+        <div class="slider-head">
+          <span class="slider-name">${name}</span>
+          <span class="val-num" style="background:${color}; color:${tabTextColor(color)}">${value}</span>
+        </div>
+        <div class="slider-track">
+          <button type="button" class="step-btn plus">+</button>
+          <input type="range" min="${min}" max="${max}" value="${value}" step="1">
+          <button type="button" class="step-btn minus">−</button>
+        </div>
+      </div>`;
+  } else {
+    g.innerHTML = `
+      <div class="slider-row">
+        <span class="slider-name">${name}</span>
+        <span class="val-num" style="background:${color}; color:${tabTextColor(color)}">${value}</span>
+        <button type="button" class="step-btn minus">−</button>
+        <input type="range" min="${min}" max="${max}" value="${value}" step="1">
+        <button type="button" class="step-btn plus">+</button>
+      </div>`;
+  }
   const input = g.querySelector("input");
   const valNum = g.querySelector(".val-num");
   g._onSet = onSet;
   makeEditable(valNum, min, max, onSet);
   input.addEventListener("input", () => { valNum.textContent = input.value; });
   input.addEventListener("change", () => onSet(parseInt(input.value, 10)));
-  const [minus, plus] = g.querySelectorAll(".step-btn");
+  const minus = g.querySelector(".step-btn.minus");
+  const plus = g.querySelector(".step-btn.plus");
   attachStepButton(minus, -1, input, valNum, min, max, onSet);
   attachStepButton(plus, +1, input, valNum, min, max, onSet);
   g.setValue = (v) => { input.value = v; valNum.textContent = v; };
@@ -2599,7 +2619,7 @@ function buildFunControls() {
   row3.className = "fun-row";
   const phInput = document.createElement("input");
   phInput.type = "text"; phInput.id = "funPhId"; phInput.placeholder = "Video URL or Pornhub ID";
-  phInput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;";
+  phInput.style.cssText = "flex:1 1 100%;min-width:0;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;";
   const phBtn = document.createElement("button");
   phBtn.type = "button"; phBtn.className = "fun-btn"; phBtn.textContent = "Load URL";
   phBtn.onclick = () => loadVideoUrl(phInput.value);
@@ -2777,27 +2797,27 @@ function buildFunControls() {
   slidersBox.className = "fun-panel";
   wrap.appendChild(slidersBox);
 
-  slidersBox.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }));
+  slidersBox.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }, true));
   funMaxDepthSlider = sliderEl("Max Pos", 1, 100, funState.maxDepth, "#ff0c00", v => {
     funState.maxDepth = v;
     if (funState.minDepth > v) { funState.minDepth = v; if (funMinDepthSlider) funMinDepthSlider.setValue(v); }
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
-  });
+  }, true);
   funMinDepthSlider = sliderEl("Min Pos", 0, 99, funState.minDepth, "#ff8100", v => {
     const clamped = Math.min(v, funState.maxDepth);
     funState.minDepth = clamped;
     if (clamped !== v) funMinDepthSlider.setValue(clamped);
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
-  });
+  }, true);
   slidersBox.appendChild(funMaxDepthSlider);
   slidersBox.appendChild(funMinDepthSlider);
 
   const bufG = document.createElement("div");
   bufG.className = "slider-group";
   bufG.title = "Latency buffer: higher = smoother but more lag; lower = tighter sync but more sensitive to BLE hiccups. The offset auto-adjusts to keep sync.";
-  bufG.innerHTML = `<div class="slider-row"><span class="slider-name">Buffer</span><span class="val-num" id="funBufferVal" style="background:#8b5cf6;color:#fff">${funState.buffer}ms</span><button type="button" class="step-btn minus" id="funBufferMinus">−</button><input type="range" id="funBufferRange" min="0" max="${FUN_BUFFER_MAX}" value="${funState.buffer}" step="25"><button type="button" class="step-btn plus" id="funBufferPlus">+</button></div>`;
+  bufG.innerHTML = `<div class="slider-row compact"><div class="slider-head"><span class="slider-name">Buffer</span><span class="val-num" id="funBufferVal" style="background:#8b5cf6;color:#fff">${funState.buffer}ms</span></div><div class="slider-track"><button type="button" class="step-btn plus" id="funBufferPlus">+</button><input type="range" id="funBufferRange" min="0" max="${FUN_BUFFER_MAX}" value="${funState.buffer}" step="25"><button type="button" class="step-btn minus" id="funBufferMinus">−</button></div></div>`;
   slidersBox.appendChild(bufG);
   const bufRange = bufG.querySelector("#funBufferRange");
   const bufMinus = bufG.querySelector("#funBufferMinus");
@@ -2810,13 +2830,13 @@ function buildFunControls() {
     funState.sensation = v;
     try { localStorage.setItem("ossm-fun-sensation", String(v)); } catch (e) {}
     stdWrite("set:sensation:" + v);
-  });
+  }, true);
   slidersBox.appendChild(funSmoothSlider);
 
   const offG = document.createElement("div");
   offG.className = "slider-group";
   offG.title = "Shift the funscript relative to the video (e.g. +4.0s if the script starts 4s before the video).";
-  offG.innerHTML = `<div class="slider-row"><span class="slider-name">Script offset</span><span class="val-num" id="funOffsetVal" style="background:#64748b;color:#fff">+0.0s</span><button type="button" class="step-btn minus" id="funOffsetMinus">−</button><input type="range" id="funOffsetRange" min="-10000" max="30000" value="0" step="100"><button type="button" class="step-btn plus" id="funOffsetPlus">+</button></div>`;
+  offG.innerHTML = `<div class="slider-row compact"><div class="slider-head"><span class="slider-name">Script offset</span><span class="val-num" id="funOffsetVal" style="background:#64748b;color:#fff">+0.0s</span></div><div class="slider-track"><button type="button" class="step-btn plus" id="funOffsetPlus">+</button><input type="range" id="funOffsetRange" min="-10000" max="30000" value="0" step="100"><button type="button" class="step-btn minus" id="funOffsetMinus">−</button></div></div>`;
   slidersBox.appendChild(offG);
   const offRange = offG.querySelector("#funOffsetRange");
   const offMinus = offG.querySelector("#funOffsetMinus");
