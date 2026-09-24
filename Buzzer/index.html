@@ -1036,6 +1036,7 @@ async function connect() {
     buildInterface();
     enforceModeAvailability();
     if (appMode === "std") enterStdMode();
+    else if (appMode === "fun") enterStreamingMode();
     log("");
   } catch (e) {
     setConnectingUI(false);
@@ -1046,7 +1047,9 @@ async function connect() {
 
 function onDisconnected() {
   connected = false; running = false; stdRunning = false; stdStateName = ""; streamChar = null;
-  if (castConnected) { try { stopCast(); } catch (e) {} }
+  // A BLE drop must not kill an active cast — the video on the TV keeps
+  // playing; only the OSSM motion pauses until it reconnects.
+  if (castConnected) funLog("OSSM disconnected — cast keeps playing.");
   firmwareKind = "unknown";
   updateFocusStatus();
   $("ble-panel").style.display = "";
@@ -3413,6 +3416,8 @@ function initCast() {
           if (funState.actions.length && !funState.playing) funStartStreaming();
           setCastOverlay(true);
         } else if (wasConnected) {
+          // Capture why the cast session ended (for debugging unexpected stops).
+          try { funLog("Cast ended (castState=" + e.castState + ")"); } catch (err) {}
           castMedia = null; castRemoteTime = 0; castClockBaseMs = 0; castConnectAt = 0; castWasPlaying = false;
           castRemotePlayer = null; castRemoteController = null;
           cleanupWebrtc();
@@ -3423,6 +3428,14 @@ function initCast() {
         updateCastButton();
         if (appMode !== "fun") buildWatchPanel();
       });
+      try {
+        castContext.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, e => {
+          try {
+            const st = e && e.sessionState;
+            if (st !== undefined && appMode === "fun") funLog("Cast session: " + st);
+          } catch (err) {}
+        });
+      } catch (err) {}
       updateCastButton();
     } catch (err) {}
   };
@@ -3556,6 +3569,16 @@ function beginWebrtcSignaling() {
   }
   webrtcGotAnswer = false;
   try {
+    webrtcPc.onconnectionstatechange = () => {
+      const s = webrtcPc && webrtcPc.connectionState;
+      if (s && s !== "connected") funLog("WebRTC: " + s);
+    };
+    webrtcPc.oniceconnectionstatechange = () => {
+      const s = webrtcPc && webrtcPc.iceConnectionState;
+      if (s && s !== "connected" && s !== "completed") funLog("WebRTC ICE: " + s);
+    };
+  } catch (e) {}
+  try {
     webrtcChannel = webrtcPc.createDataChannel("media", { ordered: true });
     webrtcChannel.binaryType = "arraybuffer";
     webrtcChannel.bufferedAmountLowThreshold = 256 * 1024;
@@ -3568,6 +3591,7 @@ function beginWebrtcSignaling() {
       }
     };
     webrtcChannel.onerror = () => funLog("Data channel error.");
+    webrtcChannel.onclose = () => { if (funState.playing) funLog("WebRTC channel closed mid-playback."); };
   } catch (e) {
     funLog("Data channel failed: " + (e && e.message));
   }
