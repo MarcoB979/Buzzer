@@ -3412,6 +3412,7 @@ let castAvailable = false, castConnected = false;
 let castSession = null, castMedia = null, castRemoteTime = 0;
 let castPausedLocal = false;
 let castTickTimer = null, castClockBaseMs = 0;
+let lastCastPingAt = 0;
 let castConnectAt = 0, castFailNotified = false;
 let castWasPlaying = false;
 let castEnded = false;
@@ -3662,7 +3663,7 @@ function onCastMessage(ns, message) {
     castMsgSeen = true;
     funLog("Got message from TV: " + JSON.stringify(m).slice(0, 80));
   }
-  if (m.type === "ready") { beginWebrtcSignaling(); return; }
+  if (m.type === "ready") { funLog("TV receiver v" + (m.v || "?") + " online"); beginWebrtcSignaling(); return; }
   if (m.type === "answer") {
     webrtcGotAnswer = true;
     if (webrtcRetryTimer) { clearInterval(webrtcRetryTimer); webrtcRetryTimer = null; }
@@ -3847,6 +3848,13 @@ async function streamRemuxedFile(file) {
 function pollCastTime() {
   if (!castConnected) return;
   if (castMode === "webrtc") {
+    // Keep the custom-message channel warm so the receiver never sees this
+    // sender as idle (prevents mid-playback session drops on local files).
+    const nowPing = Date.now();
+    if (nowPing - lastCastPingAt > 5000) {
+      lastCastPingAt = nowPing;
+      sendCastMsg({ type: "ping" });
+    }
     if (funState.playing) {
       const d = castDuration();
       if (d > 0 && castTimeNow() >= d - 0.4) {
