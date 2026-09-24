@@ -3338,10 +3338,14 @@ function funPrePosition() {
   if (funState.prePosAt === target) return;
   const dist = funState.prePosAt === null ? Math.max(10, target) : Math.abs(target - funState.prePosAt);
   const dur = Math.min(8000, Math.max(1500, Math.round(dist * 100)));
+  // Mirror the full streaming setup: the OSSM skips stream motion while its
+  // speed is 0, so set speed/sensation/buffer before commanding a position.
+  stdWrite("set:speed:" + funState.maxSpeed);
   stdWrite("set:max:" + funState.maxDepth);
   stdWrite("set:min:" + funState.minDepth);
-  // Stream position 100 maps to the configured max (set:max above), so this
-  // slowly drives the rail out to the user's Max Pos.
+  stdWrite("set:buffer:" + funState.buffer);
+  stdWrite("set:sensation:" + funState.sensation);
+  // Stream position 100 maps to the configured max depth.
   writeStream("100:" + dur);
   funState.prePosAt = target;
   funLog("Moving to Max Pos " + target + "…");
