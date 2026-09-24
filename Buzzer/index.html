@@ -3679,8 +3679,8 @@ async function sendFileOverChannel(file) {
       }
     }
     if (ch && ch.readyState === "open") {
-      // Let the DataChannel flush before closing so the tail isn't dropped.
-      const deadline = Date.now() + 10000;
+      // Let the channel flush before closing so the tail isn't dropped on slow WiFi.
+      const deadline = Date.now() + 60000;
       while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 100));
       }
@@ -3797,7 +3797,7 @@ async function streamRemuxedFile(file) {
   if (!failed) { try { fileBox.flush(); } catch (e) {} }
   while (segQueue.length || pumping) await sleepMs(100);
   if (ch && ch.readyState === "open") {
-    const deadline = Date.now() + 10000;
+    const deadline = Date.now() + 60000;
     while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) await sleepMs(100);
     try { ch.close(); } catch (e) {}
   }
