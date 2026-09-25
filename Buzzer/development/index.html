@@ -4961,6 +4961,10 @@ function aiRunContext(running) {
   if (running) return "Machine running: yes. You MAY pause it when the user asks (include \"run\":\"pause\" in your JSON). To resume after pausing, include \"run\":\"start\".";
   return "Machine running: no. You MAY start it when the user asks (include \"run\":\"start\" in your JSON). To pause it, include \"run\":\"pause\". This is the only run control you have — never use it unless asked.";
 }
+function aiConnContext() {
+  if (demoMode) return "OSSM connected: no (demo mode).";
+  return "OSSM connected: " + (connected ? "yes" : "no") + ". If it is NOT connected, never claim you started or will start the machine — you can still set values, but tell the user to connect the OSSM first.";
+}
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
   if (appMode === "std") {
@@ -4970,6 +4974,7 @@ function aiModeContext(cur) {
       + "INTENT in Standard mode: \"harder\"/\"pound me\"/\"hard\" = more forceful, harder-hitting thrusts (pounding), NOT just speed — prefer a pounding/intense pattern from the list and/or raise \"Sensation\" and \"Speed\". \"faster\"/\"sneller\"/\"quicker\" (speed only) = raise \"Speed\". \"softer\"/\"gentle\"/\"zacht\" = the simplest gentle pattern with lower Speed and Sensation. \"tease me\"/\"teasing\" = a teasing/pounding pattern with lower Sensation. \"deeper\" = raise \"Max Pos\"; \"shallower\" = lower \"Max Pos\".\n"
       + aiLimitsText() + "\n"
       + aiRunContext(running) + "\n"
+      + aiConnContext() + "\n"
       + "Current settings: " + JSON.stringify(cur);
   }
   return "CURRENT MODE: Advanced Penetration. In \"set\" you may use these keys:\n"
@@ -4978,6 +4983,7 @@ function aiModeContext(cur) {
     + "EXAMPLES: slow deep full strokes -> {\"Max Pos\":100,\"Min Pos\":0,\"In Speed\":30,\"Out Speed\":30,\"In Accel\":15,\"Out Accel\":15,\"Speed\":30}; teasing slow-in/quick-out -> {\"Max Pos\":60,\"Min Pos\":0,\"In Speed\":25,\"Out Speed\":80,\"In Accel\":15,\"Out Accel\":50,\"Speed\":40}; build slow/shallow to fast/deep then ease off -> {\"Max Pos\":45,\"Min Pos\":0,\"In Speed\":30,\"Out Speed\":30,\"In Accel\":20,\"Out Accel\":20,\"Speed\":30,\"Max PosAmplitude\":60,\"Max PosSteps to Max\":4,\"Max PosSteps at Max\":2,\"Max PosSteps to Min\":4,\"In SpeedAmplitude\":50,\"In SpeedSteps to Max\":4,\"In SpeedSteps to Min\":4}.\n"
     + aiLimitsText() + "\n"
     + aiRunContext(running) + "\n"
+    + aiConnContext() + "\n"
     + "Current settings: " + JSON.stringify(cur);
 }
 function aiPatternIndex(raw) {
