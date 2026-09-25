@@ -4833,7 +4833,7 @@ function aiLocalInterpret(text) {
   else p["Max Pos"] = 70;
 
   // stroke length / withdrawal (Min Pos)
-  if (/(short|flick|quick)/.test(t) && !/(long|full|deep)/.test(t)) p["Min Pos"] = Math.max(10, p["Max Pos"] - 18);
+  if (/(short|flick|jackhammer)/.test(t) && !/(long|full|deep)/.test(t)) p["Min Pos"] = Math.max(10, p["Max Pos"] - 15);
   else p["Min Pos"] = 0;
 
   // speeds
