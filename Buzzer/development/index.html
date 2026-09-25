@@ -4792,6 +4792,26 @@ function aiAddMsg(role, html) {
   return d;
 }
 
+async function aiCall(messages) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let msgs = messages;
+    if (attempt > 0) msgs = [...messages, { role: "user", content: "Reply with ONLY the JSON object now — no explanation, no markdown." }];
+    try {
+      const body = JSON.stringify({ model: "openai", jsonMode: true, messages: msgs });
+      const r = await fetch("https://text.pollinations.ai/", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      const raw = await r.text();
+      if (r.ok) {
+        const params = aiExtractJson(raw);
+        if (params) return { raw, params, error: null };
+      }
+      // fall through and retry
+    } catch (e) {
+      // fall through and retry
+    }
+  }
+  return { raw: "", params: null, error: "the AI service is busy or returned an unusable reply" };
+}
+
 async function aiSend() {
   const inp = $("aiInput");
   const text = (inp ? inp.value : "").trim();
@@ -4811,26 +4831,24 @@ async function aiSend() {
     }
     cur["Speed"] = Math.round(sv("SP", 0));
     aiMessages.push({ role: "user", content: text });
-    const body = JSON.stringify({
-      model: "openai",
-      jsonMode: true,
-      messages: [
-        { role: "system", content: AI_SYSTEM + "\nCurrent device settings (start from these when the user asks to adjust): " + JSON.stringify(cur) },
-        ...aiMessages
-      ]
-    });
-    const r = await fetch("https://text.pollinations.ai/", { method: "POST", headers: { "Content-Type": "application/json" }, body });
-    const reply = await r.text();
-    aiMessages.push({ role: "assistant", content: reply });
+    const msgs = [
+      { role: "system", content: AI_SYSTEM + "\nCurrent device settings (start from these when the user asks to adjust): " + JSON.stringify(cur) },
+      ...aiMessages
+    ];
+    const res = await aiCall(msgs);
+    if (res.params) {
+      aiMessages.push({ role: "assistant", content: res.raw });
+    } else {
+      aiMessages.pop(); // drop the failed exchange so it doesn't confuse later turns
+    }
     if (th) th.remove();
-    const params = aiExtractJson(reply);
-    if (params) {
-      const applied = aiApplyParams(params);
+    if (res.params) {
+      const applied = aiApplyParams(res.params);
       const d = aiAddMsg("assistant", escapeHtml(aiSummary(applied)) + " <button class=\"ai-yes\">✓</button>");
       const yes = d && d.querySelector(".ai-yes");
       if (yes) yes.onclick = () => { aiAddMsg("system", "Done ✓"); yes.remove(); };
     } else {
-      aiAddMsg("assistant", "I couldn't get valid numbers back — try rephrasing (e.g. \"slow deep full strokes\").");
+      aiAddMsg("assistant", escapeHtml("That didn't come back as usable numbers — please try again" + (res.error ? " (" + res.error + ")" : "") + "."));
     }
   } catch (e) {
     if (th) th.remove();
