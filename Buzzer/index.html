@@ -329,6 +329,11 @@
   .online-body { display: flex; flex-direction: column; gap: 8px; }
   .online-controls { display: flex; flex-direction: column; gap: 6px; }
   .online-controls input, .online-controls select { background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; width: 100%; box-sizing: border-box; }
+  .online-source { display: flex; gap: 6px; }
+  .online-src-btn { flex: 1; background: #1e293b; border: 1px solid var(--border-color); color: #94a3b8; border-radius: 6px; padding: 7px 8px; font-size: .78rem; cursor: pointer; }
+  .online-src-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: bold; }
+  .ero-search-row { display: flex; gap: 6px; }
+  .ero-search-row input { flex: 1 1 auto; min-width: 0; }
   .online-results { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
   .online-item { display: flex; flex-direction: column; align-items: stretch; gap: 6px; background: #111827; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; }
   .online-title { font-size: .9rem; color: #e2e8f0; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -615,9 +620,19 @@
     <details class="online-videos" id="onlineVideos">
       <summary>🌐 Online videos</summary>
       <div class="online-body">
-        <div class="online-controls">
+        <div class="online-source">
+          <button type="button" id="srcHubBtn" class="online-src-btn active">Funscripthub</button>
+          <button type="button" id="srcEroBtn" class="online-src-btn">EroScripts</button>
+        </div>
+        <div class="online-controls" id="hubControls">
           <input type="text" id="onlineTagFilter" placeholder="Filter tags…">
           <select id="onlineTagSelect"><option value="">All videos</option></select>
+        </div>
+        <div class="online-controls" id="eroControls" style="display:none;">
+          <div class="ero-search-row">
+            <input type="text" id="eroSearch" placeholder="Search funscripts… (scene, actress, JAV code)">
+            <button type="button" id="eroSearchBtn" class="ble-btn small">Search</button>
+          </div>
         </div>
         <div class="online-results" id="onlineResults"></div>
         <div class="online-more" id="onlineMore" style="display:none;"><button class="ble-btn small" id="onlineMoreBtn" type="button">More…</button></div>
@@ -4670,6 +4685,8 @@ let onlinePage = 1;
 let onlineBusy = false;
 let onlineHasMore = true;
 let onlineStarted = false;
+let onlineSource = "hub";
+let eroPage = 1;
 
 function jinaExtractJson(text) {
   let raw = text;
@@ -4679,6 +4696,11 @@ function jinaExtractJson(text) {
   const start = raw.search(/[\[{]/);
   if (start < 0) throw new Error("no JSON in response");
   return JSON.parse(raw.slice(start));
+}
+async function jinaGetJson(url) {
+  const r = await fetch("https://r.jina.ai/" + url);
+  if (!r.ok) throw new Error("jina status " + r.status);
+  return jinaExtractJson(await r.text());
 }
 async function onlineFetch(params) {
   const base = workerBaseUrl();
@@ -4762,6 +4784,86 @@ async function onlineLoadResults(reset) {
     box.appendChild(err);
   }
   onlineBusy = false;
+}
+
+function setOnlineSource(src) {
+  onlineSource = src;
+  const hubBtn = $("srcHubBtn"), eroBtn = $("srcEroBtn");
+  const hubC = $("hubControls"), eroC = $("eroControls");
+  if (hubBtn) hubBtn.classList.toggle("active", src === "hub");
+  if (eroBtn) eroBtn.classList.toggle("active", src === "ero");
+  if (hubC) hubC.style.display = src === "hub" ? "" : "none";
+  if (eroC) eroC.style.display = src === "ero" ? "" : "none";
+  const box = $("onlineResults");
+  if (box) box.innerHTML = "";
+  const more = $("onlineMore");
+  if (more) more.style.display = "none";
+  if (src === "hub") onlineLoadResults(true);
+  else eroLoadResults(true);
+}
+
+async function eroLoadResults(reset) {
+  const box = $("onlineResults");
+  const q = ($("eroSearch") ? $("eroSearch").value : "").trim();
+  if (!box) return;
+  if (!q) {
+    box.innerHTML = "";
+    const n = document.createElement("div");
+    n.className = "online-note"; n.textContent = "Type a search above (scene, actress, JAV code…).";
+    box.appendChild(n);
+    const more = $("onlineMore"); if (more) more.style.display = "none";
+    return;
+  }
+  if (onlineBusy) return;
+  if (reset) { eroPage = 1; box.innerHTML = ""; }
+  onlineBusy = true;
+  const note = document.createElement("div");
+  note.className = "online-note"; note.textContent = "Searching EroScripts…";
+  box.appendChild(note);
+  try {
+    const url = "https://discuss.eroscripts.com/search.json?q=" + encodeURIComponent(q) + "&page=" + eroPage;
+    const j = await jinaGetJson(url);
+    note.remove();
+    const topics = (j && j.topics) || [];
+    if (!topics.length) {
+      const e = document.createElement("div");
+      e.className = "online-note"; e.textContent = "No results for \"" + q + "\".";
+      box.appendChild(e);
+    } else {
+      for (const t of topics) box.appendChild(eroItemEl(t));
+      eroPage++;
+    }
+  } catch (e) {
+    note.remove();
+    const err = document.createElement("div");
+    err.className = "online-note"; err.textContent = "EroScripts search failed: " + ((e && e.message) || e);
+    box.appendChild(err);
+  }
+  onlineBusy = false;
+}
+
+function eroItemEl(t) {
+  const row = document.createElement("div");
+  row.className = "online-item";
+  const title = document.createElement("div");
+  title.className = "online-title"; title.textContent = t.title || t.fancy_title || "";
+  const bottom = document.createElement("div");
+  bottom.className = "online-bottom";
+  const meta = document.createElement("div");
+  meta.className = "online-meta";
+  meta.textContent = ((t.posts_count ? t.posts_count + " replies · " : "") + (t.last_poster_username || ""));
+  const get = document.createElement("button");
+  get.type = "button"; get.className = "online-load"; get.textContent = "Open topic";
+  get.onclick = () => eroOpenTopic(t.id, get);
+  bottom.appendChild(meta); bottom.appendChild(get);
+  row.appendChild(title); row.appendChild(bottom);
+  return row;
+}
+
+function eroOpenTopic(topicId, btn) {
+  if (btn) { btn.textContent = "Opened ✓"; btn.disabled = false; }
+  funLog("EroScripts needs a login to download files, so this opens the topic — sign in there and download the script, then load it with 'Load Funscript'.");
+  try { window.open("https://discuss.eroscripts.com/t/" + topicId, "_blank"); } catch (e) {}
 }
 
 function onlineItemEl(it) {
@@ -4916,11 +5018,22 @@ async function loadFunscriptUrl(url) {
   const sel = $("onlineTagSelect");
   const more = $("onlineMoreBtn");
   const ov = $("onlineVideos");
+  const hubBtn = $("srcHubBtn");
+  const eroBtn = $("srcEroBtn");
+  const eroSearch = $("eroSearch");
+  const eroSearchBtn = $("eroSearchBtn");
   if (f) f.addEventListener("input", renderOnlineTagSelect);
   if (sel) sel.addEventListener("change", () => { onlineSelectedTag = sel.value; onlineLoadResults(true); });
-  if (more) more.onclick = () => onlineLoadResults(false);
+  if (hubBtn) hubBtn.onclick = () => setOnlineSource("hub");
+  if (eroBtn) eroBtn.onclick = () => setOnlineSource("ero");
+  if (eroSearch) eroSearch.addEventListener("keydown", (e) => { if (e.key === "Enter") eroLoadResults(true); });
+  if (eroSearchBtn) eroSearchBtn.onclick = () => eroLoadResults(true);
+  if (more) more.onclick = () => { if (onlineSource === "ero") eroLoadResults(false); else onlineLoadResults(false); };
   if (ov) ov.addEventListener("toggle", () => {
-    if (ov.open && !onlineStarted) { onlineStarted = true; onlineLoadResults(true); }
+    if (ov.open && !onlineStarted) {
+      onlineStarted = true;
+      if (onlineSource === "ero") eroLoadResults(true); else onlineLoadResults(true);
+    }
   });
   onlineLoadTags();
 })();
