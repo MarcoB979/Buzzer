@@ -64,7 +64,6 @@
   #speed-control { order: 6; }
   #sliders-wrapper { order: 7; }
   #reset-row { order: 8; }
-  #mode-row { order: 2; }
   #kofi-wrap { order: 13; }
   #bind-panel { order: 10; }
   #presets-panel { order: 11; }
@@ -258,11 +257,24 @@
   #btnStart:disabled { background-color: #334155; color: #94a3b8; cursor: not-allowed; }
   .reset-row { text-align: center; margin-bottom: 4px; }
   #btnResetValues { background: none; border: none; color: #ff5b6a; font-size: .78rem; cursor: pointer; text-decoration: underline; padding: 4px 8px; }
-  .mode-row { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
-  .mode-label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
-  .mode-seg { display: flex; flex: 1; background: #1e293b; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
-  .mode-btn { flex: 1; background: transparent; color: var(--muted); border: none; padding: 7px 2px; font-size: .72rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
-  .mode-btn.active { background: #2563eb; color: #fff; }
+  .title-row { display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%; }
+  .brand-label { color: #fff; font-size: 1.05rem; font-weight: bold; white-space: nowrap; flex: 0 0 auto; }
+  .mode-select {
+    appearance: none; -webkit-appearance: none;
+    background-color: #0b0f19;
+    color: #e2e8f0;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 3px 22px 3px 8px;
+    font-size: .8rem; font-weight: bold;
+    cursor: pointer;
+    max-width: 100%;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 7px center;
+  }
+  .mode-select:focus { outline: 1px solid #38bdf8; }
+  .title-context { font-size: .68rem; color: #64748b; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
   .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .presets-panel summary {
     list-style: none; cursor: pointer; user-select: none;
@@ -388,7 +400,6 @@
       grid-template-columns: 1fr 78px;
       grid-template-areas:
         "header  header"
-        "mode    mode"
         "visual  start"
         "speed   speed"
         "tabs    tabs"
@@ -398,7 +409,6 @@
       align-items: start;
     }
     .phone-container.hide-left.hide-right .header-row { grid-area: header; }
-    .phone-container.hide-left.hide-right .mode-row { grid-area: mode; }
     .phone-container.hide-left.hide-right .visualizer-area { grid-area: visual; }
     .phone-container.hide-left.hide-right .start-stop-row { grid-area: start; align-self: stretch; margin: 0; width: auto; }
     .phone-container.hide-left.hide-right .start-stop-row #btnStart { height: 100%; min-height: 88px; padding: 8px 6px; font-size: .85rem; }
@@ -483,7 +493,15 @@
     <div class="header-row">
       <button class="col-toggle" id="toggleColLeft" title="Show / hide sliders column">◀</button>
       <div class="screen-header">
-        <div id="active-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">OSSM Standard</div>
+        <div class="title-row">
+          <span class="brand-label">OSSM</span>
+          <select id="modeSelect" class="mode-select" title="Change mode" aria-label="Change mode">
+            <option value="ap">Advanced Penetration</option>
+            <option value="std">Standard</option>
+            <option value="fun">Funscript</option>
+          </select>
+          <span class="title-context" id="titleContext" style="display:none;"></span>
+        </div>
         <div class="build-info" id="buildInfo" style="font-size:.62rem;color:#64748b;font-weight:normal;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
       </div>
       <span class="conn-status" id="conn-status"></span>
@@ -492,15 +510,6 @@
       <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
       <button class="kofi-toggle" id="kofiToggle" title="Show Support on Ko-fi" aria-label="Show Support on Ko-fi" style="display:none;">☕</button>
       <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
-    </div>
-
-    <div class="mode-row" id="mode-row">
-      <span class="mode-label">Mode</span>
-      <div class="mode-seg">
-        <button id="modeAp" class="mode-btn">Advanced</button>
-        <button id="modeStd" class="mode-btn active">Standard</button>
-        <button id="modeFun" class="mode-btn">Funscript</button>
-      </div>
     </div>
 
     <div class="visualizer-area">
@@ -1617,9 +1626,18 @@ function buildInterfaceNow() {
   const pc = document.querySelector(".phone-container");
   if (pc) pc.classList.toggle("fun", isFun);
 
-  $("active-title").textContent = isFun
-    ? "OSSM Funscript"
-    : (isStd ? "OSSM Standard" : (viewMode === "main" ? "OSSM Advanced Penetration" : "Modifier for: " + BASE_NAMES[activeBaseIndex]));
+  const ms = $("modeSelect");
+  if (ms) {
+    const apOpt = ms.querySelector('option[value="ap"]');
+    if (apOpt) apOpt.disabled = !apAvailable();
+    if (ms.value !== appMode) ms.value = appMode;
+  }
+  const tctx = $("titleContext");
+  if (tctx) {
+    const ctx = (!isFun && !isStd && viewMode === "mod") ? ("Modifier for: " + BASE_NAMES[activeBaseIndex]) : "";
+    tctx.textContent = ctx;
+    tctx.style.display = ctx ? "" : "none";
+  }
   updateStartButton();
 
   $("tabs-wrapper").style.display = (isStd || isFun) ? "none" : "";
@@ -1636,10 +1654,6 @@ function buildInterfaceNow() {
   const pvt = $("funPreviewToggle"); if (pvt) { pvt.textContent = funPreviewShown ? "▾" : "▴"; pvt.title = funPreviewShown ? "Hide funscript preview" : "Show funscript preview"; }
   const va = document.querySelector(".visualizer-area"); if (va) va.style.display = isFun ? "none" : "";
 
-  const apBtn = $("modeAp");
-  if (apBtn) { apBtn.style.display = apAvailable() ? "" : "none"; apBtn.classList.toggle("active", !isStd && !isFun); }
-  $("modeStd").classList.toggle("active", isStd);
-  const mf = $("modeFun"); if (mf) mf.classList.toggle("active", isFun);
   const hc = $("header-connect");
   if (hc) {
     hc.style.display = (!connected) ? "" : "none";
@@ -4557,10 +4571,26 @@ function enterApMode() {
   }
   updateStartButton();
 }
-$("modeAp").onclick = () => { if (!apAvailable()) return; if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "ap"; buildInterface(); enterApMode(); };
-$("modeStd").onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); setDemoMode(false); appMode = "std"; buildInterface(); enterStdMode(); };
-const mFun = $("modeFun");
-if (mFun) mFun.onclick = () => { if (modeChangeBlocked()) return; leaveStreamingIfNeeded(); appMode = "fun"; funState.maxDepth = 20; if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth; funControlsCollapsed = false; if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); buildInterface(); enterStreamingMode(); };
+const mSel = $("modeSelect");
+if (mSel) mSel.onchange = () => {
+  const target = mSel.value;
+  if (target === appMode) return;
+  if (target === "ap" && !apAvailable()) { mSel.value = appMode; return; }
+  if (modeChangeBlocked()) { mSel.value = appMode; return; }
+  leaveStreamingIfNeeded();
+  setDemoMode(false);
+  appMode = target;
+  if (appMode === "fun") {
+    funState.maxDepth = 20;
+    if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
+    funControlsCollapsed = false;
+    if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {});
+  }
+  buildInterface();
+  if (appMode === "std") enterStdMode();
+  else if (appMode === "fun") enterStreamingMode();
+  else enterApMode();
+};
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
 function setDemoMode(on) {
