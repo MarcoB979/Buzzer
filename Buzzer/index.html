@@ -300,6 +300,10 @@
   .ai-mic.recording { background: #dc2626; animation: ai-pulse 1s ease-in-out infinite; }
   @keyframes ai-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
   .ai-note { font-size: .64rem; color: #64748b; }
+  .ai-settings-body { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .ai-set-label { font-size: .72rem; color: #94a3b8; }
+  .ai-settings-body select, .ai-settings-body input { background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; width: 100%; box-sizing: border-box; }
+  .ai-set-hint { font-size: .66rem; color: #64748b; line-height: 1.4; }
   .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .presets-panel summary {
     list-style: none; cursor: pointer; user-select: none;
@@ -642,6 +646,22 @@
         <input type="text" id="presetName" placeholder="New preset name" />
         <button id="btnSavePreset">Save</button>
         <button id="btnFactoryReset" class="danger">Reset</button>
+      </div>
+    </details>
+
+    <details class="presets-panel" id="aiSettings">
+      <summary><span class="summary-left">🤖 AI assistant<span class="summary-value" id="aiProviderLabel"></span></span></summary>
+      <div class="ai-settings-body">
+        <label class="ai-set-label" for="aiProvider">Provider</label>
+        <select id="aiProvider">
+          <option value="free">Free (Pollinations)</option>
+          <option value="deepseek">DeepSeek (via OpenRouter)</option>
+        </select>
+        <div id="aiKeyRow" style="display:none;">
+          <label class="ai-set-label" for="aiKey">OpenRouter API key</label>
+          <input type="password" id="aiKey" placeholder="sk-or-…" autocomplete="off">
+          <div class="ai-set-hint">DeepSeek's own API blocks browser calls, so the app uses OpenRouter (which serves DeepSeek models). Get a key at openrouter.ai.</div>
+        </div>
       </div>
     </details>
 
@@ -4709,7 +4729,8 @@ EXAMPLES (request -> JSON):
 4. "start slow and shallow, build up to fast and deep, then ease off" -> {"Max Pos":45,"Min Pos":0,"In Speed":30,"Out Speed":30,"In Accel":20,"Out Accel":20,"Speed":30,"Max PosAmplitude":60,"Max PosSteps to Max":4,"Max PosSteps at Max":2,"Max PosSteps to Min":4,"In SpeedAmplitude":50,"In SpeedSteps to Max":4,"In SpeedSteps to Min":4}
 5. "teasing: slow in, quick out" -> {"Max Pos":60,"Min Pos":0,"In Speed":25,"Out Speed":80,"In Accel":15,"Out Accel":50,"Speed":40}
 
-Reply with ONLY a JSON object: always include the 7 base keys, plus any modifier keys needed to express changes over time. No prose, no markdown fences.`;
+Reply with ONLY a JSON object: always include the 7 base keys, plus any modifier keys needed to express changes over time. No prose, no markdown fences.
+The user may write in any language (English, Dutch, French, German, etc.) — understand the meaning and always reply with the same English JSON keys and numeric values.`;
 let aiMessages = [];
 let aiBusy = false;
 let aiListening = null;
@@ -4798,7 +4819,40 @@ function aiAddMsg(role, html) {
   return d;
 }
 
+function aiProviderSettings() {
+  let provider = "free", key = "";
+  try { provider = localStorage.getItem("ossm-ai-provider") || "free"; } catch (e) {}
+  try { key = (localStorage.getItem("ossm-ai-key") || "").trim(); } catch (e) {}
+  return { provider, key };
+}
+
+async function aiCallDeepSeek(messages, key) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const body = JSON.stringify({ model: "deepseek/deepseek-chat", messages, response_format: { type: "json_object" } });
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key, "HTTP-Referer": "https://marcob979.github.io/Buzzer/", "X-Title": "Buzzer" },
+        body
+      });
+      const raw = await r.text();
+      if (r.ok) {
+        let content = raw;
+        try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
+        const params = aiExtractJson(content);
+        if (params) return { raw: content, params, error: null };
+      }
+    } catch (e) {}
+    if (attempt === 0) await sleepMs(1500);
+  }
+  return { raw: "", params: null, error: "DeepSeek request failed — check your API key" };
+}
+
 async function aiCall(messages) {
+  const { provider, key } = aiProviderSettings();
+  if (provider === "deepseek" && key) {
+    return aiCallDeepSeek(messages, key);
+  }
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const body = JSON.stringify({ model: "openai", jsonMode: true, messages });
@@ -4982,6 +5036,10 @@ function aiVoice() {
   const send = $("aiSend");
   const inp = $("aiInput");
   const mic = $("aiMic");
+  const prov = $("aiProvider");
+  const keyInp = $("aiKey");
+  const keyRow = $("aiKeyRow");
+  const provLabel = $("aiProviderLabel");
   if (btn) btn.onclick = aiToggle;
   if (send) send.onclick = aiSend;
   if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") aiSend(); });
@@ -4989,6 +5047,16 @@ function aiVoice() {
     if (window.SpeechRecognition || window.webkitSpeechRecognition) mic.onclick = aiVoice;
     else mic.style.display = "none";
   }
+  const syncAiSettingsUI = () => {
+    const s = aiProviderSettings();
+    if (prov) prov.value = s.provider;
+    if (keyInp) keyInp.value = s.key;
+    if (keyRow) keyRow.style.display = (s.provider === "deepseek") ? "" : "none";
+    if (provLabel) provLabel.textContent = (s.provider === "deepseek") ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : "Free";
+  };
+  if (prov) prov.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {} syncAiSettingsUI(); });
+  if (keyInp) keyInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-key", keyInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
+  syncAiSettingsUI();
 })();
 
 function setModeFromDropdown(target) {
