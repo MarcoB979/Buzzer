@@ -742,13 +742,7 @@
         <input type="number" id="aiTtsRate" min="0.5" max="2" step="0.1">
         <label class="ai-set-label" for="aiTtsPitch">Voice pitch (0.5–2)</label>
         <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
-        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiTtsCloud"> Use free cloud voice (online Google voice)</label>
-        <div id="aiTtsCloudRow" style="display:none;">
-          <label class="ai-set-label" for="aiTtsCloudUrl">Cloud voice worker URL</label>
-          <input type="url" id="aiTtsCloudUrl" placeholder="https://your-worker.workers.dev">
-          <div class="ai-set-hint">Set once: deploy video-extractor.js to a free Cloudflare Worker and paste its URL here (same URL used for videos). The voice is Google’s online voice, in your language.</div>
-        </div>
-        <div class="ai-set-hint">“Voice tone” filters the list to masculine or feminine voices (inferred from their names), and “Auto” prefers your chosen tone. The free cloud voice is Google’s online voice — one voice per language.</div>
+        <div class="ai-set-hint">“Voice tone” filters the list to masculine or feminine voices (inferred from their names), and “Auto” prefers your chosen tone. For a different or better voice, install another TTS engine on your device — it will appear in the list above.</div>
       </div>
     </details>
 
@@ -5171,25 +5165,8 @@ function aiPickVoice(lang) {
   }
   return best;
 }
-let aiCloudUrlHintShown = false;
 function aiSpeak(text) {
-  if (aiTtsCloudEnabled()) {
-    if (!workerBaseUrl()) {
-      aiSpeakBrowser(text);
-      if (!aiCloudUrlHintShown) {
-        aiCloudUrlHintShown = true;
-        aiAddMsg("system", "Free cloud voice needs your Cloudflare Worker URL — add it under 🤖 AI assistant → “Cloud voice worker URL”.");
-      }
-      return;
-    }
-    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
-    aiSpeakCloud(text).catch(() => aiSpeakBrowser(text));
-    return;
-  }
   aiSpeakBrowser(text);
-}
-function aiTtsCloudEnabled() {
-  try { return localStorage.getItem("ossm-tts-cloud") === "1"; } catch (e) { return false; }
 }
 function aiTtsLangCode() {
   let l = "";
@@ -5197,37 +5174,6 @@ function aiTtsLangCode() {
   if (!l) { try { l = (navigator.language || "en").toLowerCase(); } catch (e) {} }
   const map = { en: "en-US", nl: "nl-NL", de: "de-DE", fr: "fr-FR" };
   return map[l] || map[l.split(/[-_]/)[0]] || "en-US";
-}
-function aiTtsCloudLang() {
-  const short = aiTtsLangCode().toLowerCase().split(/[-_]/)[0];
-  return ["en", "nl", "de", "fr"].indexOf(short) >= 0 ? short : "en";
-}
-function aiPlayAudioUrl(url) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const done = () => { if (!settled) { settled = true; resolve(true); } };
-    try {
-      const a = new Audio(url);
-      a.onended = done;
-      a.onerror = () => { if (!settled) { settled = true; resolve(false); } };
-      a.play().then(() => {}).catch(() => done());
-      setTimeout(done, 90000);
-    } catch (e) { resolve(false); }
-  });
-}
-async function aiSpeakCloud(text) {
-  const base = workerBaseUrl();
-  if (!base) throw new Error("no worker url");
-  const lang = aiTtsCloudLang();
-  const s = String(text || "").replace(/\s+/g, " ").trim();
-  if (!s) return;
-  const chunks = [];
-  for (let i = 0; i < s.length; i += 180) chunks.push(s.slice(i, i + 180));
-  for (const chunk of chunks) {
-    const url = base + "/?tts=1&tl=" + lang + "&q=" + encodeURIComponent(chunk);
-    const ok = await aiPlayAudioUrl(url);
-    if (!ok) throw new Error("cloud voice failed");
-  }
 }
 function aiSpeakBrowser(text) {
   try {
@@ -5802,18 +5748,6 @@ function aiProcessVoice(text) {
     aiPopulateVoiceList();
     voiceSel.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-tts-voice", voiceSel.value); } catch (e) {} });
   }
-  const ttsCloud = $("aiTtsCloud");
-  const ttsCloudRow = $("aiTtsCloudRow");
-  const ttsCloudUrl = $("aiTtsCloudUrl");
-  const syncTtsCloudUI = () => {
-    const on = aiTtsCloudEnabled();
-    if (ttsCloud) ttsCloud.checked = on;
-    if (ttsCloudRow) ttsCloudRow.style.display = on ? "" : "none";
-    if (ttsCloudUrl) ttsCloudUrl.value = getExtractorUrl();
-  };
-  if (ttsCloud) ttsCloud.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-cloud", ttsCloud.checked ? "1" : "0"); } catch (e) {} syncTtsCloudUI(); });
-  if (ttsCloudUrl) ttsCloudUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-extractor-url", ttsCloudUrl.value.trim()); } catch (e) {} });
-  syncTtsCloudUI();
   const ttsTone = $("aiTtsTone");
   if (ttsTone) {
     ttsTone.value = aiTtsTone();
