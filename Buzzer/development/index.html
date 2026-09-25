@@ -67,6 +67,7 @@
   #kofi-wrap { order: 13; }
   #bind-panel { order: 10; }
   #presets-panel { order: 11; }
+  #aiSettings { order: 11; }
   .start-stop-row { order: 12; }
   #pad-debug { order: 13; }
   #watch-panel { order: 10; }
@@ -286,16 +287,18 @@
   .mode-option:disabled { color: #475569; cursor: not-allowed; }
   .mode-option:disabled:hover { background: transparent; }
   .title-context { font-size: .68rem; color: #64748b; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
-  .ai-panel { background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .ai-panel { order: 3; background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
   .ai-title { font-size: .8rem; font-weight: bold; color: #e2e8f0; }
   .ai-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
   .ai-title-row .ble-btn { font-size: .7rem; padding: 4px 8px; }
+  .ai-title-group { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  .ai-limits-toggle { flex: 0 0 auto; background: transparent; border: none; color: #64748b; font-size: .72rem; cursor: pointer; padding: 0 3px; line-height: 1; }
   .ai-limits-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: .68rem; color: #94a3b8; background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; padding: 5px 8px; }
   .ai-limits-title { font-weight: bold; color: #cbd5e1; }
   .ai-limits-item { display: inline-flex; align-items: center; gap: 3px; }
   .ai-limits-row input { width: 40px; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 4px; padding: 2px 4px; font-size: .68rem; text-align: center; }
   .ai-limits-sign { color: #64748b; font-weight: bold; }
-  .ai-history { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; font-size: .78rem; }
+  .ai-history { display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto; font-size: .78rem; }
   .ai-msg { padding: 6px 8px; border-radius: 8px; line-height: 1.35; }
   .ai-user { background: #1e293b; color: #e2e8f0; align-self: flex-end; }
   .ai-assistant { background: #0f172a; color: #cbd5e1; border: 1px solid #334155; }
@@ -414,6 +417,7 @@
     input[type=range] { height: 8px; }
     input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; }
     .start-stop-row { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+    #speed-control { position: sticky; bottom: 62px; z-index: 9; background: #05050a; padding: 4px 0 2px; }
   }
   @media (orientation: landscape) and (max-height: 520px), (min-width: 700px) {
     body { padding: 4px; }
@@ -585,10 +589,13 @@
 
     <div class="ai-panel" id="aiPanel" style="display:none;">
       <div class="ai-title-row">
-        <div class="ai-title">✨ Tell me how you want it to feel</div>
+        <div class="ai-title-group">
+          <div class="ai-title">✨ Tell me how you want it to feel</div>
+          <button class="ai-limits-toggle" id="aiLimitsToggle" type="button" title="Show / hide limits">▸</button>
+        </div>
         <button class="ble-btn small" id="aiNew" type="button" title="Start a new session (clears this chat)">New</button>
       </div>
-      <div class="ai-limits-row">
+      <div class="ai-limits-row" id="aiLimitsRow" style="display:none;">
         <span class="ai-limits-title">Limits</span>
         <span class="ai-limits-item">Depth: <input type="number" id="aiMinDepthQuick" min="0" max="100" step="1" title="AI min depth"> - <input type="number" id="aiMaxDepthQuick" min="0" max="100" step="1" title="AI max depth"></span>
         <span class="ai-limits-item">Speed <b class="ai-limits-sign">+</b><input type="number" id="aiMaxSpeedQuick" min="0" max="100" step="1" title="AI max speed"></span>
@@ -5076,7 +5083,9 @@ function aiNewSession() {
   if (h) h.innerHTML = "";
   const inp = $("aiInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
-  aiAddMsg("system", "New session — what do you want?");
+  const ask = "New session — what depth range should I work within? Tell me your min depth, max depth and max speed.";
+  aiMessages.push({ role: "assistant", content: ask });
+  aiAddMsg("assistant", escapeHtml(ask));
 }
 
 function aiApplyParams(p) {
@@ -5472,6 +5481,16 @@ function aiProcessVoice(text) {
   }
   const newBtn = $("aiNew");
   if (newBtn) newBtn.onclick = aiNewSession;
+  const limitsToggle = $("aiLimitsToggle");
+  if (limitsToggle) {
+    limitsToggle.onclick = () => {
+      const row = $("aiLimitsRow");
+      if (!row) return;
+      const open = row.style.display !== "none";
+      row.style.display = open ? "none" : "";
+      limitsToggle.textContent = open ? "▸" : "▾";
+    };
+  }
   const limitInputs = {
     minDepth: [$("aiMinDepth"), $("aiMinDepthQuick")],
     maxDepth: [$("aiMaxDepth"), $("aiMaxDepthQuick")],
