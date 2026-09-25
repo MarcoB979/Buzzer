@@ -64,7 +64,7 @@
   #speed-control { order: 6; }
   #sliders-wrapper { order: 7; }
   #reset-row { order: 8; }
-  #mode-row { order: 9; }
+  #mode-row { order: 2; }
   #kofi-wrap { order: 13; }
   #bind-panel { order: 10; }
   #presets-panel { order: 11; }
@@ -258,10 +258,10 @@
   #btnStart:disabled { background-color: #334155; color: #94a3b8; cursor: not-allowed; }
   .reset-row { text-align: center; margin-bottom: 4px; }
   #btnResetValues { background: none; border: none; color: #ff5b6a; font-size: .78rem; cursor: pointer; text-decoration: underline; padding: 4px 8px; }
-  .mode-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; margin: 2px 0 10px; }
-  .mode-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; text-align: center; }
-  .mode-seg { display: flex; background: #1e293b; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
-  .mode-btn { flex: 1; background: transparent; color: var(--muted); border: none; padding: 6px 2px; font-size: .7rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
+  .mode-row { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
+  .mode-label { font-size: .68rem; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .mode-seg { display: flex; flex: 1; background: #1e293b; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; }
+  .mode-btn { flex: 1; background: transparent; color: var(--muted); border: none; padding: 7px 2px; font-size: .72rem; font-weight: bold; cursor: pointer; white-space: nowrap; }
   .mode-btn.active { background: #2563eb; color: #fff; }
   .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .presets-panel summary {
@@ -388,6 +388,7 @@
       grid-template-columns: 1fr 78px;
       grid-template-areas:
         "header  header"
+        "mode    mode"
         "visual  start"
         "speed   speed"
         "tabs    tabs"
@@ -397,6 +398,7 @@
       align-items: start;
     }
     .phone-container.hide-left.hide-right .header-row { grid-area: header; }
+    .phone-container.hide-left.hide-right .mode-row { grid-area: mode; }
     .phone-container.hide-left.hide-right .visualizer-area { grid-area: visual; }
     .phone-container.hide-left.hide-right .start-stop-row { grid-area: start; align-self: stretch; margin: 0; width: auto; }
     .phone-container.hide-left.hide-right .start-stop-row #btnStart { height: 100%; min-height: 88px; padding: 8px 6px; font-size: .85rem; }
@@ -492,6 +494,15 @@
       <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
     </div>
 
+    <div class="mode-row" id="mode-row">
+      <span class="mode-label">Mode</span>
+      <div class="mode-seg">
+        <button id="modeAp" class="mode-btn">Advanced</button>
+        <button id="modeStd" class="mode-btn active">Standard</button>
+        <button id="modeFun" class="mode-btn">Funscript</button>
+      </div>
+    </div>
+
     <div class="visualizer-area">
       <div class="meter-col"><div class="meter-label">Max</div><div class="meter-bar"><div class="meter-fill" id="left-meter" style="background-color: var(--color-top);"></div></div></div>
       <canvas id="graphCanvas" width="280" height="132"></canvas>
@@ -544,15 +555,6 @@
     <div class="ble-panel" id="ble-panel">
       <span class="ble-status" id="ble-text">OSSM: Disconnected</span>
       <button class="ble-btn" id="ble-button">Connect</button>
-    </div>
-
-    <div class="mode-row" id="mode-row">
-      <span class="mode-label">Mode</span>
-      <div class="mode-seg">
-        <button id="modeAp" class="mode-btn">Advanced</button>
-        <button id="modeStd" class="mode-btn active">Standard</button>
-        <button id="modeFun" class="mode-btn">Funscript</button>
-      </div>
     </div>
 
     <details class="presets-panel" id="presets-panel">
@@ -4238,9 +4240,9 @@ function setCastOverlay(show) {
 function placeWatchPanel() {
   const wp = $("watch-panel");
   if (!wp) return;
-  const mr = $("mode-row");
-  if (mr && mr.parentNode) {
-    if (wp.parentNode !== mr.parentNode || wp.nextElementSibling !== mr) mr.parentNode.insertBefore(wp, mr);
+  const anchor = $("presets-panel") || $("ble-panel");
+  if (anchor && anchor.parentNode) {
+    if (wp.parentNode !== anchor.parentNode || wp.nextElementSibling !== anchor) anchor.parentNode.insertBefore(wp, anchor);
   }
 }
 function buildWatchPanel() {
