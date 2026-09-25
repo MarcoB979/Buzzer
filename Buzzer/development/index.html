@@ -4858,6 +4858,12 @@ function aiSyncLimitInputs() {
   set("aiMaxDepthQuick", caps.maxDepth);
   set("aiMaxSpeedQuick", caps.maxSpeed);
 }
+function aiLimitsRowOpen(open) {
+  const row = $("aiLimitsRow");
+  const toggle = $("aiLimitsToggle");
+  if (row) row.style.display = open ? "" : "none";
+  if (toggle) toggle.textContent = open ? "▾" : "▸";
+}
 function aiIsYes(text) {
   const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
   if (!t) return false;
@@ -5099,6 +5105,7 @@ function aiNewSession() {
     localStorage.setItem("ossm-ai-max-speed", String(DEFAULT_RESUME_SPEED));
   } catch (e) {}
   aiSyncLimitInputs();
+  aiLimitsRowOpen(true); // show the limits while the AI asks for them
   const h = $("aiHistory");
   if (h) h.innerHTML = "";
   const inp = $("aiInput");
@@ -5344,6 +5351,7 @@ async function aiSend(opts) {
       if (aiPendingLimits && aiIsYes(text)) {
         aiApplyLimits(res.limits);
         aiPendingLimits = null;
+        aiLimitsRowOpen(false); // confirmed — tuck the limits away again
       } else if (!aiPendingLimits) {
         aiPendingLimits = res.limits;
         const L = res.limits;
@@ -5512,10 +5520,7 @@ function aiProcessVoice(text) {
   if (limitsToggle) {
     limitsToggle.onclick = () => {
       const row = $("aiLimitsRow");
-      if (!row) return;
-      const open = row.style.display !== "none";
-      row.style.display = open ? "none" : "";
-      limitsToggle.textContent = open ? "▸" : "▾";
+      aiLimitsRowOpen(!row || row.style.display === "none");
     };
   }
   aiSyncLimitInputs();
