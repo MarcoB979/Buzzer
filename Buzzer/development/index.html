@@ -297,6 +297,8 @@
   .ai-row { display: flex; gap: 6px; }
   .ai-row input { flex: 1 1 auto; min-width: 0; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; }
   .ai-yes { background: #16a34a; color: #fff; border: none; border-radius: 6px; padding: 2px 8px; font-size: .72rem; font-weight: bold; cursor: pointer; margin-left: 6px; }
+  .ai-mic.recording { background: #dc2626; animation: ai-pulse 1s ease-in-out infinite; }
+  @keyframes ai-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
   .ai-note { font-size: .64rem; color: #64748b; }
   .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .presets-panel summary {
@@ -573,6 +575,7 @@
       <div class="ai-history" id="aiHistory"></div>
       <div class="ai-row">
         <input type="text" id="aiInput" placeholder="e.g. slow deep strokes, or build from slow to fast">
+        <button class="ble-btn small" id="aiMic" type="button" title="Speak instead of typing">🎤</button>
         <button class="ble-btn small" id="aiSend" type="button">Go</button>
       </div>
       <div class="ai-note">Sets depth, speed, acceleration and time-varying patterns. Free, no login.</div>
@@ -4709,6 +4712,7 @@ EXAMPLES (request -> JSON):
 Reply with ONLY a JSON object: always include the 7 base keys, plus any modifier keys needed to express changes over time. No prose, no markdown fences.`;
 let aiMessages = [];
 let aiBusy = false;
+let aiListening = null;
 
 function aiToggle() {
   const p = $("aiPanel");
@@ -4835,13 +4839,51 @@ async function aiSend() {
   aiBusy = false;
 }
 
+function aiVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { aiAddMsg("system", "Voice input isn't supported in this browser."); return; }
+  if (aiListening) { try { aiListening.stop(); } catch (e) {} return; }
+  const rec = new SR();
+  rec.lang = (navigator.language || "en-US");
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  aiListening = rec;
+  const mic = $("aiMic");
+  if (mic) { mic.textContent = "🎤…"; mic.classList.add("recording"); }
+  rec.onresult = (e) => {
+    const text = (e.results && e.results[0] && e.results[0][0]) ? e.results[0][0].transcript : "";
+    if (text && text.trim()) {
+      const inp = $("aiInput");
+      if (inp) inp.value = text.trim();
+      aiSend();
+    }
+  };
+  rec.onerror = (e) => {
+    aiListening = null;
+    if (mic) { mic.textContent = "🎤"; mic.classList.remove("recording"); }
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") aiAddMsg("system", "Microphone access was denied.");
+    else if (e.error === "no-speech") aiAddMsg("system", "Didn't catch that — try again.");
+    else if (e.error !== "aborted") aiAddMsg("system", "Voice error: " + e.error);
+  };
+  rec.onend = () => {
+    aiListening = null;
+    if (mic) { mic.textContent = "🎤"; mic.classList.remove("recording"); }
+  };
+  try { rec.start(); } catch (e) { aiAddMsg("system", "Couldn't start the microphone."); }
+}
+
 (function wireAiAssistant() {
   const btn = $("aiBtn");
   const send = $("aiSend");
   const inp = $("aiInput");
+  const mic = $("aiMic");
   if (btn) btn.onclick = aiToggle;
   if (send) send.onclick = aiSend;
   if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") aiSend(); });
+  if (mic) {
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) mic.onclick = aiVoice;
+    else mic.style.display = "none";
+  }
 })();
 
 function setModeFromDropdown(target) {
