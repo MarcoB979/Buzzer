@@ -298,6 +298,7 @@
   .ai-limits-item { display: inline-flex; align-items: center; gap: 3px; }
   .ai-limits-row input { width: 40px; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 4px; padding: 2px 4px; font-size: .68rem; text-align: center; }
   .ai-limits-sign { color: #64748b; font-weight: bold; }
+  .ai-limits-val { color: #e2e8f0; font-weight: bold; }
   .ai-history { display: flex; flex-direction: column; gap: 6px; max-height: 120px; overflow-y: auto; font-size: .78rem; }
   .ai-msg { padding: 6px 8px; border-radius: 8px; line-height: 1.35; }
   .ai-user { background: #1e293b; color: #e2e8f0; align-self: flex-end; }
@@ -597,8 +598,8 @@
       </div>
       <div class="ai-limits-row" id="aiLimitsRow" style="display:none;">
         <span class="ai-limits-title">Limits</span>
-        <span class="ai-limits-item">Depth: <input type="number" id="aiMinDepthQuick" min="0" max="100" step="1" title="AI min depth"> - <input type="number" id="aiMaxDepthQuick" min="0" max="100" step="1" title="AI max depth"></span>
-        <span class="ai-limits-item">Speed <b class="ai-limits-sign">+</b><input type="number" id="aiMaxSpeedQuick" min="0" max="100" step="1" title="AI max speed"></span>
+        <span class="ai-limits-item">Depth: <b class="ai-limits-val" id="aiMinDepthQuick">0</b> - <b class="ai-limits-val" id="aiMaxDepthQuick">20</b></span>
+        <span class="ai-limits-item">Speed <b class="ai-limits-sign">+</b><b class="ai-limits-val" id="aiMaxSpeedQuick">100</b></span>
       </div>
       <div class="ai-history" id="aiHistory"></div>
       <div class="ai-row">
@@ -688,13 +689,6 @@
           <input type="password" id="aiKey" placeholder="sk-…" autocomplete="off">
           <div class="ai-set-hint">Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.</div>
         </div>
-        <label class="ai-set-label" for="aiMinDepth">AI depth range — min (0-100)</label>
-        <input type="number" id="aiMinDepth" min="0" max="100" step="1">
-        <label class="ai-set-label" for="aiMaxDepth">AI depth range — max (0-100)</label>
-        <input type="number" id="aiMaxDepth" min="0" max="100" step="1">
-        <label class="ai-set-label" for="aiMaxSpeed">AI speed cap — max (0-100)</label>
-        <input type="number" id="aiMaxSpeed" min="0" max="100" step="1">
-        <div class="ai-set-hint">The AI works within these limits — "deep" means up to the max depth, never past it. Independent of the main sliders.</div>
         <label class="ai-set-label" for="aiTtsVoice">Voice</label>
         <select id="aiTtsVoice"><option value="">Auto (best match)</option></select>
         <label class="ai-set-label" for="aiTtsRate">Voice speed (0.5–2)</label>
@@ -4835,8 +4829,8 @@ function aiSafetyCaps() {
       return isNaN(n) ? def : clamp(n, 0, 100);
     } catch (e) { return def; }
   };
-  const minDepth = read("ossm-ai-min-depth", 0);
-  const maxDepth = Math.max(read("ossm-ai-max-depth", 100), minDepth);
+  const minDepth = read("ossm-ai-min-depth", STD_SAFE_MIN);
+  const maxDepth = Math.max(read("ossm-ai-max-depth", STD_SAFE_MAX), minDepth);
   return { minDepth, maxDepth, maxSpeed: read("ossm-ai-max-speed", 100) };
 }
 function aiLimitsText() {
@@ -4859,10 +4853,10 @@ function aiApplyLimits(limits) {
 }
 function aiSyncLimitInputs() {
   const caps = aiSafetyCaps();
-  const set = (id, v) => { const el = $(id); if (el) el.value = v; };
-  set("aiMinDepth", caps.minDepth); set("aiMinDepthQuick", caps.minDepth);
-  set("aiMaxDepth", caps.maxDepth); set("aiMaxDepthQuick", caps.maxDepth);
-  set("aiMaxSpeed", caps.maxSpeed); set("aiMaxSpeedQuick", caps.maxSpeed);
+  const set = (id, v) => { const el = $(id); if (el) el.textContent = v; };
+  set("aiMinDepthQuick", caps.minDepth);
+  set("aiMaxDepthQuick", caps.maxDepth);
+  set("aiMaxSpeedQuick", caps.maxSpeed);
 }
 function aiIsYes(text) {
   const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
@@ -5098,6 +5092,13 @@ function aiNewSession() {
   aiStopLive();
   aiMessages = [];
   aiPendingLimits = null;
+  // Start every new session from the machine's safe standards.
+  try {
+    localStorage.setItem("ossm-ai-min-depth", String(STD_SAFE_MIN));
+    localStorage.setItem("ossm-ai-max-depth", String(STD_SAFE_MAX));
+    localStorage.setItem("ossm-ai-max-speed", "100");
+  } catch (e) {}
+  aiSyncLimitInputs();
   const h = $("aiHistory");
   if (h) h.innerHTML = "";
   const inp = $("aiInput");
@@ -5517,24 +5518,6 @@ function aiProcessVoice(text) {
       limitsToggle.textContent = open ? "▸" : "▾";
     };
   }
-  const limitInputs = {
-    minDepth: [$("aiMinDepth"), $("aiMinDepthQuick")],
-    maxDepth: [$("aiMaxDepth"), $("aiMaxDepthQuick")],
-    maxSpeed: [$("aiMaxSpeed"), $("aiMaxSpeedQuick")]
-  };
-  const wireCap = (inputs, key, def) => {
-    inputs.forEach(inp => {
-      if (!inp) return;
-      inp.addEventListener("change", () => {
-        const n = parseInt(inp.value, 10);
-        try { localStorage.setItem(key, isNaN(n) ? def : clamp(n, 0, 100)); } catch (e) {}
-        aiSyncLimitInputs();
-      });
-    });
-  };
-  wireCap(limitInputs.minDepth, "ossm-ai-min-depth", 0);
-  wireCap(limitInputs.maxDepth, "ossm-ai-max-depth", 100);
-  wireCap(limitInputs.maxSpeed, "ossm-ai-max-speed", 100);
   aiSyncLimitInputs();
   const ttsRate = $("aiTtsRate");
   const ttsPitch = $("aiTtsPitch");
