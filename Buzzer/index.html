@@ -721,21 +721,8 @@
         <input type="number" id="aiTtsRate" min="0.5" max="2" step="0.1">
         <label class="ai-set-label" for="aiTtsPitch">Voice pitch (0.5–2)</label>
         <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
-        <label class="ai-set-label" for="aiTtsProvider">Voice provider</label>
-        <select id="aiTtsProvider">
-          <option value="system">System voices (browser / OS)</option>
-          <option value="google">Google Cloud (neural — natural Dutch)</option>
-        </select>
-        <div id="aiTtsGoogleRow" style="display:none;">
-          <label class="ai-set-label" for="aiTtsGoogleKey">Google Cloud API key</label>
-          <input type="password" id="aiTtsGoogleKey" placeholder="AIza…" autocomplete="off">
-          <label class="ai-set-label" for="aiTtsGoogleVoice">Voice name (optional)</label>
-          <input type="text" id="aiTtsGoogleVoice" placeholder="auto by language — e.g. nl-NL-Wavenet-D">
-          <label class="ai-set-label" for="aiTtsWorkerUrl">Worker URL (proxies neural TTS)</label>
-          <input type="url" id="aiTtsWorkerUrl" placeholder="https://your-worker.workers.dev">
-          <div class="ai-set-hint">Natural neural voices via your Cloudflare Worker (same one used for videos). Google Cloud TTS is free for ~1M chars/month. For a male Dutch voice try <b>nl-NL-Wavenet-B</b>.</div>
-        </div>
-        <div class="ai-set-hint">System voices come from your browser/OS; pick one above, then fine-tune speed and pitch (speed 1.0–1.1, pitch 0.9–1.0 sounds most natural). For a much better Dutch voice, switch the provider to Google Cloud.</div>
+        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiTtsCloud"> Use free cloud voice (better, auto-language)</label>
+        <div class="ai-set-hint">Pick a voice above (browser/OS voices), then fine-tune speed and pitch. Tick “free cloud voice” to use Google’s online voice instead — no key, no setup, automatically in your language.</div>
       </div>
     </details>
 
@@ -5137,13 +5124,15 @@ function aiPickVoice(lang) {
   return best;
 }
 function aiSpeak(text) {
-  const s = aiTtsProviderSettings();
-  if (s.provider === "google" && s.key && s.workerUrl) {
+  if (aiTtsCloudEnabled()) {
     try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
-    aiSpeakCloud(text).then(b64 => { if (b64) aiPlayBase64Audio(b64); }).catch(() => aiSpeakBrowser(text));
+    aiSpeakCloud(text).catch(() => aiSpeakBrowser(text));
     return;
   }
   aiSpeakBrowser(text);
+}
+function aiTtsCloudEnabled() {
+  try { return localStorage.getItem("ossm-tts-cloud") === "1"; } catch (e) { return false; }
 }
 function aiTtsLangCode() {
   let l = "";
@@ -5152,22 +5141,16 @@ function aiTtsLangCode() {
   const map = { en: "en-US", nl: "nl-NL", de: "de-DE", fr: "fr-FR" };
   return map[l] || map[l.split(/[-_]/)[0]] || "en-US";
 }
-const GOOGLE_TTS_DEFAULT_VOICE = { "en-US": "en-US-Wavenet-A", "nl-NL": "nl-NL-Wavenet-A", "de-DE": "de-DE-Wavenet-A", "fr-FR": "fr-FR-Wavenet-A" };
-function aiTtsProviderSettings() {
-  let provider = "system", key = "", voice = "";
-  try {
-    provider = localStorage.getItem("ossm-tts-provider") || "system";
-    key = (localStorage.getItem("ossm-tts-google-key") || "").trim();
-    voice = (localStorage.getItem("ossm-tts-google-voice") || "").trim();
-  } catch (e) {}
-  return { provider, key, voice, workerUrl: workerBaseUrl() };
+function aiTtsCloudLang() {
+  const short = aiTtsLangCode().toLowerCase().split(/[-_]/)[0];
+  return ["en", "nl", "de", "fr"].indexOf(short) >= 0 ? short : "en";
 }
-function aiPlayBase64Audio(b64) {
+function aiPlayAudioUrl(url) {
   return new Promise((resolve) => {
     let settled = false;
     const done = () => { if (!settled) { settled = true; resolve(true); } };
     try {
-      const a = new Audio("data:audio/mp3;base64," + b64);
+      const a = new Audio(url);
       a.onended = done;
       a.onerror = () => { if (!settled) { settled = true; resolve(false); } };
       a.play().then(() => {}).catch(() => done());
@@ -5176,21 +5159,17 @@ function aiPlayBase64Audio(b64) {
   });
 }
 async function aiSpeakCloud(text) {
-  const s = aiTtsProviderSettings();
-  const tts = aiTtsSettings();
-  const langCode = aiTtsLangCode();
-  const voice = s.voice || GOOGLE_TTS_DEFAULT_VOICE[langCode] || "";
-  const pitch = Math.max(-20, Math.min(20, Math.round((tts.pitch - 1) * 24)));
-  const body = { text: String(text || "").slice(0, 5000), languageCode: langCode, voice, rate: tts.rate, pitch };
-  const res = await fetch(s.workerUrl + "?tts=1", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + s.key },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error("TTS HTTP " + res.status);
-  const j = await res.json();
-  if (!j || !j.audioContent) throw new Error((j && j.error) ? j.error : "no audio returned");
-  return j.audioContent;
+  // Free Google cloud voice (translate_tts): no key, CORS-enabled. Speak chunk by chunk.
+  const lang = aiTtsCloudLang();
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s) return;
+  const chunks = [];
+  for (let i = 0; i < s.length; i += 180) chunks.push(s.slice(i, i + 180));
+  for (const chunk of chunks) {
+    const url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + lang + "&q=" + encodeURIComponent(chunk);
+    const ok = await aiPlayAudioUrl(url);
+    if (!ok) return;
+  }
 }
 function aiSpeakBrowser(text) {
   try {
@@ -5697,24 +5676,11 @@ function aiProcessVoice(text) {
     aiPopulateVoiceList();
     voiceSel.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-tts-voice", voiceSel.value); } catch (e) {} });
   }
-  const ttsProvider = $("aiTtsProvider");
-  const ttsGoogleRow = $("aiTtsGoogleRow");
-  const ttsGoogleKey = $("aiTtsGoogleKey");
-  const ttsGoogleVoice = $("aiTtsGoogleVoice");
-  const ttsWorkerUrl = $("aiTtsWorkerUrl");
-  const syncTtsProviderUI = () => {
-    const s = aiTtsProviderSettings();
-    if (ttsProvider) ttsProvider.value = s.provider;
-    if (ttsGoogleRow) ttsGoogleRow.style.display = (s.provider === "google") ? "" : "none";
-    if (ttsGoogleKey) ttsGoogleKey.value = s.key;
-    if (ttsGoogleVoice) ttsGoogleVoice.value = s.voice;
-    if (ttsWorkerUrl) ttsWorkerUrl.value = getExtractorUrl();
-  };
-  if (ttsProvider) ttsProvider.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-provider", ttsProvider.value); } catch (e) {} syncTtsProviderUI(); });
-  if (ttsGoogleKey) ttsGoogleKey.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-google-key", ttsGoogleKey.value.trim()); } catch (e) {} });
-  if (ttsGoogleVoice) ttsGoogleVoice.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-google-voice", ttsGoogleVoice.value.trim()); } catch (e) {} });
-  if (ttsWorkerUrl) ttsWorkerUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-extractor-url", ttsWorkerUrl.value.trim()); } catch (e) {} });
-  syncTtsProviderUI();
+  const ttsCloud = $("aiTtsCloud");
+  if (ttsCloud) {
+    ttsCloud.checked = aiTtsCloudEnabled();
+    ttsCloud.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-cloud", ttsCloud.checked ? "1" : "0"); } catch (e) {} });
+  }
   const syncAiSettingsUI = () => {
     const s = aiProviderSettings();
     if (prov) prov.value = s.provider;
@@ -6328,6 +6294,7 @@ const GP_ACTIONS = [
   { id:"colLeft",  group:"general", label:"Hide/show sliders (◀)",  mode:"both", help:"Landscape: toggles the left sliders column." },
   { id:"colRight", group:"general", label:"Hide/show settings (▶)", mode:"both", help:"Landscape: toggles the right settings column." },
   { id:"estop", group:"general", label:"Emergency stop", mode:"both", help:"Immediately force-stops the OSSM and returns it to the menu." },
+  { id:"aiVoice", group:"general", label:"AI listen (voice)", mode:"both", help:"Opens the AI panel and starts listening with the microphone." },
 
   // ---- Standard screen ----
   { id:"patternNext", group:"std", label:"Pattern next", mode:"std", repeat:true, help:"Standard mode: next stroke pattern." },
@@ -6380,6 +6347,7 @@ const DEFAULT_BINDINGS = {
   colLeft:     null,
   colRight:    null,
   estop:       { src:"pad", kind:"btn", idx:8 },
+  aiVoice:     null,
   patternNext: { src:"pad", kind:"btn", idx:15 },
   patternPrev: { src:"pad", kind:"btn", idx:14 },
   navNext:     { src:"pad", kind:"btn", idx:15 },
@@ -6426,6 +6394,7 @@ const DEFAULT_KB_BINDINGS = {
   colLeft:       { src:"kb", kind:"btn", code:"KeyO", key:"o" },
   colRight:      { src:"kb", kind:"btn", code:"KeyP", key:"p" },
   estop:         { src:"kb", kind:"btn", code:"Escape", key:"Esc" },
+  aiVoice:       { src:"kb", kind:"btn", code:"Backquote", key:"`" },
   patternNext:   { src:"kb", kind:"btn", code:"BracketRight", key:"]" },
   patternPrev:   { src:"kb", kind:"btn", code:"BracketLeft", key:"[" },
   navNext:       { src:"kb", kind:"btn", code:"Period", key:"." },
@@ -6877,6 +6846,7 @@ function gpHandleDigital(id) {
     case "resetValues": resetAllValues(); break;
     case "colLeft": toggleColSide(1); break;
     case "colRight": toggleColSide(3); break;
+    case "aiVoice": gpAiVoice(); break;
     case "fullscreen": toggleVideoFullscreen(); break;
     case "castToggle": toggleCast(); break;
     case "castPlayPause": castPlayPause(); break;
@@ -6899,6 +6869,19 @@ function gpHandleDigital(id) {
     case "previewToggle": toggleFunPreview(); break;
     case "estop": emergencyStop(); break;
   }
+}
+
+function gpAiVoice() {
+  if (!aiEnabled()) return;
+  if (appMode !== "std" && appMode !== "ap") return;
+  const p = $("aiPanel");
+  if (!p) return;
+  if (p.style.display === "none") {
+    if (aiFirstOpen) { aiFirstOpen = false; aiNewSession(); }
+    p.style.display = "";
+    const i = $("aiInput"); if (i) { try { i.focus(); } catch (e) {} }
+  }
+  aiVoice();
 }
 
 function bindingHeld(b, gp) {
