@@ -286,6 +286,18 @@
   .mode-option:disabled { color: #475569; cursor: not-allowed; }
   .mode-option:disabled:hover { background: transparent; }
   .title-context { font-size: .68rem; color: #64748b; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+  .ai-panel { background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 10px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .ai-title { font-size: .8rem; font-weight: bold; color: #e2e8f0; }
+  .ai-history { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; font-size: .78rem; }
+  .ai-msg { padding: 6px 8px; border-radius: 8px; line-height: 1.35; }
+  .ai-user { background: #1e293b; color: #e2e8f0; align-self: flex-end; }
+  .ai-assistant { background: #0f172a; color: #cbd5e1; border: 1px solid #334155; }
+  .ai-system { color: #64748b; font-size: .7rem; align-self: center; }
+  .ai-thinking { color: #94a3b8; font-style: italic; }
+  .ai-row { display: flex; gap: 6px; }
+  .ai-row input { flex: 1 1 auto; min-width: 0; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; }
+  .ai-yes { background: #16a34a; color: #fff; border: none; border-radius: 6px; padding: 2px 8px; font-size: .72rem; font-weight: bold; cursor: pointer; margin-left: 6px; }
+  .ai-note { font-size: .64rem; color: #64748b; }
   .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .presets-panel summary {
     list-style: none; cursor: pointer; user-select: none;
@@ -552,7 +564,18 @@
       <button class="ble-btn small danger" id="header-disconnect" style="display:none;">Disconnect</button>
       <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
       <button class="kofi-toggle" id="kofiToggle" title="Show Support on Ko-fi" aria-label="Show Support on Ko-fi" style="display:none;">☕</button>
+      <button class="ble-btn small" id="aiBtn" title="Describe a movement in words" style="display:none;">✨ AI</button>
       <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
+    </div>
+
+    <div class="ai-panel" id="aiPanel" style="display:none;">
+      <div class="ai-title">✨ Describe the movement you want</div>
+      <div class="ai-history" id="aiHistory"></div>
+      <div class="ai-row">
+        <input type="text" id="aiInput" placeholder="e.g. slow, deep, full strokes with a teasing feel">
+        <button class="ble-btn small" id="aiSend" type="button">Go</button>
+      </div>
+      <div class="ai-note">Sets Speed, Max/Min depth and In/Out speed + acceleration. Free, no login.</div>
     </div>
 
     <div class="visualizer-area">
@@ -4648,7 +4671,136 @@ function syncModeDropdown() {
     o.classList.toggle("active", target === appMode);
     if (target === "ap") o.disabled = !apAvailable();
   });
+  const aiBtn = $("aiBtn");
+  if (aiBtn) aiBtn.style.display = (appMode === "ap") ? "" : "none";
+  const aiPanel = $("aiPanel");
+  if (aiPanel && appMode !== "ap") aiPanel.style.display = "none";
 }
+
+// ---------- Advanced-mode AI movement assistant (free, no-key Pollinations) ----------
+const AI_SYSTEM = `You interpret movement requests for an OSSM sex machine's Advanced Penetration mode.
+The device has exactly these controls (all numeric):
+- "Max Pos": stroke depth. 0 = tip barely enters, 100 = fully inserted.
+- "Min Pos": how far the stroke withdraws. 0 = fully out, 100 = stays deep. Keep it <= "Max Pos".
+- "In Speed": inward (penetrating) stroke speed, 1-100.
+- "Out Speed": outward (withdrawing) stroke speed, 1-100.
+- "In Accel": how snappy the inward stroke is, 0-100.
+- "Out Accel": how snappy the outward stroke is, 0-100.
+- "Speed": overall speed, 0-100.
+Reply with ONLY a JSON object using exactly those 7 keys and numeric values. No prose, no markdown fences.`;
+let aiMessages = [];
+let aiBusy = false;
+
+function aiToggle() {
+  const p = $("aiPanel");
+  if (!p) return;
+  const show = p.style.display === "none";
+  p.style.display = show ? "" : "none";
+  if (show) { const i = $("aiInput"); if (i) i.focus(); }
+}
+
+function aiExtractJson(text) {
+  if (!text) return null;
+  const s = text.indexOf("{");
+  const e = text.lastIndexOf("}");
+  if (s < 0 || e <= s) return null;
+  try {
+    const j = JSON.parse(text.slice(s, e + 1).replace(/```/g, ""));
+    const norm = {};
+    for (const k of Object.keys(j)) {
+      let key = k.trim();
+      if (key === "Max Depth") key = "Max Pos";
+      if (key === "Min Depth") key = "Min Pos";
+      norm[key] = j[k];
+    }
+    return norm;
+  } catch (err) { return null; }
+}
+
+function aiApplyParams(p) {
+  const map = { "Max Pos": 0, "Min Pos": 1, "In Speed": 2, "Out Speed": 3, "In Accel": 4, "Out Accel": 5, "Speed": 6 };
+  const applied = [];
+  for (const k of Object.keys(map)) {
+    const v = p[k];
+    if (typeof v === "number" && isFinite(v)) {
+      setBase(map[k], v);
+      applied.push(k + " " + Math.round(v));
+    }
+  }
+  return applied;
+}
+
+function aiSummary(applied) {
+  if (!applied || !applied.length) return "No valid numbers came back — try rephrasing.";
+  return "Set: " + applied.join(" · ") + ". Does this feel right? Type more to adjust (e.g. \"a bit faster, shallower\"), or tap ✓ when done.";
+}
+
+function aiAddMsg(role, html) {
+  const h = $("aiHistory");
+  if (!h) return null;
+  const d = document.createElement("div");
+  d.className = "ai-msg ai-" + role;
+  d.innerHTML = html;
+  h.appendChild(d);
+  h.scrollTop = h.scrollHeight;
+  return d;
+}
+
+async function aiSend() {
+  const inp = $("aiInput");
+  const text = (inp ? inp.value : "").trim();
+  if (!text || aiBusy) return;
+  aiBusy = true;
+  if (inp) inp.value = "";
+  aiAddMsg("user", escapeHtml(text));
+  const th = aiAddMsg("assistant", "<span class=\"ai-thinking\">Thinking…</span>");
+  try {
+    const cur = {
+      "Max Pos": Math.round(sv("Max Pos", 0)),
+      "Min Pos": Math.round(sv("Min Pos", 0)),
+      "In Speed": Math.round(sv("In Speed", 0)),
+      "Out Speed": Math.round(sv("Out Speed", 0)),
+      "In Accel": Math.round(sv("In Accel", 0)),
+      "Out Accel": Math.round(sv("Out Accel", 0)),
+      "Speed": Math.round(sv("SP", 0))
+    };
+    aiMessages.push({ role: "user", content: text });
+    const body = JSON.stringify({
+      model: "openai",
+      messages: [
+        { role: "system", content: AI_SYSTEM + "\nCurrent device settings (start from these when the user asks to adjust): " + JSON.stringify(cur) },
+        ...aiMessages
+      ]
+    });
+    const r = await fetch("https://text.pollinations.ai/", { method: "POST", headers: { "Content-Type": "application/json" }, body });
+    const reply = await r.text();
+    aiMessages.push({ role: "assistant", content: reply });
+    if (th) th.remove();
+    const params = aiExtractJson(reply);
+    if (params) {
+      const applied = aiApplyParams(params);
+      const d = aiAddMsg("assistant", escapeHtml(aiSummary(applied)) + " <button class=\"ai-yes\">✓</button>");
+      const yes = d && d.querySelector(".ai-yes");
+      if (yes) yes.onclick = () => { aiAddMsg("system", "Done ✓"); yes.remove(); };
+    } else {
+      aiAddMsg("assistant", "I couldn't get valid numbers back — try rephrasing (e.g. \"slow deep full strokes\").");
+    }
+  } catch (e) {
+    if (th) th.remove();
+    aiAddMsg("assistant", "AI request failed (offline or service busy) — try again.");
+  }
+  aiBusy = false;
+}
+
+(function wireAiAssistant() {
+  const btn = $("aiBtn");
+  const send = $("aiSend");
+  const inp = $("aiInput");
+  if (btn) btn.onclick = aiToggle;
+  if (send) send.onclick = aiSend;
+  if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") aiSend(); });
+})();
+
 function setModeFromDropdown(target) {
   if (target === appMode) return;
   if (target === "ap" && !apAvailable()) { syncModeDropdown(); return; }
