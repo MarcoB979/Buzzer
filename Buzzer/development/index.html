@@ -599,7 +599,7 @@
       <div class="ai-limits-row" id="aiLimitsRow" style="display:none;">
         <span class="ai-limits-title">Limits</span>
         <span class="ai-limits-item">Depth: <b class="ai-limits-val" id="aiMinDepthQuick">0</b> - <b class="ai-limits-val" id="aiMaxDepthQuick">20</b></span>
-        <span class="ai-limits-item">Speed <b class="ai-limits-sign">+</b><b class="ai-limits-val" id="aiMaxSpeedQuick">100</b></span>
+        <span class="ai-limits-item">Speed <b class="ai-limits-sign">+</b><b class="ai-limits-val" id="aiMaxSpeedQuick">10</b></span>
       </div>
       <div class="ai-history" id="aiHistory"></div>
       <div class="ai-row">
@@ -4831,7 +4831,7 @@ function aiSafetyCaps() {
   };
   const minDepth = read("ossm-ai-min-depth", STD_SAFE_MIN);
   const maxDepth = Math.max(read("ossm-ai-max-depth", STD_SAFE_MAX), minDepth);
-  return { minDepth, maxDepth, maxSpeed: read("ossm-ai-max-speed", 100) };
+  return { minDepth, maxDepth, maxSpeed: read("ossm-ai-max-speed", DEFAULT_RESUME_SPEED) };
 }
 function aiLimitsText() {
   const caps = aiSafetyCaps();
@@ -5096,7 +5096,7 @@ function aiNewSession() {
   try {
     localStorage.setItem("ossm-ai-min-depth", String(STD_SAFE_MIN));
     localStorage.setItem("ossm-ai-max-depth", String(STD_SAFE_MAX));
-    localStorage.setItem("ossm-ai-max-speed", "100");
+    localStorage.setItem("ossm-ai-max-speed", String(DEFAULT_RESUME_SPEED));
   } catch (e) {}
   aiSyncLimitInputs();
   const h = $("aiHistory");
