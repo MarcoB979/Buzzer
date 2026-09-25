@@ -4782,18 +4782,7 @@ function onlineItemEl(it) {
   meta.textContent = (it.duration && it.duration !== "00:00:00" ? it.duration + " · " : "") + (it.username || "");
   const load = document.createElement("button");
   load.type = "button"; load.className = "online-load"; load.textContent = "Load";
-  load.onclick = () => {
-    if (load.dataset.download) {
-      const u = load.dataset.download;
-      delete load.dataset.download;
-      load.textContent = "Saving…";
-      downloadScript(u);
-      funLog("Saving script — then tap 'Load Funscript' to open the saved file.");
-      load.textContent = "Saved ⤓";
-    } else {
-      onlineLoadVideo(it.id, load);
-    }
-  };
+  load.onclick = () => onlineLoadVideo(it.id, load);
   bottom.appendChild(img); bottom.appendChild(meta); bottom.appendChild(load);
   row.appendChild(title); row.appendChild(bottom);
   return row;
@@ -4821,7 +4810,7 @@ async function onlineResolveVideo(links) {
 }
 
 async function onlineLoadVideo(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; delete btn.dataset.download; }
+  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
   funLog("Loading Funscripthub entry…");
   const done = (label) => { if (btn) { btn.textContent = label; btn.disabled = false; } };
   try {
@@ -4842,9 +4831,9 @@ async function onlineLoadVideo(id, btn) {
         funLog("Funscript loaded — no playable video link (gofile expired/Premium).");
         done("Script ✓");
       } else if (scriptUrl) {
-        btn.dataset.download = scriptUrl;
-        funLog("Script host blocks auto-load — tap 'Script ⤓' to save it, then open it with 'Load Funscript'.");
-        done("Script ⤓");
+        downloadScript(scriptUrl);
+        funLog("Script host blocks auto-load, so I saved it to your Downloads — then tap 'Load Funscript' and pick that file.");
+        done("Saved ⤓");
       } else {
         funLog("No playable video link and no script available.");
         done("No video");
