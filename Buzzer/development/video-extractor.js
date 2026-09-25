@@ -35,7 +35,7 @@ function json(obj, status) {
       "Content-Type": "application/json; charset=utf-8",
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, HEAD, PUT, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Range",
+      "Access-Control-Allow-Headers": "Content-Type, Range, Authorization",
       "Access-Control-Max-Age": "86400",
     },
   });
@@ -203,6 +203,31 @@ async function handleGofile(code) {
   }
 }
 
+// ---- DeepSeek chat proxy: forwards to api.deepseek.com with YOUR key ----
+// The app sends POST /?deepseek=1 with "Authorization: Bearer <deepseek-key>" and an
+// OpenAI-style body. This worker relays it server-side (DeepSeek blocks browser CORS),
+// so your DeepSeek API key bills your DeepSeek account directly — no extra account.
+async function handleDeepSeek(request) {
+  const key = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!key) return json({ error: "Missing DeepSeek API key." }, 400);
+  let payload;
+  try { payload = await request.json(); } catch (e) { return json({ error: "Invalid JSON body." }, 400); }
+  try {
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key, "User-Agent": UA },
+      body: JSON.stringify(payload),
+    });
+    const text = await res.text();
+    return new Response(text, {
+      status: res.status,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" },
+    });
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 500);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -214,11 +239,13 @@ export default {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET, HEAD, PUT, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type, Range",
+          "Access-Control-Allow-Headers": "Content-Type, Range, Authorization",
           "Access-Control-Max-Age": "86400",
         },
       });
     }
+
+    if (url.searchParams.get("deepseek")) return handleDeepSeek(request);
 
     if (request.method === "PUT" || request.method === "POST") {
       return handleUpload(request, env);
