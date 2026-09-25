@@ -4748,11 +4748,12 @@ HOW TO CONVERSE:
 - If a request is ambiguous, ask ONE short clarifying question instead of guessing (then use "set": null).
 - "harder"/"faster" raises speed a little, "softer"/"slower" lowers it, "deeper"/"shallower" adjusts depth, "a lot"/"much" makes the change bigger. Adjust incrementally, not to extremes.
 - The machine only moves after the user presses Start. If it is not running you can still set values, but do not claim you started it.
-- SAFETY LIMITS (critical): the user has set a depth range (min depth and max depth, 0-100) and a max speed (0-100). When they start a new session they will tell you their limits — you must extract THREE concrete numbers: min depth, max depth and max speed.
+- SAFETY LIMITS (critical): limits are the user's depth range (min depth and max depth, 0-100) and max speed (0-100). The CURRENT limits are only a safe starting point — the user may choose ANY limits, including higher ones. When they tell you their limits, extract THREE concrete numbers: min depth, max depth and max speed.
+  - Take the user's numbers EXACTLY as stated — never reduce, cap, or talk them down, even if they are higher than the current limits. The confirmation step is what keeps raising safe.
   - If any of the three is missing or vague (e.g. "half depth", "a quarter", "not too fast", "you decide"), DO NOT guess or fill it in. Ask specifically for the missing value(s) and restate the values you did understand.
-  - Once you have all three concrete numbers, propose them in "limits" as {"minDepth":<n>,"maxDepth":<n>,"maxSpeed":<n>} AND restate the exact numbers in "reply" and ask the user to confirm (e.g. "So: min depth 0, max depth 40, max speed 60 — correct?").
-  - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm. Lowering limits is allowed freely; RAISING them requires this same confirmation.
-  - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 100") so they always know.
+  - Once you have all three concrete numbers, propose them in "limits" as {"minDepth":<n>,"maxDepth":<n>,"maxSpeed":<n>} AND restate the exact numbers in "reply" and ask the user to confirm (e.g. "So: min depth 10, max depth 30, max speed 50 — correct?").
+  - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm.
+  - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 {"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"lang":"<2-letter code>"}
@@ -4835,8 +4836,9 @@ function aiSafetyCaps() {
 }
 function aiLimitsText() {
   const caps = aiSafetyCaps();
-  return "AI limits — depth: " + caps.minDepth + " (shallowest) to " + caps.maxDepth + " (deepest); speed max: " + caps.maxSpeed + ". "
-    + "Interpret \"deep\", \"all the way\", \"full\" as Max Pos = " + caps.maxDepth + " (NEVER above), and \"shallow\", \"pull out\", \"withdraw\" as Min Pos = " + caps.minDepth + " (NEVER below). Keep every value inside these bounds.";
+  return "Current AI limits — depth: " + caps.minDepth + " (shallowest) to " + caps.maxDepth + " (deepest); max speed: " + caps.maxSpeed + ". "
+    + "For MOVEMENT, \"deep\"/\"full\" means Max Pos = " + caps.maxDepth + " (never set movement above it), and \"shallow\"/\"out\" means Min Pos = " + caps.minDepth + " (never below it). "
+    + "These are only the CURRENT limits — if the user asks for different limits (even higher), propose them via \"limits\" and ask to confirm; do not reject or talk them down.";
 }
 function aiApplyLimits(limits) {
   if (!limits || typeof limits !== "object" || Array.isArray(limits)) return false;
