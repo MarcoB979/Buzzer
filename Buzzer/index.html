@@ -706,6 +706,7 @@
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiEnabled" checked> Enable AI assistant</label>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCanRun"> Allow AI to start / pause the machine</label>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
+        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiMemoryEnabled"> Allow AI to remember me</label>
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
@@ -730,8 +731,10 @@
         <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiTtsCloud"> Use free cloud voice (better, auto-language)</label>
         <div class="ai-set-hint">“Voice tone” filters the list to masculine or feminine voices (inferred from their names), and “Auto” prefers your chosen tone. Tick “free cloud voice” to use Google’s online voice — no key, automatically in your language (the cloud voice is one voice per language).</div>
-        <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
-        <div class="ai-set-hint">The AI remembers what you tell it about yourself (name, role, preferences) — stored only on this device. “Forget me” erases all of it so the AI starts fresh.</div>
+        <div id="aiForgetRow" style="display:none;">
+          <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
+          <div class="ai-set-hint">The AI remembers what you tell it about yourself (name, role, preferences) — stored only on this device. “Forget me” erases all of it so the AI starts fresh.</div>
+        </div>
       </div>
     </details>
 
@@ -5323,6 +5326,9 @@ function aiCanRun() {
 function aiSpeakEnabled() {
   try { return localStorage.getItem("ossm-ai-speak") !== "0"; } catch (e) { return true; }
 }
+function aiMemoryEnabled() {
+  try { return localStorage.getItem("ossm-ai-memory-enabled") === "1"; } catch (e) { return false; }
+}
 function aiMemory() {
   try { return (localStorage.getItem("ossm-ai-memory") || "").trim(); } catch (e) { return ""; }
 }
@@ -5481,8 +5487,11 @@ async function aiSend(opts) {
   try {
     const cur = aiCurrentState();
     aiMessages.push({ role: "user", content: text });
-    const mem = aiMemory();
-    const memLine = mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const memOn = aiMemoryEnabled();
+    const mem = memOn ? aiMemory() : "";
+    const memLine = memOn
+      ? (mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "")
+      : "\n\nMEMORY IS DISABLED by the user — do not output the \"memory\" field.";
     const msgs = [
       { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + memLine },
       ...aiMessages
@@ -5499,7 +5508,7 @@ async function aiSend(opts) {
       if (aiSpeakEnabled()) aiSpeak(res.reply);
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
-    if (res.memory) aiSetMemory(res.memory);
+    if (res.memory && aiMemoryEnabled()) aiSetMemory(res.memory);
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiPendingLimits && aiIsYes(text)) {
@@ -5688,6 +5697,22 @@ function aiProcessVoice(text) {
     speakBox.checked = aiSpeakEnabled();
     speakBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-speak", speakBox.checked ? "1" : "0"); } catch (e) {} });
   }
+  const memBox = $("aiMemoryEnabled");
+  const forgetRow = $("aiForgetRow");
+  const syncMemoryUI = () => {
+    const on = aiMemoryEnabled();
+    if (memBox) memBox.checked = on;
+    if (forgetRow) forgetRow.style.display = on ? "" : "none";
+  };
+  if (memBox) {
+    memBox.addEventListener("change", () => {
+      const on = memBox.checked;
+      try { localStorage.setItem("ossm-ai-memory-enabled", on ? "1" : "0"); } catch (e) {}
+      if (!on) aiClearMemory();
+      syncMemoryUI();
+    });
+  }
+  syncMemoryUI();
   const forgetBtn = $("aiForget");
   if (forgetBtn) {
     forgetBtn.onclick = () => {
