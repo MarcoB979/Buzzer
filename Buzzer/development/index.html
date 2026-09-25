@@ -84,7 +84,7 @@
   .ble-status { font-size: .8rem; font-family: monospace; color: var(--muted); }
   .ble-status.small { font-size: .7rem; }
   .header-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
-  .screen-header { flex: 1; min-width: 0; text-align: left; font-size: 1.05rem; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .screen-header { flex: 1; min-width: 0; text-align: left; font-size: 1.05rem; font-weight: bold; color: #fff; }
   .conn-status { display: flex; flex-direction: column; align-items: stretch; gap: 2px; font-size: .66rem; font-family: monospace; flex: 0 0 auto; }
   .cs-row { display: flex; align-items: center; gap: 5px; line-height: 1; white-space: nowrap; }
   .cs-dot { width: 7px; height: 7px; border-radius: 50%; background: #475569; flex: 0 0 auto; }
@@ -259,21 +259,32 @@
   #btnResetValues { background: none; border: none; color: #ff5b6a; font-size: .78rem; cursor: pointer; text-decoration: underline; padding: 4px 8px; }
   .title-row { display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%; }
   .brand-label { color: #fff; font-size: 1.05rem; font-weight: bold; white-space: nowrap; flex: 0 0 auto; }
-  .mode-select {
-    appearance: none; -webkit-appearance: none;
-    background-color: #0b0f19;
-    color: #e2e8f0;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    padding: 3px 22px 3px 8px;
-    font-size: .8rem; font-weight: bold;
-    cursor: pointer;
-    max-width: 100%;
-    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 7px center;
+  .mode-dropdown { position: relative; min-width: 0; }
+  .mode-btn-current {
+    display: inline-flex; align-items: center; gap: 4px;
+    background: transparent; border: none;
+    color: #e2e8f0; font-size: .8rem; font-weight: bold;
+    padding: 2px 4px; cursor: pointer; white-space: nowrap; max-width: 100%;
   }
-  .mode-select:focus { outline: 1px solid #38bdf8; }
+  .mode-btn-current .mode-chevron { font-size: .6rem; color: #94a3b8; }
+  .mode-menu {
+    position: absolute; top: calc(100% + 4px); left: 0;
+    min-width: 170px; background: #111827;
+    border: 1px solid #334155; border-radius: 8px; padding: 4px;
+    display: none; z-index: 60;
+    box-shadow: 0 10px 28px rgba(0,0,0,.65);
+  }
+  .mode-menu.open { display: block; }
+  .mode-option {
+    display: block; width: 100%; text-align: left;
+    background: transparent; border: none; color: #cbd5e1;
+    font-size: .8rem; font-weight: bold; padding: 8px 10px;
+    border-radius: 6px; cursor: pointer; white-space: nowrap;
+  }
+  .mode-option:hover { background: #1e293b; }
+  .mode-option.active { background: #2563eb; color: #fff; }
+  .mode-option:disabled { color: #475569; cursor: not-allowed; }
+  .mode-option:disabled:hover { background: transparent; }
   .title-context { font-size: .68rem; color: #64748b; font-weight: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
   .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .presets-panel summary {
@@ -495,11 +506,17 @@
       <div class="screen-header">
         <div class="title-row">
           <span class="brand-label">OSSM</span>
-          <select id="modeSelect" class="mode-select" title="Change mode" aria-label="Change mode">
-            <option value="ap">Advanced Penetration</option>
-            <option value="std">Standard</option>
-            <option value="fun">Funscript</option>
-          </select>
+          <div class="mode-dropdown" id="modeDropdown">
+            <button type="button" class="mode-btn-current" id="modeBtnCurrent" title="Change mode" aria-haspopup="true" aria-expanded="false">
+              <span id="modeCurrentLabel">Standard</span>
+              <span class="mode-chevron">▾</span>
+            </button>
+            <div class="mode-menu" id="modeMenu">
+              <button type="button" class="mode-option" data-mode="ap">Advanced</button>
+              <button type="button" class="mode-option" data-mode="std">Standard</button>
+              <button type="button" class="mode-option" data-mode="fun">Funscript</button>
+            </div>
+          </div>
           <span class="title-context" id="titleContext" style="display:none;"></span>
         </div>
         <div class="build-info" id="buildInfo" style="font-size:.62rem;color:#64748b;font-weight:normal;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
@@ -1626,12 +1643,7 @@ function buildInterfaceNow() {
   const pc = document.querySelector(".phone-container");
   if (pc) pc.classList.toggle("fun", isFun);
 
-  const ms = $("modeSelect");
-  if (ms) {
-    const apOpt = ms.querySelector('option[value="ap"]');
-    if (apOpt) apOpt.disabled = !apAvailable();
-    if (ms.value !== appMode) ms.value = appMode;
-  }
+  syncModeDropdown();
   const tctx = $("titleContext");
   if (tctx) {
     const ctx = (!isFun && !isStd && viewMode === "mod") ? ("Modifier for: " + BASE_NAMES[activeBaseIndex]) : "";
@@ -4571,12 +4583,21 @@ function enterApMode() {
   }
   updateStartButton();
 }
-const mSel = $("modeSelect");
-if (mSel) mSel.onchange = () => {
-  const target = mSel.value;
+function syncModeDropdown() {
+  const ml = $("modeCurrentLabel");
+  if (ml) {
+    ml.textContent = appMode === "ap" ? "Advanced" : (appMode === "std" ? "Standard" : "Funscript");
+  }
+  document.querySelectorAll(".mode-option").forEach(o => {
+    const target = o.getAttribute("data-mode");
+    o.classList.toggle("active", target === appMode);
+    if (target === "ap") o.disabled = !apAvailable();
+  });
+}
+function setModeFromDropdown(target) {
   if (target === appMode) return;
-  if (target === "ap" && !apAvailable()) { mSel.value = appMode; return; }
-  if (modeChangeBlocked()) { mSel.value = appMode; return; }
+  if (target === "ap" && !apAvailable()) { syncModeDropdown(); return; }
+  if (modeChangeBlocked()) { syncModeDropdown(); return; }
   leaveStreamingIfNeeded();
   setDemoMode(false);
   appMode = target;
@@ -4590,7 +4611,26 @@ if (mSel) mSel.onchange = () => {
   if (appMode === "std") enterStdMode();
   else if (appMode === "fun") enterStreamingMode();
   else enterApMode();
-};
+}
+function setModeMenuOpen(open) {
+  const menu = $("modeMenu");
+  const btn = $("modeBtnCurrent");
+  if (menu) menu.classList.toggle("open", !!open);
+  if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+const modeBtnEl = $("modeBtnCurrent");
+if (modeBtnEl) modeBtnEl.onclick = (e) => { e.stopPropagation(); const menu = $("modeMenu"); setModeMenuOpen(!(menu && menu.classList.contains("open"))); };
+const modeMenuEl = $("modeMenu");
+if (modeMenuEl) {
+  modeMenuEl.querySelectorAll(".mode-option").forEach(opt => {
+    opt.onclick = (e) => {
+      e.stopPropagation();
+      setModeMenuOpen(false);
+      setModeFromDropdown(opt.getAttribute("data-mode"));
+    };
+  });
+}
+document.addEventListener("click", () => setModeMenuOpen(false));
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
 function setDemoMode(on) {
