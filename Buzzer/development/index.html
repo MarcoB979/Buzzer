@@ -4757,10 +4757,11 @@ HOW TO CONVERSE:
 - Safety limits: the user has set a depth range and a max speed that you must never exceed. The user MAY ask you to change these limits (e.g. "raise my max depth to 40", "increase my max speed", "let me pull out further"). When they do, propose the new limit(s) in the "limits" field and ask clearly for confirmation. Do NOT apply or repeat "limits" until they give a clear positive answer. Only after that explicit yes, include "limits" again to execute it and briefly say what changed.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... }}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"lang":"<2-letter code>"}
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
-- "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.`;
+- "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
+- "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
 let aiListening = null;
@@ -4795,15 +4796,15 @@ function aiNormalizeParams(obj) {
 }
 
 function aiExtractJson(text) {
-  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}} or a flat params object.
-  if (!text) return { reply: null, params: null, limits: null };
+  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "lang": ".."} or a flat params object.
+  if (!text) return { reply: null, params: null, limits: null, lang: null };
   const s = text.indexOf("{");
   const e = text.lastIndexOf("}");
-  if (s < 0 || e <= s) return { reply: null, params: null, limits: null };
+  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, lang: null };
   let j = null;
   try { j = JSON.parse(text.slice(s, e + 1).replace(/```/g, "")); } catch (err) {}
-  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null };
-  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null }; // rate-limit / error envelope
+  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, lang: null };
+  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, lang: null }; // rate-limit / error envelope
   const parseLimits = (L) => {
     if (!L || typeof L !== "object" || Array.isArray(L)) return null;
     const out = {};
@@ -4813,10 +4814,11 @@ function aiExtractJson(text) {
     }
     return ok ? out : null;
   };
+  const lang = (typeof j.lang === "string" && /^[a-z]{2}$/i.test(j.lang)) ? j.lang.toLowerCase() : null;
   if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits")) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits) };
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -5075,6 +5077,19 @@ function aiSpeak(text) {
   } catch (e) {}
 }
 
+const AI_ASK_LIMITS = {
+  en: "New session — what depth range should I work within? Tell me your min depth, max depth and max speed.",
+  nl: "Nieuwe sessie — in welk dieptebereik moet ik werken? Vertel me je minimale en maximale diepte en je maximale snelheid.",
+  de: "Neue Sitzung — in welchem Tiefenbereich soll ich arbeiten? Sag mir deine minimale und maximale Tiefe und deine maximale Geschwindigkeit.",
+  fr: "Nouvelle session — dans quelle plage de profondeur dois-je travailler ? Dis-moi ta profondeur minimale et maximale et ta vitesse maximale."
+};
+function aiStoredLang() {
+  let l = "";
+  try { l = (localStorage.getItem("ossm-ai-lang") || "").toLowerCase(); } catch (e) {}
+  if (AI_ASK_LIMITS[l]) return l;
+  const nav = ((navigator.language || "en").toLowerCase().split(/[-_]/)[0]);
+  return AI_ASK_LIMITS[nav] ? nav : "en";
+}
 function aiNewSession() {
   aiStopLive();
   aiMessages = [];
@@ -5083,7 +5098,7 @@ function aiNewSession() {
   if (h) h.innerHTML = "";
   const inp = $("aiInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
-  const ask = "New session — what depth range should I work within? Tell me your min depth, max depth and max speed.";
+  const ask = AI_ASK_LIMITS[aiStoredLang()] || AI_ASK_LIMITS.en;
   aiMessages.push({ role: "assistant", content: ask });
   aiAddMsg("assistant", escapeHtml(ask));
 }
@@ -5170,7 +5185,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, error: null };
+        if (parsed.reply || parsed.params || parsed.limits) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5182,7 +5197,7 @@ async function aiCallDeepSeek(messages, key) {
     }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5197,12 +5212,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, error: null };
+        if (parsed.reply || parsed.params || parsed.limits) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5318,6 +5333,7 @@ async function aiSend(opts) {
       aiAddMsg("assistant", escapeHtml(res.reply));
       if (aiLive || fromVoice) aiSpeak(res.reply);
     }
+    if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiPendingLimits && aiIsYes(text)) {
