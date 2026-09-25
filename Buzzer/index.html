@@ -688,6 +688,13 @@
         <label class="ai-set-label" for="aiMaxSpeed">AI speed cap — max (0-100)</label>
         <input type="number" id="aiMaxSpeed" min="0" max="100" step="1">
         <div class="ai-set-hint">The AI works within these limits — "deep" means up to the max depth, never past it. Independent of the main sliders.</div>
+        <label class="ai-set-label" for="aiTtsVoice">Voice</label>
+        <select id="aiTtsVoice"><option value="">Auto (best match)</option></select>
+        <label class="ai-set-label" for="aiTtsRate">Voice speed (0.5–2)</label>
+        <input type="number" id="aiTtsRate" min="0.5" max="2" step="0.1">
+        <label class="ai-set-label" for="aiTtsPitch">Voice pitch (0.5–2)</label>
+        <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
+        <div class="ai-set-hint">Voices come from your browser/OS — pick one above, then fine-tune speed and pitch. Speed 1.0–1.1 and pitch 0.9–1.0 usually sounds most natural.</div>
       </div>
     </details>
 
@@ -4990,11 +4997,72 @@ function aiIsStop(text) {
   if (t.split(" ").length > 5) return false;
   return /\b(stop|halt|abort|freeze|stoppen|arrête|arrêt|anhalten|parar|detente|noodstop|emergency stop)\b/.test(t);
 }
+let aiVoicesCache = [];
+function aiTtsVoiceName() {
+  try { return localStorage.getItem("ossm-ai-tts-voice") || ""; } catch (e) { return ""; }
+}
+function aiPopulateVoiceList() {
+  const sel = $("aiTtsVoice");
+  if (!sel) return;
+  const vs = aiVoicesCache.length ? aiVoicesCache : (window.speechSynthesis ? speechSynthesis.getVoices() : []);
+  const saved = aiTtsVoiceName();
+  sel.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = ""; auto.textContent = "Auto (best match)";
+  sel.appendChild(auto);
+  for (const v of vs) {
+    const o = document.createElement("option");
+    o.value = v.name;
+    o.textContent = v.name + " (" + (v.lang || "?") + ")";
+    sel.appendChild(o);
+  }
+  sel.value = vs.some(v => v.name === saved) ? saved : "";
+}
+function aiLoadVoices() {
+  try { if (window.speechSynthesis) aiVoicesCache = speechSynthesis.getVoices(); } catch (e) {}
+  aiPopulateVoiceList();
+}
+if (window.speechSynthesis) {
+  aiLoadVoices();
+  try { speechSynthesis.onvoiceschanged = aiLoadVoices; } catch (e) {}
+}
+function aiTtsSettings() {
+  const read = (key, def) => {
+    try { const n = parseFloat(localStorage.getItem(key)); return isNaN(n) ? def : Math.min(2, Math.max(0.5, n)); } catch (e) { return def; }
+  };
+  return { rate: read("ossm-ai-tts-rate", 1), pitch: read("ossm-ai-tts-pitch", 1) };
+}
+function aiPickVoice(lang) {
+  let vs = aiVoicesCache;
+  if (!vs.length && window.speechSynthesis) { try { vs = speechSynthesis.getVoices(); } catch (e) {} }
+  if (!vs.length) return null;
+  const saved = aiTtsVoiceName();
+  if (saved) { const hit = vs.find(v => v.name === saved); if (hit) return hit; }
+  const base = (lang || "en").toLowerCase();
+  const baseShort = base.split(/[-_]/)[0];
+  let best = null, bestScore = -1;
+  for (const v of vs) {
+    const vl = (v.lang || "").toLowerCase();
+    const nm = (v.name || "").toLowerCase();
+    let s = 0;
+    if (vl === base) s += 10;
+    else if (vl.indexOf(baseShort) === 0) s += 6;
+    if (/(natural|neural|premium|enhanced|online|wavenet|google|siri)/.test(nm)) s += 4;
+    if (v.localService) s += 1;
+    if (s > bestScore) { bestScore = s; best = v; }
+  }
+  return best;
+}
 function aiSpeak(text) {
   try {
     if (!window.speechSynthesis) return;
     const u = new SpeechSynthesisUtterance(text);
     u.lang = navigator.language || "en-US";
+    const v = aiPickVoice(u.lang);
+    if (v) u.voice = v;
+    const tts = aiTtsSettings();
+    u.rate = tts.rate;
+    u.pitch = tts.pitch;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   } catch (e) {}
@@ -5423,6 +5491,23 @@ function aiProcessVoice(text) {
   wireCap(limitInputs.maxDepth, "ossm-ai-max-depth", 100);
   wireCap(limitInputs.maxSpeed, "ossm-ai-max-speed", 100);
   aiSyncLimitInputs();
+  const ttsRate = $("aiTtsRate");
+  const ttsPitch = $("aiTtsPitch");
+  const readF = (key, def) => { try { const n = parseFloat(localStorage.getItem(key)); return isNaN(n) ? def : n; } catch (e) { return def; } };
+  const clampF = (n) => Math.min(2, Math.max(0.5, n));
+  if (ttsRate) {
+    ttsRate.value = readF("ossm-ai-tts-rate", 1);
+    ttsRate.addEventListener("change", () => { const n = parseFloat(ttsRate.value); try { localStorage.setItem("ossm-ai-tts-rate", String(isNaN(n) ? 1 : clampF(n))); } catch (e) {} });
+  }
+  if (ttsPitch) {
+    ttsPitch.value = readF("ossm-ai-tts-pitch", 1);
+    ttsPitch.addEventListener("change", () => { const n = parseFloat(ttsPitch.value); try { localStorage.setItem("ossm-ai-tts-pitch", String(isNaN(n) ? 1 : clampF(n))); } catch (e) {} });
+  }
+  const voiceSel = $("aiTtsVoice");
+  if (voiceSel) {
+    aiPopulateVoiceList();
+    voiceSel.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-tts-voice", voiceSel.value); } catch (e) {} });
+  }
   const syncAiSettingsUI = () => {
     const s = aiProviderSettings();
     if (prov) prov.value = s.provider;
