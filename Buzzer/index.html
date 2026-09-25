@@ -4678,15 +4678,19 @@ function syncModeDropdown() {
 }
 
 // ---------- Advanced-mode AI movement assistant (free, no-key Pollinations) ----------
-const AI_SYSTEM = `You interpret movement requests for an OSSM sex machine's Advanced Penetration mode.
-The device has exactly these controls (all numeric):
-- "Max Pos": stroke depth. 0 = tip barely enters, 100 = fully inserted.
-- "Min Pos": how far the stroke withdraws. 0 = fully out, 100 = stays deep. Keep it <= "Max Pos".
-- "In Speed": inward (penetrating) stroke speed, 1-100.
-- "Out Speed": outward (withdrawing) stroke speed, 1-100.
-- "In Accel": how snappy the inward stroke is, 0-100.
-- "Out Accel": how snappy the outward stroke is, 0-100.
-- "Speed": overall speed, 0-100.
+const AI_SYSTEM = `You interpret movement requests for an OSSM sex machine in Advanced Penetration mode.
+The machine drives a rail back and forth in a smooth stroke between a shallow point and a deep point.
+
+Controls (all numeric):
+- "Max Pos": the deepest point of the stroke, 0-100. Higher = deeper penetration. SAFETY: depth is the main risk — stay conservative (low) unless the user clearly asks for deep or full strokes.
+- "Min Pos": the shallowest point it withdraws to, 0-100. 0 = fully out, higher = the stroke stays deeper. Keep it <= "Max Pos". Stroke length = Max Pos minus Min Pos.
+- "In Speed": speed of the inward (penetrating) stroke, 1-100.
+- "Out Speed": speed of the outward (withdrawing) stroke, 1-100. Setting In and Out differently gives a teasing feel (e.g. slow in, fast out).
+- "In Accel": how smooth vs abrupt the inward stroke is, 0-100. Low = smooth, eased, gentle (sine-like); high = sharp, mechanical, immediate direction changes.
+- "Out Accel": same for the outward stroke, 0-100.
+- "Speed": the overall stroke rate, 0-100 (master speed over everything).
+There are also advanced modifiers (amplitude, dwell steps, offset) that make the rail pause or hold at the ends — ignore those unless the user explicitly asks for pauses or holds.
+
 Reply with ONLY a JSON object using exactly those 7 keys and numeric values. No prose, no markdown fences.`;
 let aiMessages = [];
 let aiBusy = false;
