@@ -4762,7 +4762,7 @@ HOW TO CONVERSE:
 - When the user asks for a change, apply it and briefly confirm what you did. Invite feedback when starting a new idea.
 - When the user gives feedback about the movement or "the graph" (depth, speed, smoothness, rhythm over time), interpret it, ADJUST the values, and say what you changed.
 - If a request is ambiguous, ask ONE short clarifying question instead of guessing (then use "set": null).
-- "harder"/"faster" raises speed a little, "softer"/"slower" lowers it, "deeper"/"shallower" adjusts depth, "a lot"/"much" makes the change bigger. Adjust incrementally, not to extremes.
+- In Advanced mode, "harder"/"faster" raises speed a little, "softer"/"slower" lowers it, "deeper"/"shallower" adjusts depth. In Standard mode, follow the INTENT guide given with the patterns (there "harder" means more forceful pounding, not just speed). Adjust incrementally, not to extremes.
 - The machine only moves after the user presses Start. If it is not running you can still set values, but do not claim you started it.
 - SAFETY LIMITS (critical): limits are the user's depth range (min depth and max depth, 0-100) and max speed (0-100). The CURRENT limits are only a safe starting point — the user may choose ANY limits, including higher ones. When they tell you their limits, extract THREE concrete numbers: min depth, max depth and max speed.
   - Take the user's numbers EXACTLY as stated — never reduce, cap, or talk them down, even if they are higher than the current limits. The confirmation step is what keeps raising safe.
@@ -4929,9 +4929,10 @@ function aiCurrentState() {
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
   if (appMode === "std") {
-    const names = stdPatterns.map(p => '"' + p.name + '"').join(", ");
+    const patternList = stdPatterns.map(p => '- "' + p.name + '": ' + (p.desc || "custom")).join("\n");
     return "CURRENT MODE: Standard. In \"set\" you may only use these keys: \"Max Pos\" (depth 0-100), \"Min Pos\" (withdrawal 0-100), \"Speed\" (0-100), \"Sensation\" (0-100), \"Pattern\" (one exact pattern name). Do NOT use In Speed, Out Speed, In Accel, Out Accel or modifier keys in this mode.\n"
-      + "Available patterns: " + names + ".\n"
+      + "PATTERNS (name — what it does):\n" + patternList + "\n"
+      + "INTENT in Standard mode: \"harder\"/\"pound me\"/\"hard\" = more forceful, harder-hitting thrusts (pounding), NOT just speed — prefer a pounding/intense pattern from the list and/or raise \"Sensation\" and \"Speed\". \"faster\"/\"sneller\"/\"quicker\" (speed only) = raise \"Speed\". \"softer\"/\"gentle\"/\"zacht\" = the simplest gentle pattern with lower Speed and Sensation. \"tease me\"/\"teasing\" = a teasing/pounding pattern with lower Sensation. \"deeper\" = raise \"Max Pos\"; \"shallower\" = lower \"Max Pos\".\n"
       + aiLimitsText() + "\n"
       + "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".\n"
       + "Current settings: " + JSON.stringify(cur);
