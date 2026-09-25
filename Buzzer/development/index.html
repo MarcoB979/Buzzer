@@ -730,6 +730,8 @@
         <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiTtsCloud"> Use free cloud voice (better, auto-language)</label>
         <div class="ai-set-hint">“Voice tone” filters the list to masculine or feminine voices (inferred from their names), and “Auto” prefers your chosen tone. Tick “free cloud voice” to use Google’s online voice — no key, automatically in your language (the cloud voice is one voice per language).</div>
+        <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
+        <div class="ai-set-hint">The AI remembers what you tell it about yourself (name, role, preferences) — stored only on this device. “Forget me” erases all of it so the AI starts fresh.</div>
       </div>
     </details>
 
@@ -4788,13 +4790,15 @@ HOW TO CONVERSE:
   - Once you have all three concrete numbers, propose them in "limits" as {"minDepth":<n>,"maxDepth":<n>,"maxSpeed":<n>} AND restate the exact numbers in "reply" and ask the user to confirm (e.g. "So: min depth 10, max depth 30, max speed 50 — correct?").
   - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm.
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
+  - MEMORY: when the user tells you something lasting about themselves (their name, role, what they like to be called, orientation, boundaries, preferences), note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts about them, and never store anything they didn't choose to share.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
 - "run" (optional, ONLY when your context says you are allowed to start/pause): "start" or "pause". Otherwise leave it null.
+- "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -4834,15 +4838,15 @@ function aiNormalizeParams(obj) {
 }
 
 function aiExtractJson(text) {
-  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "lang": ".."} or a flat params object.
-  if (!text) return { reply: null, params: null, limits: null, run: null, lang: null };
+  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "lang": ".."} or a flat params object.
+  if (!text) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null };
   const s = text.indexOf("{");
   const e = text.lastIndexOf("}");
-  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, run: null, lang: null };
+  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null };
   let j = null;
   try { j = JSON.parse(text.slice(s, e + 1).replace(/```/g, "")); } catch (err) {}
-  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, run: null, lang: null };
-  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, run: null, lang: null }; // rate-limit / error envelope
+  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null };
+  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null }; // rate-limit / error envelope
   const parseLimits = (L) => {
     if (!L || typeof L !== "object" || Array.isArray(L)) return null;
     const out = {};
@@ -4854,10 +4858,11 @@ function aiExtractJson(text) {
   };
   const lang = (typeof j.lang === "string" && /^[a-z]{2}$/i.test(j.lang)) ? j.lang.toLowerCase() : null;
   const run = (typeof j.run === "string" && /^(start|pause)$/i.test(j.run)) ? j.run.trim().toLowerCase() : null;
-  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, lang };
+  const memory = (typeof j.memory === "string" && j.memory.trim()) ? j.memory.trim().slice(0, 2000) : null;
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -5318,6 +5323,15 @@ function aiCanRun() {
 function aiSpeakEnabled() {
   try { return localStorage.getItem("ossm-ai-speak") !== "0"; } catch (e) { return true; }
 }
+function aiMemory() {
+  try { return (localStorage.getItem("ossm-ai-memory") || "").trim(); } catch (e) { return ""; }
+}
+function aiSetMemory(text) {
+  try { localStorage.setItem("ossm-ai-memory", String(text || "").trim()); } catch (e) {}
+}
+function aiClearMemory() {
+  try { localStorage.removeItem("ossm-ai-memory"); } catch (e) {}
+}
 
 async function aiCallDeepSeek(messages, key) {
   let lastErr = "DeepSeek request failed";
@@ -5334,7 +5348,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5346,7 +5360,7 @@ async function aiCallDeepSeek(messages, key) {
     }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, lang: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5361,12 +5375,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5467,13 +5481,15 @@ async function aiSend(opts) {
   try {
     const cur = aiCurrentState();
     aiMessages.push({ role: "user", content: text });
+    const mem = aiMemory();
+    const memLine = mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) },
+      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + memLine },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run) {
+    if (res.reply || res.params || res.limits || res.run || res.memory) {
       if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
       aiMessages.pop();
@@ -5483,6 +5499,7 @@ async function aiSend(opts) {
       if (aiSpeakEnabled()) aiSpeak(res.reply);
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
+    if (res.memory) aiSetMemory(res.memory);
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiPendingLimits && aiIsYes(text)) {
@@ -5508,7 +5525,7 @@ async function aiSend(opts) {
       if (res.run === "start") aiStartMachine();
       else if (res.run === "pause") aiPauseMachine();
     }
-    if (!res.reply && !res.params && !res.limits && !res.run) {
+    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
@@ -5670,6 +5687,17 @@ function aiProcessVoice(text) {
   if (speakBox) {
     speakBox.checked = aiSpeakEnabled();
     speakBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-speak", speakBox.checked ? "1" : "0"); } catch (e) {} });
+  }
+  const forgetBtn = $("aiForget");
+  if (forgetBtn) {
+    forgetBtn.onclick = () => {
+      if (!confirm("Erase everything the AI has learned about you (name, role, preferences)? This cannot be undone.")) return;
+      aiClearMemory();
+      aiMessages = [];
+      aiPendingLimits = null;
+      const h = $("aiHistory"); if (h) h.innerHTML = "";
+      aiAddMsg("system", "Forgotten — the AI no longer remembers anything about you.");
+    };
   }
   if (btn) btn.onclick = aiToggle;
   if (send) send.onclick = aiSend;
