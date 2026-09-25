@@ -4758,6 +4758,7 @@ HOW TO CONVERSE:
   - If any of the three is missing or vague (e.g. "half depth", "a quarter", "not too fast", "you decide"), DO NOT guess or fill it in. Ask specifically for the missing value(s) and restate the values you did understand.
   - Once you have all three concrete numbers, propose them in "limits" as {"minDepth":<n>,"maxDepth":<n>,"maxSpeed":<n>} AND restate the exact numbers in "reply" and ask the user to confirm (e.g. "So: min depth 0, max depth 40, max speed 60 — correct?").
   - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm. Lowering limits is allowed freely; RAISING them requires this same confirmation.
+  - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 100") so they always know.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 {"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"lang":"<2-letter code>"}
