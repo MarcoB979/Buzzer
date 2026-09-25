@@ -3865,6 +3865,7 @@ function pollCastTime() {
       }
     }
     updateCastSeekUI();
+    updateCastButton();
     return;
   }
   const session = castSession || (castContext && castContext.getCurrentSession());
@@ -3939,6 +3940,7 @@ function pollCastTime() {
     }
   }
   updateCastSeekUI();
+  updateCastButton();
 }
 function castTimeNow() {
   if (!castClockBaseMs) return castRemoteTime || 0;
@@ -4010,6 +4012,7 @@ function castPlayPause() {
   if (!castConnected) return;
   if (castMode === "webrtc") {
     sendCastMsg({ type: webrtcPlaying ? "pause" : "play" });
+    updateCastButton();
     return;
   }
   const session = castSession || (castContext && castContext.getCurrentSession());
@@ -4025,11 +4028,13 @@ function castPlayPause() {
       media.play(mkCastRequest("PlayRequest"), () => {}, () => {});
     }
   } catch (e) {}
+  updateCastButton();
 }
 function castSetPlaying(on) {
   if (!castConnected) return;
   if (castMode === "webrtc") {
     sendCastMsg({ type: on ? "play" : "pause" });
+    updateCastButton();
     return;
   }
   const session = castSession || (castContext && castContext.getCurrentSession());
@@ -4044,6 +4049,7 @@ function castSetPlaying(on) {
       media.pause(mkCastRequest("PauseRequest"), () => {}, () => {});
     }
   } catch (e) {}
+  updateCastButton();
 }
 function ensureRemotePlayer() {
   if (!(window.cast && cast.framework && cast.framework.RemotePlayer && cast.framework.RemotePlayerController)) return false;
@@ -4370,6 +4376,13 @@ function fallbackToLocal() {
     funStopStreaming();
   }
 }
+function castPlayingNow() {
+  if (castMode === "webrtc") return !!webrtcPlaying;
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  let media = null;
+  try { media = session && session.getMediaSession ? session.getMediaSession() : null; } catch (e) {}
+  return !!(media && (media.playerState === "PLAYING" || media.playerState === "BUFFERING"));
+}
 function updateCastButton() {
   const b = $("funCastBtn");
   const info = $("funCastInfo");
@@ -4388,7 +4401,12 @@ function updateCastButton() {
   if (castable || canWebrtc) {
     b.disabled = false;
     b.textContent = castConnected ? "Stop cast" : "Cast";
-    if (info) info.textContent = castConnected ? "casting…" : "";
+    if (info) {
+      if (!castConnected) info.textContent = "";
+      else if (castEnded) info.textContent = "ended";
+      else if (castPlayingNow()) info.textContent = "casting…";
+      else info.textContent = "paused";
+    }
   } else if (funState.uploading) {
     b.disabled = true;
     b.textContent = "Cast";
