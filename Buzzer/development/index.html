@@ -717,12 +717,18 @@
         </div>
         <label class="ai-set-label" for="aiTtsVoice">Voice</label>
         <select id="aiTtsVoice"><option value="">Auto (best match)</option></select>
+        <label class="ai-set-label" for="aiTtsTone">Voice tone</label>
+        <select id="aiTtsTone">
+          <option value="any">No preference</option>
+          <option value="m">Masculine</option>
+          <option value="f">Feminine</option>
+        </select>
         <label class="ai-set-label" for="aiTtsRate">Voice speed (0.5–2)</label>
         <input type="number" id="aiTtsRate" min="0.5" max="2" step="0.1">
         <label class="ai-set-label" for="aiTtsPitch">Voice pitch (0.5–2)</label>
         <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiTtsCloud"> Use free cloud voice (better, auto-language)</label>
-        <div class="ai-set-hint">Pick a voice above (browser/OS voices), then fine-tune speed and pitch. Tick “free cloud voice” to use Google’s online voice instead — no key, no setup, automatically in your language.</div>
+        <div class="ai-set-hint">“Voice tone” filters the list to masculine or feminine voices (inferred from their names), and “Auto” prefers your chosen tone. Tick “free cloud voice” to use Google’s online voice — no key, automatically in your language (the cloud voice is one voice per language).</div>
       </div>
     </details>
 
@@ -5071,22 +5077,39 @@ let aiVoicesCache = [];
 function aiTtsVoiceName() {
   try { return localStorage.getItem("ossm-ai-tts-voice") || ""; } catch (e) { return ""; }
 }
+function aiTtsTone() {
+  try { return ["m", "f"].indexOf(localStorage.getItem("ossm-ai-tts-tone")) >= 0 ? localStorage.getItem("ossm-ai-tts-tone") : "any"; } catch (e) { return "any"; }
+}
+const AI_MASC_NAMES = "frank|paul|peter|james|john|david|michael|daniel|thomas|mark|george|henry|william|robert|richard|joseph|charles|martin|jeroen|willem|jan|klaas|pieter|hendrik|gijs|joost|lars|sven|maarten|bram|rick|tim|dave|steve|chris|mike|jack|harry|oliver|fred|arthur|lucas|noah|liam|sam|alex|max|leo|hugo|ben|nick|ivan|stefan|karl|hans|klaus|dieter|luc|jean|pierre|marc|nicolas|olivier|antonio|jose|carlos|diego|mateo|marco|luca|giorgio|matthias|sebastian|tobias|florian|andreas|male|man|guy|mister|heer|monsieur";
+const AI_FEM_NAMES = "amy|emma|olivia|sarah|sara|laura|anna|maria|sofia|sophia|zira|aria|jenny|jennifer|catherine|kate|claire|jane|mary|susan|lisa|karen|femke|els|inge|sanne|fleur|lotte|marieke|anouk|lieke|sophie|julie|chantal|eva|iris|hannah|lucy|grace|victoria|elizabeth|margaret|helen|nancy|barbara|patricia|linda|debra|cynthia|amelia|mia|charlotte|harper|evelyn|freya|greta|claudia|monika|sabine|petra|heidi|ursula|marie|camille|juliette|manon|chloe|lea|valentina|giulia|chiara|elena|lucia|carmen|isabel|pilar|samantha|moira|tessa|fiona|serena|veena|allison|natalie|rachel|rebecca|female|woman|girl|dame|madame|vrouw";
+function aiVoiceGender(name) {
+  const n = (name || "").toLowerCase();
+  if (new RegExp("\\b(" + AI_MASC_NAMES + ")\\b").test(n)) return "m";
+  if (new RegExp("\\b(" + AI_FEM_NAMES + ")\\b").test(n)) return "f";
+  return null;
+}
 function aiPopulateVoiceList() {
   const sel = $("aiTtsVoice");
   if (!sel) return;
   const vs = aiVoicesCache.length ? aiVoicesCache : (window.speechSynthesis ? speechSynthesis.getVoices() : []);
   const saved = aiTtsVoiceName();
+  const tone = aiTtsTone();
+  let list = vs;
+  if (tone !== "any") {
+    const filtered = vs.filter(v => aiVoiceGender(v.name) === tone);
+    if (filtered.length) list = filtered;
+  }
   sel.innerHTML = "";
   const auto = document.createElement("option");
   auto.value = ""; auto.textContent = "Auto (best match)";
   sel.appendChild(auto);
-  for (const v of vs) {
+  for (const v of list) {
     const o = document.createElement("option");
     o.value = v.name;
     o.textContent = v.name + " (" + (v.lang || "?") + ")";
     sel.appendChild(o);
   }
-  sel.value = vs.some(v => v.name === saved) ? saved : "";
+  sel.value = list.some(v => v.name === saved) ? saved : "";
 }
 function aiLoadVoices() {
   try { if (window.speechSynthesis) aiVoicesCache = speechSynthesis.getVoices(); } catch (e) {}
@@ -5110,6 +5133,7 @@ function aiPickVoice(lang) {
   if (saved) { const hit = vs.find(v => v.name === saved); if (hit) return hit; }
   const base = (lang || "en").toLowerCase();
   const baseShort = base.split(/[-_]/)[0];
+  const tone = aiTtsTone();
   let best = null, bestScore = -1;
   for (const v of vs) {
     const vl = (v.lang || "").toLowerCase();
@@ -5118,6 +5142,7 @@ function aiPickVoice(lang) {
     if (vl === base) s += 10;
     else if (vl.indexOf(baseShort) === 0) s += 6;
     if (/(natural|neural|premium|enhanced|online|wavenet|google|siri)/.test(nm)) s += 4;
+    if (tone !== "any" && aiVoiceGender(v.name) === tone) s += 6;
     if (v.localService) s += 1;
     if (s > bestScore) { bestScore = s; best = v; }
   }
@@ -5680,6 +5705,11 @@ function aiProcessVoice(text) {
   if (ttsCloud) {
     ttsCloud.checked = aiTtsCloudEnabled();
     ttsCloud.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-cloud", ttsCloud.checked ? "1" : "0"); } catch (e) {} });
+  }
+  const ttsTone = $("aiTtsTone");
+  if (ttsTone) {
+    ttsTone.value = aiTtsTone();
+    ttsTone.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-tts-tone", ttsTone.value); } catch (e) {} aiPopulateVoiceList(); });
   }
   const syncAiSettingsUI = () => {
     const s = aiProviderSettings();
