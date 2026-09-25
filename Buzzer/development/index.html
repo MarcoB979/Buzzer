@@ -4814,6 +4814,89 @@ async function aiCall(messages) {
   return { raw: "", params: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
+function aiShowApplied(applied, prefix) {
+  const d = aiAddMsg("assistant", escapeHtml((prefix ? prefix + " " : "") + aiSummary(applied)) + " <button class=\"ai-yes\">✓</button>");
+  const yes = d && d.querySelector(".ai-yes");
+  if (yes) yes.onclick = () => { aiAddMsg("system", "Done ✓"); yes.remove(); };
+}
+
+// Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
+// even when the free AI refuses the content or is rate-limited.
+function aiLocalInterpret(text) {
+  const t = (text || "").toLowerCase();
+  const p = {};
+
+  // depth (Max Pos)
+  if (/(balls.?deep|full(?:y)?\s+(?:in|deep)|deep|all the way|bottom(?:ed)? out)/.test(t)) p["Max Pos"] = 95;
+  else if (/(just the tip|tip only|barely|shallow|surface|entrance)/.test(t)) p["Max Pos"] = 35;
+  else if (/half/.test(t)) p["Max Pos"] = 55;
+  else p["Max Pos"] = 70;
+
+  // stroke length / withdrawal (Min Pos)
+  if (/(short|flick|quick)/.test(t) && !/(long|full|deep)/.test(t)) p["Min Pos"] = Math.max(10, p["Max Pos"] - 18);
+  else p["Min Pos"] = 0;
+
+  // speeds
+  const fast = /(fast|quick|rapid|hard|pound|jackhammer|hammer|frantic|vigor)/.test(t);
+  const slow = /(slow|gentle|languid|easy|sensual|soft)/.test(t);
+  let inSp = 50, outSp = 50;
+  if (fast && slow) { inSp = 55; outSp = 55; }
+  else if (fast) { inSp = 90; outSp = 85; }
+  else if (slow) { inSp = 25; outSp = 25; }
+  if (/(slow in|gentle in|tease)/.test(t)) inSp = 25;
+  if (/(slow out|gentle out)/.test(t)) outSp = 25;
+  if (/(fast in|quick in|thrust in|pound in)/.test(t)) inSp = 90;
+  if (/(fast out|quick out|pull(?:ing)? out (?:fast|quick))/.test(t)) outSp = 90;
+  p["In Speed"] = inSp;
+  p["Out Speed"] = outSp;
+
+  // accel (smooth vs sharp)
+  let inAc = 35, outAc = 35;
+  if (/(smooth|gentle|soft|eased|sensual)/.test(t)) { inAc = 12; outAc = 12; }
+  if (/(sharp|mechanical|abrupt|snappy|jerk|frantic|jackhammer)/.test(t)) { inAc = 80; outAc = 80; }
+  if (/(tease|teasing)/.test(t)) { inAc = 15; outAc = 55; }
+  p["In Accel"] = inAc;
+  p["Out Accel"] = outAc;
+
+  // overall speed
+  p["Speed"] = Math.max(15, Math.round((inSp + outSp) / 2));
+
+  // time-varying modifiers
+  const hasBuild = /(build|ramp|increas|gradual|more and more|get (?:deeper|faster)|start slow)/.test(t);
+  const hasFade = /(ease off|fade|slow down|taper|then slow)/.test(t);
+  const hasTremble = /(tremble|trembl|spasm|shudder|shake|quiver|ejaculat|orgasm|climax|finish)/.test(t);
+  if (hasTremble) {
+    // climax: sharp, quick pulses near full depth
+    p["Max Pos"] = Math.max(p["Max Pos"], 85);
+    p["In Speed"] = Math.max(p["In Speed"], 85);
+    p["Out Speed"] = Math.max(p["Out Speed"], 85);
+    p["In Accel"] = 85; p["Out Accel"] = 85;
+    p["Max PosAmplitude"] = 90;
+    p["Max PosSteps to Max"] = 1;
+    p["Max PosSteps at Max"] = 3;
+    p["Max PosSteps to Min"] = 1;
+    p["In SpeedAmplitude"] = 70;
+    p["In SpeedSteps to Max"] = 1;
+    p["In SpeedSteps at Max"] = 2;
+    p["In SpeedSteps to Min"] = 1;
+  } else if (hasBuild || hasFade) {
+    p["Max PosAmplitude"] = 70;
+    p["Max PosSteps to Max"] = 4;
+    p["Max PosSteps to Min"] = 4;
+    if (hasBuild && !hasFade) p["Max PosSteps at Max"] = 2;
+    if (hasFade && !hasBuild) p["Max PosSteps at Min"] = 2;
+    p["In SpeedAmplitude"] = 60;
+    p["In SpeedSteps to Max"] = 4;
+    p["In SpeedSteps to Min"] = 4;
+    p["Out SpeedAmplitude"] = 60;
+    p["Out SpeedSteps to Max"] = 4;
+    p["Out SpeedSteps to Min"] = 4;
+  }
+
+  if (p["Min Pos"] > p["Max Pos"]) p["Min Pos"] = Math.max(0, p["Max Pos"] - 10);
+  return p;
+}
+
 async function aiSend() {
   const inp = $("aiInput");
   const text = (inp ? inp.value : "").trim();
@@ -4845,12 +4928,14 @@ async function aiSend() {
     }
     if (th) th.remove();
     if (res.params) {
-      const applied = aiApplyParams(res.params);
-      const d = aiAddMsg("assistant", escapeHtml(aiSummary(applied)) + " <button class=\"ai-yes\">✓</button>");
-      const yes = d && d.querySelector(".ai-yes");
-      if (yes) yes.onclick = () => { aiAddMsg("system", "Done ✓"); yes.remove(); };
+      aiShowApplied(aiApplyParams(res.params), "");
     } else {
-      aiAddMsg("assistant", escapeHtml("That didn't come back as usable numbers — please try again" + (res.error ? " (" + res.error + ")" : "") + "."));
+      const local = aiLocalInterpret(text);
+      if (local && Object.keys(local).length) {
+        aiShowApplied(aiApplyParams(local), "Offline:");
+      } else {
+        aiAddMsg("assistant", escapeHtml("Couldn't understand that — try simpler wording (e.g. \"slow deep full strokes\")."));
+      }
     }
   } catch (e) {
     if (th) th.remove();
