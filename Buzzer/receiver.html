@@ -57,7 +57,7 @@ function waitIceComplete(pc, timeoutMs) {
 }
 function setStatus(s) { statusEl.textContent = s; }
 function pushStatus() {
-  send({ type: "status", v: 3, t: video.currentTime || 0, playing: !video.paused, duration: video.duration || 0 });
+  send({ type: "status", v: 4, t: video.currentTime || 0, playing: !video.paused, duration: video.duration || 0 });
 }
 setInterval(pushStatus, 250);
 // Safety net: if MSE never actually starts playing, fall back to whole-file buffering.
@@ -282,7 +282,7 @@ function onMessage(event) {
         .then(() => localPc.createAnswer())
         .then(a => localPc.setLocalDescription(a))
         .then(() => waitIceComplete(localPc, 1500))
-        .then(() => { answered = true; answering = false; send({ type: "answer", v: 3, sdp: localPc.localDescription.sdp }); setStatus("Answered — connecting…"); })
+        .then(() => { answered = true; answering = false; send({ type: "answer", v: 4, sdp: localPc.localDescription.sdp }); setStatus("Answered — connecting…"); })
         .catch(e => { answering = false; send({ type: "error", msg: "Signaling failed: " + (e && e.message) }); });
     } else if (m.type === "seek") {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
@@ -351,18 +351,18 @@ const dummyMedia = document.createElement("video");
 dummyMedia.style.display = "none";
 document.body.appendChild(dummyMedia);
 try {
-  context.setOptions({
+  // NOTE: CastReceiverContext has NO setOptions() — options go to start().
+  // The previous setOptions() call silently no-opped, so the idle timeout was
+  // never disabled. This is the actual fix.
+  const p = context.start({
     disableIdleTimeout: true,
     maxInactivity: 600,
     mediaElement: dummyMedia // keep CAF's PlayerManager off our real <video>
   });
-} catch (e) {}
-try {
-  const p = context.start();
-  if (p && typeof p.then === "function") p.then(() => send({ type: "ready", v: 3 })).catch(() => send({ type: "ready", v: 3 }));
-  else setTimeout(() => send({ type: "ready", v: 3 }), 300);
+  if (p && typeof p.then === "function") p.then(() => send({ type: "ready", v: 4 })).catch(() => send({ type: "ready", v: 4 }));
+  else setTimeout(() => send({ type: "ready", v: 4 }), 300);
 } catch (e) {
-  setTimeout(() => send({ type: "ready", v: 3 }), 300);
+  setTimeout(() => send({ type: "ready", v: 4 }), 300);
 }
 </script>
 </body>
