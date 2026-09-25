@@ -619,7 +619,9 @@
       </div>
     </details>
 
-    <details class="online-videos" id="onlineVideos">
+    <!-- Online videos is hidden for now: Funscripthub downloads are Cloudflare-blocked and
+         EroScripts requires a login. Remove the inline style below to re-enable it. -->
+    <details class="online-videos" id="onlineVideos" style="display:none;">
       <summary>🌐 Online videos</summary>
       <div class="online-body">
         <div class="online-source">
@@ -5116,7 +5118,7 @@ async function loadFunscriptUrl(url) {
       if (onlineSource === "ero") eroLoadResults(true); else onlineLoadResults(true);
     }
   });
-  onlineLoadTags();
+  if (ov && ov.style.display !== "none") onlineLoadTags();
 })();
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
