@@ -4782,7 +4782,18 @@ function onlineItemEl(it) {
   meta.textContent = (it.duration && it.duration !== "00:00:00" ? it.duration + " · " : "") + (it.username || "");
   const load = document.createElement("button");
   load.type = "button"; load.className = "online-load"; load.textContent = "Load";
-  load.onclick = () => onlineLoadVideo(it.id, load);
+  load.onclick = () => {
+    if (load.dataset.download) {
+      const u = load.dataset.download;
+      delete load.dataset.download;
+      load.textContent = "Saving…";
+      downloadScript(u);
+      funLog("Saving script — then tap 'Load Funscript' to open the saved file.");
+      load.textContent = "Saved ⤓";
+    } else {
+      onlineLoadVideo(it.id, load);
+    }
+  };
   bottom.appendChild(img); bottom.appendChild(meta); bottom.appendChild(load);
   row.appendChild(title); row.appendChild(bottom);
   return row;
@@ -4810,7 +4821,7 @@ async function onlineResolveVideo(links) {
 }
 
 async function onlineLoadVideo(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; delete btn.dataset.download; }
   funLog("Loading Funscripthub entry…");
   const done = (label) => { if (btn) { btn.textContent = label; btn.disabled = false; } };
   try {
@@ -4828,10 +4839,14 @@ async function onlineLoadVideo(id, btn) {
         await loadVideoUrl(video);
         done(scriptLoaded ? "Script + video ✓" : "Video ✓");
       } else if (scriptLoaded) {
-        funLog("Funscript loaded — no direct video link (gofile Premium).");
+        funLog("Funscript loaded — no playable video link (gofile expired/Premium).");
         done("Script ✓");
+      } else if (scriptUrl) {
+        btn.dataset.download = scriptUrl;
+        funLog("Script host blocks auto-load — tap 'Script ⤓' to save it, then open it with 'Load Funscript'.");
+        done("Script ⤓");
       } else {
-        funLog("No direct video link (gofile Premium) and script unreachable.");
+        funLog("No playable video link and no script available.");
         done("No video");
       }
     } else {
@@ -4840,7 +4855,7 @@ async function onlineLoadVideo(id, btn) {
         log("Video loaded — press Cast to TV.");
         done("Loaded ✓");
       } else {
-        log("No direct video link (gofile Premium).");
+        log("No playable video link (gofile expired/Premium).");
         done("No video");
       }
     }
@@ -4850,16 +4865,42 @@ async function onlineLoadVideo(id, btn) {
   }
 }
 
+function downloadScript(url) {
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch (e) {
+    try { window.open(url, "_blank"); } catch (e2) {}
+  }
+}
+
 async function loadFunscriptUrl(url) {
+  const isScript = (t) => !!t && t.trim().startsWith("{") && t.indexOf('"actions"') >= 0;
+  const fetchText = async (u) => {
+    const signal = (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(7000) : undefined;
+    const r = await fetch(u, signal ? { signal } : {});
+    if (!r.ok) throw new Error("http " + r.status);
+    return await r.text();
+  };
   try {
     let text = null;
-    try { const r = await fetch(url); if (r.ok) text = await r.text(); } catch (e) {}
-    if (text == null) {
+    let corsBlocked = false;
+    try { text = await fetchText(url); } catch (e) { corsBlocked = true; }
+    if (!isScript(text) && corsBlocked) {
+      // Body unreadable (no CORS header) — a CORS proxy might still reach the file.
       for (const p of ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest="]) {
-        try { const r = await fetch(p + encodeURIComponent(url)); if (r.ok) { text = await r.text(); break; } } catch (e) {}
+        try {
+          const t = await fetchText(p + encodeURIComponent(url));
+          if (isScript(t)) { text = t; break; }
+        } catch (e) {}
       }
     }
-    if (text == null) throw new Error("script unreachable");
+    if (!isScript(text)) throw new Error("script host blocks auto-download");
     const j = JSON.parse(text);
     funState.scriptName = (url.split("/").pop() || "script").split("?")[0];
     funState.rawActions = (j.actions || []).filter(a => a && typeof a.at === "number" && typeof a.pos === "number").sort((a, b) => a.at - b.at);
