@@ -575,14 +575,14 @@
     </div>
 
     <div class="ai-panel" id="aiPanel" style="display:none;">
-      <div class="ai-title">✨ Describe the movement you want</div>
+      <div class="ai-title">✨ Tell me how you want it to feel</div>
       <div class="ai-history" id="aiHistory"></div>
       <div class="ai-row">
-        <input type="text" id="aiInput" placeholder="e.g. slow deep strokes, or build from slow to fast">
+        <input type="text" id="aiInput" placeholder="Describe how you want it… e.g. slow and deep, then faster">
         <button class="ble-btn small" id="aiMic" type="button" title="Speak instead of typing">🎤</button>
         <button class="ble-btn small" id="aiSend" type="button">Go</button>
       </div>
-      <div class="ai-note">Sets depth, speed, acceleration and time-varying patterns. Free, no login.</div>
+      <div class="ai-note">Sets depth, speed and rhythm. Keep chatting to fine-tune — it remembers the conversation.</div>
     </div>
 
     <div class="visualizer-area">
@@ -4701,11 +4701,12 @@ function syncModeDropdown() {
 }
 
 // ---------- Advanced-mode AI movement assistant (free, no-key Pollinations) ----------
-const AI_SYSTEM = `You are the movement assistant for an OSSM sex machine's Advanced Penetration mode.
+const AI_SYSTEM = `You are the movement assistant for an OSSM sex machine's Advanced Penetration mode. You are a warm, collaborative partner: you talk WITH the user about exactly how the movement should feel, then turn those wishes into machine settings.
+
 The rail strokes back and forth between a shallow point and a deep point. Each stroke moves in (penetrating) then out (withdrawing).
 
 BASE CONTROLS (all 0-100 unless noted):
-- "Max Pos": deepest point of the stroke. Higher = deeper (riskier). Stay conservative unless deep/full is clearly requested.
+- "Max Pos": deepest point of the stroke. Higher = deeper. Stay conservative unless deep/full is clearly requested.
 - "Min Pos": shallowest point it withdraws to. 0 = fully out, higher = stays deeper. Keep it <= "Max Pos".
 - "In Speed": inward (penetrating) stroke speed, 1-100.
 - "Out Speed": outward (withdrawing) stroke speed, 1-100. Different in/out = teasing.
@@ -4722,15 +4723,25 @@ TIME-VARYING MODIFIERS (this is the advanced part): any base control can change 
 - "<Base>Offset" (0-100): phase shift of the modulation.
 <Base> is one of: Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel. Examples: "Max PosAmplitude" modulates depth, "In SpeedSteps to Max" ramps the inward speed up over strokes, "Max PosSteps at Max" holds the deep point for a few strokes.
 
-EXAMPLES (request -> JSON):
+EXAMPLES of parameter values (request -> JSON):
 1. "gentle long slow strokes, shallow" -> {"Max Pos":40,"Min Pos":0,"In Speed":25,"Out Speed":25,"In Accel":10,"Out Accel":10,"Speed":25}
 2. "slow deep full strokes" -> {"Max Pos":100,"Min Pos":0,"In Speed":30,"Out Speed":30,"In Accel":15,"Out Accel":15,"Speed":30}
 3. "fast shallow jackhammer" -> {"Max Pos":45,"Min Pos":10,"In Speed":90,"Out Speed":90,"In Accel":80,"Out Accel":80,"Speed":90}
 4. "start slow and shallow, build up to fast and deep, then ease off" -> {"Max Pos":45,"Min Pos":0,"In Speed":30,"Out Speed":30,"In Accel":20,"Out Accel":20,"Speed":30,"Max PosAmplitude":60,"Max PosSteps to Max":4,"Max PosSteps at Max":2,"Max PosSteps to Min":4,"In SpeedAmplitude":50,"In SpeedSteps to Max":4,"In SpeedSteps to Min":4}
 5. "teasing: slow in, quick out" -> {"Max Pos":60,"Min Pos":0,"In Speed":25,"Out Speed":80,"In Accel":15,"Out Accel":50,"Speed":40}
 
-Reply with ONLY a JSON object: always include the 7 base keys, plus any modifier keys needed to express changes over time. No prose, no markdown fences.
-The user may write in any language (English, Dutch, French, German, etc.) — understand the meaning and always reply with the same English JSON keys and numeric values.`;
+HOW TO CONVERSE:
+- The user may write in any language (English, Dutch, French, German, ...). Reply in the SAME language the user used.
+- Be warm, natural and concise — like a partner talking about what feels good, not a robot. A few short sentences at most.
+- When the user describes a movement, set the values, apply them, tell them briefly what you did, and invite feedback (e.g. "I've set slow, deep strokes — does that feel right?").
+- When the user gives feedback about the movement or about "the graph" (depth, speed, smoothness, rhythm over time), interpret it, ADJUST the values, and explain what you changed.
+- If the request is ambiguous or you're unsure, ask ONE short clarifying question instead of guessing (then use "set": null).
+- Each turn you can see the current device settings; when the user asks to adjust something, start from those and only change what matters.
+
+ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
+{"reply":"<your conversational reply, in the user's language>","set":{ ... }}
+- "reply": your natural message to the user.
+- "set": the parameters to apply. Include ALL 7 base keys whenever you change settings. If you are only talking or asking a question and not changing any setting, use "set": null.`;
 let aiMessages = [];
 let aiBusy = false;
 let aiListening = null;
@@ -4743,28 +4754,36 @@ function aiToggle() {
   if (show) { const i = $("aiInput"); if (i) i.focus(); }
 }
 
+function aiNormalizeParams(obj) {
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const norm = {};
+  for (const k of Object.keys(obj)) {
+    let key = k.trim();
+    if (key === "Max Depth") key = "Max Pos";
+    if (key === "Min Depth") key = "Min Pos";
+    norm[key] = obj[k];
+  }
+  const baseKeys = ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel", "Speed"];
+  const hasUsable = Object.keys(norm).some(k =>
+    typeof norm[k] === "number" && (baseKeys.includes(k) || MODIFIER_NAMES.some(mn => k.endsWith(mn)))
+  );
+  return hasUsable ? norm : null;
+}
+
 function aiExtractJson(text) {
-  if (!text) return null;
+  // Parses either a JSON envelope {"reply": "...", "set": {...}} or a flat params object.
+  if (!text) return { reply: null, params: null };
   const s = text.indexOf("{");
   const e = text.lastIndexOf("}");
-  if (s < 0 || e <= s) return null;
-  try {
-    const j = JSON.parse(text.slice(s, e + 1).replace(/```/g, ""));
-    if (!j || typeof j !== "object" || Array.isArray(j)) return null;
-    if (typeof j.error === "string" && j.error) return null; // rate-limit / error envelope
-    const norm = {};
-    for (const k of Object.keys(j)) {
-      let key = k.trim();
-      if (key === "Max Depth") key = "Max Pos";
-      if (key === "Min Depth") key = "Min Pos";
-      norm[key] = j[k];
-    }
-    const baseKeys = ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel", "Speed"];
-    const hasUsable = Object.keys(norm).some(k =>
-      typeof norm[k] === "number" && (baseKeys.includes(k) || MODIFIER_NAMES.some(mn => k.endsWith(mn)))
-    );
-    return hasUsable ? norm : null;
-  } catch (err) { return null; }
+  if (s < 0 || e <= s) return { reply: null, params: null };
+  let j = null;
+  try { j = JSON.parse(text.slice(s, e + 1).replace(/```/g, "")); } catch (err) {}
+  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null };
+  if (typeof j.error === "string" && j.error) return { reply: null, params: null }; // rate-limit / error envelope
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set")) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set) };
+  }
+  return { reply: null, params: aiNormalizeParams(j) };
 }
 
 function aiApplyParams(p) {
@@ -4803,9 +4822,9 @@ function aiApplyParams(p) {
   return applied;
 }
 
-function aiSummary(applied) {
-  if (!applied || !applied.length) return "No valid numbers came back — try rephrasing.";
-  return "Set: " + applied.join(" · ") + ". Does this feel right? Type more to adjust (e.g. \"a bit faster, shallower\"), or tap ✓ when done.";
+function aiAddApplied(applied) {
+  if (!applied || !applied.length) return;
+  aiAddMsg("system", "Set: " + applied.join(" · "));
 }
 
 function aiAddMsg(role, html) {
@@ -4839,13 +4858,13 @@ async function aiCallDeepSeek(messages, key) {
       if (r.ok) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
-        const params = aiExtractJson(content);
-        if (params) return { raw: content, params, error: null };
+        const parsed = aiExtractJson(content);
+        if (parsed.reply || parsed.params) return { raw: content, reply: parsed.reply, params: parsed.params, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", params: null, error: "DeepSeek request failed — check your API key" };
+  return { raw: "", reply: null, params: null, error: "DeepSeek request failed — check your API key" };
 }
 
 async function aiCall(messages) {
@@ -4859,19 +4878,13 @@ async function aiCall(messages) {
       const r = await fetch("https://text.pollinations.ai/", { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const raw = await r.text();
       if (r.ok) {
-        const params = aiExtractJson(raw);
-        if (params) return { raw, params, error: null };
+        const parsed = aiExtractJson(raw);
+        if (parsed.reply || parsed.params) return { raw, reply: parsed.reply, params: parsed.params, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", params: null, error: "the AI service is busy or returned an unusable reply" };
-}
-
-function aiShowApplied(applied, prefix) {
-  const d = aiAddMsg("assistant", escapeHtml((prefix ? prefix + " " : "") + aiSummary(applied)) + " <button class=\"ai-yes\">✓</button>");
-  const yes = d && d.querySelector(".ai-yes");
-  if (yes) yes.onclick = () => { aiAddMsg("system", "Done ✓"); yes.remove(); };
+  return { raw: "", reply: null, params: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -4971,22 +4984,23 @@ async function aiSend() {
     cur["Speed"] = Math.round(sv("SP", 0));
     aiMessages.push({ role: "user", content: text });
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\nCurrent device settings (start from these when the user asks to adjust): " + JSON.stringify(cur) },
+      { role: "system", content: AI_SYSTEM + "\nCurrent device settings (adjust from these): " + JSON.stringify(cur) },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
-    if (res.params) {
-      aiMessages.push({ role: "assistant", content: res.raw });
+    if (th) th.remove();
+    if (res.reply || res.params) {
+      if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
       aiMessages.pop(); // drop the failed exchange so it doesn't confuse later turns
     }
-    if (th) th.remove();
-    if (res.params) {
-      aiShowApplied(aiApplyParams(res.params), "");
-    } else {
+    if (res.reply) aiAddMsg("assistant", escapeHtml(res.reply));
+    if (res.params) aiAddApplied(aiApplyParams(res.params));
+    if (!res.reply && !res.params) {
       const local = aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
-        aiShowApplied(aiApplyParams(local), "Offline:");
+        aiAddMsg("assistant", escapeHtml("Offline — I set these based on what you said. Tell me what to adjust."));
+        aiAddApplied(aiApplyParams(local));
       } else {
         aiAddMsg("assistant", escapeHtml("Couldn't understand that — try simpler wording (e.g. \"slow deep full strokes\")."));
       }
