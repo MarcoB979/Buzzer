@@ -330,12 +330,13 @@
   .online-controls { display: flex; flex-direction: column; gap: 6px; }
   .online-controls input, .online-controls select { background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; width: 100%; box-sizing: border-box; }
   .online-results { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
-  .online-item { display: flex; align-items: center; gap: 8px; background: #111827; border: 1px solid var(--border-color); border-radius: 8px; padding: 6px; }
+  .online-item { display: flex; flex-direction: column; align-items: stretch; gap: 6px; background: #111827; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; }
+  .online-title { font-size: .9rem; color: #e2e8f0; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .online-bottom { display: flex; align-items: center; gap: 8px; }
   .online-thumb { width: 64px; height: 40px; object-fit: cover; border-radius: 4px; background: #0b0f19; flex: 0 0 auto; }
-  .online-info { flex: 1 1 auto; min-width: 0; }
-  .online-title { font-size: .74rem; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .online-meta { font-size: .66rem; color: #94a3b8; margin-top: 2px; }
+  .online-meta { font-size: .66rem; color: #94a3b8; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .online-load { flex: 0 0 auto; background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 6px 10px; font-size: .72rem; font-weight: bold; cursor: pointer; }
+  .online-load:disabled { background: #334155; cursor: default; }
   .online-note { font-size: .72rem; color: #94a3b8; padding: 8px 2px; }
   .online-more { display: flex; justify-content: center; }
   #presetList { display: flex; gap: 8px; align-items: center; }
@@ -4766,24 +4767,24 @@ async function onlineLoadResults(reset) {
 function onlineItemEl(it) {
   const row = document.createElement("div");
   row.className = "online-item";
+  const title = document.createElement("div");
+  title.className = "online-title"; title.textContent = it.title || "";
+  const bottom = document.createElement("div");
+  bottom.className = "online-bottom";
   const img = document.createElement("img");
   img.className = "online-thumb";
   img.loading = "lazy";
   img.src = "https://funbase8a9d.blob.core.windows.net/images/small_" + (it.imageurl || "");
   img.alt = "";
   img.onerror = () => { img.style.visibility = "hidden"; };
-  const info = document.createElement("div");
-  info.className = "online-info";
-  const title = document.createElement("div");
-  title.className = "online-title"; title.textContent = it.title || "";
   const meta = document.createElement("div");
   meta.className = "online-meta";
   meta.textContent = (it.duration && it.duration !== "00:00:00" ? it.duration + " · " : "") + (it.username || "");
-  info.appendChild(title); info.appendChild(meta);
   const load = document.createElement("button");
   load.type = "button"; load.className = "online-load"; load.textContent = "Load";
-  load.onclick = () => onlineLoadVideo(it.id);
-  row.appendChild(img); row.appendChild(info); row.appendChild(load);
+  load.onclick = () => onlineLoadVideo(it.id, load);
+  bottom.appendChild(img); bottom.appendChild(meta); bottom.appendChild(load);
+  row.appendChild(title); row.appendChild(bottom);
   return row;
 }
 
@@ -4808,8 +4809,10 @@ async function onlineResolveVideo(links) {
   return null;
 }
 
-async function onlineLoadVideo(id) {
+async function onlineLoadVideo(id, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
   funLog("Loading Funscripthub entry…");
+  const done = (label) => { if (btn) { btn.textContent = label; btn.disabled = false; } };
   try {
     const d = await onlineFetch({ hub: "getDetail", id: String(id) });
     if (!d || !d.title) throw new Error("detail unavailable");
@@ -4817,24 +4820,33 @@ async function onlineLoadVideo(id) {
     const links = (d.videos || []).map(v => v.url);
     const video = await onlineResolveVideo(links);
     if (appMode === "fun") {
-      if (scriptUrl) await loadFunscriptUrl(scriptUrl);
+      let scriptLoaded = false;
+      if (scriptUrl) scriptLoaded = await loadFunscriptUrl(scriptUrl);
       if (video) {
         const inp = $("funPhId");
         if (inp) inp.value = video;
         await loadVideoUrl(video);
+        done(scriptLoaded ? "Script + video ✓" : "Video ✓");
+      } else if (scriptLoaded) {
+        funLog("Funscript loaded — no direct video link (gofile Premium).");
+        done("Script ✓");
       } else {
-        funLog("Video link not directly castable (gofile Premium / expired) — funscript loaded anyway.");
+        funLog("No direct video link (gofile Premium) and script unreachable.");
+        done("No video");
       }
     } else {
       if (video) {
         setWatchVideo(video, d.title, null);
         log("Video loaded — press Cast to TV.");
+        done("Loaded ✓");
       } else {
-        log("This video is not directly castable (gofile Premium / link expired).");
+        log("No direct video link (gofile Premium).");
+        done("No video");
       }
     }
   } catch (e) {
     funLog("Online load failed: " + (e && e.message ? e.message : e));
+    done("Failed");
   }
 }
 
@@ -4856,8 +4868,10 @@ async function loadFunscriptUrl(url) {
     rebuildFunscript();
     updateOffsetUI();
     funLog("Funscript loaded (" + funState.rawActions.length + " pts).");
+    return true;
   } catch (e) {
     funLog("Funscript load failed: " + (e && e.message ? e.message : e));
+    return false;
   }
 }
 
