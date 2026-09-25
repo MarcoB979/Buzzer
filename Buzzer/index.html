@@ -5388,6 +5388,10 @@ async function aiSend(opts) {
   aiBusy = false;
 }
 
+function aiMicHelp() {
+  return "Microphone is blocked for this site. Tap the lock icon in the address bar → Permissions → Microphone → Allow, then reload. (Or: browser Settings → Site settings → Microphone.)";
+}
+
 function aiVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { aiAddMsg("system", "Voice input isn't supported in this browser."); return; }
@@ -5410,7 +5414,7 @@ function aiVoice() {
   rec.onerror = (e) => {
     aiListening = null;
     if (mic) { mic.textContent = "🎤"; mic.classList.remove("recording"); }
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") aiAddMsg("system", "Microphone access was denied.");
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") aiAddMsg("system", aiMicHelp());
     else if (e.error === "no-speech") aiAddMsg("system", "Didn't catch that — try again.");
     else if (e.error !== "aborted") aiAddMsg("system", "Voice error: " + e.error);
   };
@@ -5461,7 +5465,7 @@ function aiLiveStartRecognition() {
   rec.onerror = (e) => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       aiStopLive();
-      aiAddMsg("system", "Microphone access was denied.");
+      aiAddMsg("system", aiMicHelp());
     }
   };
   rec.onend = () => {
