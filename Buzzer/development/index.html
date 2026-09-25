@@ -655,12 +655,12 @@
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
-          <option value="deepseek">DeepSeek (via OpenRouter)</option>
+          <option value="deepseek">DeepSeek (your key)</option>
         </select>
         <div id="aiKeyRow" style="display:none;">
-          <label class="ai-set-label" for="aiKey">OpenRouter API key</label>
-          <input type="password" id="aiKey" placeholder="sk-or-…" autocomplete="off">
-          <div class="ai-set-hint">DeepSeek's own API blocks browser calls, so the app uses OpenRouter (which serves DeepSeek models). Get a key at openrouter.ai.</div>
+          <label class="ai-set-label" for="aiKey">DeepSeek API key</label>
+          <input type="password" id="aiKey" placeholder="sk-…" autocomplete="off">
+          <div class="ai-set-hint">Routed through your own Worker, so the key bills your DeepSeek account directly (no extra account). Also set your Worker URL under ⚙ if you haven't.</div>
         </div>
       </div>
     </details>
@@ -4827,12 +4827,14 @@ function aiProviderSettings() {
 }
 
 async function aiCallDeepSeek(messages, key) {
+  const base = workerBaseUrl();
+  if (!base) return { raw: "", params: null, error: "no Worker URL — set it under ⚙ (your DeepSeek key is relayed through your own worker)" };
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const body = JSON.stringify({ model: "deepseek/deepseek-chat", messages, response_format: { type: "json_object" } });
-      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const body = JSON.stringify({ model: "deepseek-chat", messages, response_format: { type: "json_object" } });
+      const r = await fetch(base + "/?deepseek=1", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key, "HTTP-Referer": "https://marcob979.github.io/Buzzer/", "X-Title": "Buzzer" },
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
         body
       });
       const raw = await r.text();
@@ -4845,7 +4847,7 @@ async function aiCallDeepSeek(messages, key) {
     } catch (e) {}
     if (attempt === 0) await sleepMs(1500);
   }
-  return { raw: "", params: null, error: "DeepSeek request failed — check your API key" };
+  return { raw: "", params: null, error: "DeepSeek request failed — check your API key and Worker URL" };
 }
 
 async function aiCall(messages) {
