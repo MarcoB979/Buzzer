@@ -228,6 +228,27 @@ async function handleDeepSeek(request) {
   }
 }
 
+// ---- Free cloud voice proxy: browsers are CORS-blocked from translate.google.com,
+// so this worker fetches the voice server-side (no key) and returns the MP3 with CORS. ----
+async function handleTts(url) {
+  const tl = (url.searchParams.get("tl") || "en").replace(/[^a-z-]/gi, "");
+  const q = (url.searchParams.get("q") || "").trim().slice(0, 500);
+  if (!q) return json({ error: "Missing text." }, 400);
+  try {
+    const res = await fetch("https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + encodeURIComponent(tl) + "&q=" + encodeURIComponent(q), {
+      headers: { "User-Agent": UA },
+    });
+    if (!res.ok) return json({ error: "TTS upstream " + res.status }, 502);
+    const buf = await res.arrayBuffer();
+    return new Response(buf, {
+      status: 200,
+      headers: { "Content-Type": "audio/mpeg", "Access-Control-Allow-Origin": "*", "Cache-Control": "public, max-age=86400" },
+    });
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 500);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -246,6 +267,7 @@ export default {
     }
 
     if (url.searchParams.get("deepseek")) return handleDeepSeek(request);
+    if (url.searchParams.get("tts")) return handleTts(url);
 
     if (request.method === "PUT" || request.method === "POST") {
       return handleUpload(request, env);
