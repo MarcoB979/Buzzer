@@ -54,6 +54,7 @@
   }
   .col { display: contents; }
   .col-toggle { display: none; }
+  .col-title { display: none; }
   /* Portrait: restore the original single-column order */
   #ble-panel { order: 1; }
   .header-row { order: 2; }
@@ -190,6 +191,10 @@
   body.force-fun .phone-container.fun {
     display: grid;
     grid-template-columns: 250px 1fr 0;
+    grid-template-areas:
+      "header header header"
+      "left   center right";
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 8px;
     align-items: stretch;
     height: calc(var(--app-vh) - 8px);
@@ -198,10 +203,11 @@
     border-width: 2px;
     padding: 8px;
   }
+  body.force-fun .phone-container.fun > .header-row { grid-area: header; }
   body.force-fun .phone-container.fun .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  body.force-fun .phone-container.fun .col-left { display: flex; max-height: calc(var(--app-vh) - 8px); overflow: hidden; }
-  body.force-fun .phone-container.fun .col-right { display: none; }
-  body.force-fun .phone-container.fun .col-center { max-height: calc(var(--app-vh) - 20px); }
+  body.force-fun .phone-container.fun .col-left { grid-area: left; display: flex; max-height: calc(var(--app-vh) - 8px); overflow: hidden; }
+  body.force-fun .phone-container.fun .col-right { grid-area: right; display: none; }
+  body.force-fun .phone-container.fun .col-center { grid-area: center; max-height: calc(var(--app-vh) - 20px); }
   body.force-fun .phone-container.fun .col-toggle { display: none; }
   body.force-fun .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   body.force-fun .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
@@ -446,26 +452,29 @@
       display: grid;
       grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr);
       grid-template-areas:
-        "left center"
-        "left right";
-      grid-template-rows: minmax(auto, 1fr) auto;
+        "header header"
+        "left   center"
+        "left   right";
+      grid-template-rows: auto minmax(auto, 1fr) auto;
       align-items: stretch;
       gap: 8px;
       min-height: calc(var(--app-vh) - 8px);
     }
+    .phone-container > .header-row { grid-area: header; margin-bottom: 0; }
     .phone-container .col-left  { grid-area: left; }
     .phone-container .col-center { grid-area: center; }
     .phone-container .col-right { grid-area: right; max-height: none; overflow-y: visible; }
-    .phone-container.hide-left { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "center" "right"; }
-    .phone-container.hide-right { grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr); grid-template-areas: "left center"; grid-template-rows: minmax(auto, 1fr); }
-    .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "center"; grid-template-rows: minmax(auto, 1fr); }
+    .phone-container.hide-left { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "header" "center" "right"; grid-template-rows: auto minmax(auto, 1fr) auto; }
+    .phone-container.hide-right { grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr); grid-template-areas: "header header" "left center"; grid-template-rows: auto minmax(auto, 1fr); }
+    .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "header" "center"; grid-template-rows: auto minmax(auto, 1fr); }
     .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
     .col-left  { max-height: calc(var(--app-vh) - 20px); }
     .phone-container.hide-left  .col-left  { display: none; }
     .phone-container.hide-right .col-right { display: none; }
     .col > * { margin: 0; }
     #col-left > *, #col-center > *, #col-right > * { order: 0; }
-    .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; padding: 0; }
+    .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; background: #1e293b; border: 2px solid #64748b; border-radius: 8px; color: #f1f5f9; font-size: 1rem; font-weight: bold; cursor: pointer; padding: 0; }
+    .col-title { display: block; text-align: center; font-size: .78rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); padding: 2px 0 6px; }
     #sliders-wrapper { flex: 1 1 auto; overflow-y: auto; }
     .start-stop-row { position: static; padding-top: 0; flex-shrink: 0; }
     .speed-line { margin-top: auto; flex-shrink: 0; }
@@ -484,7 +493,6 @@
       display: grid;
       grid-template-columns: 1fr 78px;
       grid-template-areas:
-        "header  header"
         "visual  start"
         "speed   speed"
         "tabs    tabs"
@@ -493,7 +501,6 @@
       row-gap: 4px;
       align-items: start;
     }
-    .phone-container.hide-left.hide-right .header-row { grid-area: header; }
     .phone-container.hide-left.hide-right .visualizer-area { grid-area: visual; }
     .phone-container.hide-left.hide-right .start-stop-row { grid-area: start; align-self: stretch; margin: 0; width: auto; }
     .phone-container.hide-left.hide-right .start-stop-row #btnStart { height: 100%; min-height: 88px; padding: 8px 6px; font-size: .85rem; }
@@ -529,14 +536,16 @@
   @media (min-width: 740px) {
     .phone-container {
       grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr) 230px;
-      grid-template-areas: "left center right";
-      grid-template-rows: minmax(0, 1fr);
+      grid-template-areas:
+        "header header header"
+        "left   center right";
+      grid-template-rows: auto minmax(0, 1fr);
       height: calc(var(--app-vh) - 8px);
     }
     .phone-container .col-right { max-height: calc(var(--app-vh) - 20px); overflow-y: auto; }
-    .phone-container.hide-left  { grid-template-columns: minmax(40%, 1fr) 230px; grid-template-areas: "center right"; }
-    .phone-container.hide-right { grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr); grid-template-areas: "left center"; }
-    .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "center"; }
+    .phone-container.hide-left  { grid-template-columns: minmax(40%, 1fr) 230px; grid-template-areas: "header header" "center right"; }
+    .phone-container.hide-right { grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr); grid-template-areas: "header header" "left center"; }
+    .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "header" "center"; }
   }
 </style>
 <script>
@@ -563,6 +572,34 @@
 <div class="phone-container">
   <input type="file" id="funVideoInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg,application/octet-stream" style="display:none;">
   <input type="file" id="funScriptInput" accept=".funscript,.json,application/json" style="display:none;">
+  <div class="header-row">
+    <button class="col-toggle" id="toggleColLeft" title="Show / hide sliders column">◀</button>
+    <div class="screen-header">
+      <div class="title-row">
+        <span class="brand-label">OSSM</span>
+        <div class="mode-dropdown" id="modeDropdown">
+          <button type="button" class="mode-btn-current" id="modeBtnCurrent" title="Change mode" aria-haspopup="true" aria-expanded="false">
+            <span id="modeCurrentLabel">Standard</span>
+            <span class="mode-chevron">▾</span>
+          </button>
+          <div class="mode-menu" id="modeMenu">
+            <button type="button" class="mode-option" data-mode="ap">Advanced</button>
+            <button type="button" class="mode-option" data-mode="std">Standard</button>
+            <button type="button" class="mode-option" data-mode="fun">Funscript</button>
+          </div>
+        </div>
+        <span class="title-context" id="titleContext" style="display:none;"></span>
+      </div>
+      <div class="build-info" id="buildInfo" style="font-size:.62rem;color:#64748b;font-weight:normal;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+    </div>
+    <span class="conn-status" id="conn-status"></span>
+    <button class="ble-btn small" id="header-connect" style="display:none;">Connect</button>
+    <button class="ble-btn small danger" id="header-disconnect" style="display:none;">Disconnect</button>
+    <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
+    <button class="kofi-toggle" id="kofiToggle" title="Show Support on Ko-fi" aria-label="Show Support on Ko-fi" style="display:none;">☕</button>
+    <button class="ble-btn small" id="aiBtn" title="Describe a movement in words" style="display:none;">✨ AI</button>
+    <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
+  </div>
   <div class="col col-left" id="col-left">
     <div class="fun-controls" id="fun-controls" style="display:none;"></div>
     <div class="sliders-panel" id="sliders-wrapper"></div>
@@ -575,35 +612,6 @@
   </div>
 
   <div class="col col-center" id="col-center">
-    <div class="header-row">
-      <button class="col-toggle" id="toggleColLeft" title="Show / hide sliders column">◀</button>
-      <div class="screen-header">
-        <div class="title-row">
-          <span class="brand-label">OSSM</span>
-          <div class="mode-dropdown" id="modeDropdown">
-            <button type="button" class="mode-btn-current" id="modeBtnCurrent" title="Change mode" aria-haspopup="true" aria-expanded="false">
-              <span id="modeCurrentLabel">Standard</span>
-              <span class="mode-chevron">▾</span>
-            </button>
-            <div class="mode-menu" id="modeMenu">
-              <button type="button" class="mode-option" data-mode="ap">Advanced</button>
-              <button type="button" class="mode-option" data-mode="std">Standard</button>
-              <button type="button" class="mode-option" data-mode="fun">Funscript</button>
-            </div>
-          </div>
-          <span class="title-context" id="titleContext" style="display:none;"></span>
-        </div>
-        <div class="build-info" id="buildInfo" style="font-size:.62rem;color:#64748b;font-weight:normal;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
-      </div>
-      <span class="conn-status" id="conn-status"></span>
-      <button class="ble-btn small" id="header-connect" style="display:none;">Connect</button>
-      <button class="ble-btn small danger" id="header-disconnect" style="display:none;">Disconnect</button>
-      <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
-      <button class="kofi-toggle" id="kofiToggle" title="Show Support on Ko-fi" aria-label="Show Support on Ko-fi" style="display:none;">☕</button>
-      <button class="ble-btn small" id="aiBtn" title="Describe a movement in words" style="display:none;">✨ AI</button>
-      <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
-    </div>
-
     <div class="ai-panel" id="aiPanel" style="display:none;">
       <div class="ai-title-row">
         <div class="ai-title-group">
@@ -676,6 +684,7 @@
   </div>
 
   <div class="col col-right" id="col-right">
+    <div class="col-title">Settings</div>
     <div class="ble-panel" id="ble-panel">
       <span class="ble-status" id="ble-text">OSSM: Disconnected</span>
       <button class="ble-btn" id="ble-button">Connect</button>
@@ -712,7 +721,21 @@
         <input type="number" id="aiTtsRate" min="0.5" max="2" step="0.1">
         <label class="ai-set-label" for="aiTtsPitch">Voice pitch (0.5–2)</label>
         <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
-        <div class="ai-set-hint">Voices come from your browser/OS — pick one above, then fine-tune speed and pitch. Speed 1.0–1.1 and pitch 0.9–1.0 usually sounds most natural.</div>
+        <label class="ai-set-label" for="aiTtsProvider">Voice provider</label>
+        <select id="aiTtsProvider">
+          <option value="system">System voices (browser / OS)</option>
+          <option value="google">Google Cloud (neural — natural Dutch)</option>
+        </select>
+        <div id="aiTtsGoogleRow" style="display:none;">
+          <label class="ai-set-label" for="aiTtsGoogleKey">Google Cloud API key</label>
+          <input type="password" id="aiTtsGoogleKey" placeholder="AIza…" autocomplete="off">
+          <label class="ai-set-label" for="aiTtsGoogleVoice">Voice name (optional)</label>
+          <input type="text" id="aiTtsGoogleVoice" placeholder="auto by language — e.g. nl-NL-Wavenet-D">
+          <label class="ai-set-label" for="aiTtsWorkerUrl">Worker URL (proxies neural TTS)</label>
+          <input type="url" id="aiTtsWorkerUrl" placeholder="https://your-worker.workers.dev">
+          <div class="ai-set-hint">Natural neural voices via your Cloudflare Worker (same one used for videos). Google Cloud TTS is free for ~1M chars/month. For a male Dutch voice try <b>nl-NL-Wavenet-B</b>.</div>
+        </div>
+        <div class="ai-set-hint">System voices come from your browser/OS; pick one above, then fine-tune speed and pitch (speed 1.0–1.1, pitch 0.9–1.0 sounds most natural). For a much better Dutch voice, switch the provider to Google Cloud.</div>
       </div>
     </details>
 
@@ -5114,10 +5137,66 @@ function aiPickVoice(lang) {
   return best;
 }
 function aiSpeak(text) {
+  const s = aiTtsProviderSettings();
+  if (s.provider === "google" && s.key && s.workerUrl) {
+    try { if (window.speechSynthesis) speechSynthesis.cancel(); } catch (e) {}
+    aiSpeakCloud(text).then(b64 => { if (b64) aiPlayBase64Audio(b64); }).catch(() => aiSpeakBrowser(text));
+    return;
+  }
+  aiSpeakBrowser(text);
+}
+function aiTtsLangCode() {
+  let l = "";
+  try { l = (localStorage.getItem("ossm-ai-lang") || "").toLowerCase(); } catch (e) {}
+  if (!l) { try { l = (navigator.language || "en").toLowerCase(); } catch (e) {} }
+  const map = { en: "en-US", nl: "nl-NL", de: "de-DE", fr: "fr-FR" };
+  return map[l] || map[l.split(/[-_]/)[0]] || "en-US";
+}
+const GOOGLE_TTS_DEFAULT_VOICE = { "en-US": "en-US-Wavenet-A", "nl-NL": "nl-NL-Wavenet-A", "de-DE": "de-DE-Wavenet-A", "fr-FR": "fr-FR-Wavenet-A" };
+function aiTtsProviderSettings() {
+  let provider = "system", key = "", voice = "";
+  try {
+    provider = localStorage.getItem("ossm-tts-provider") || "system";
+    key = (localStorage.getItem("ossm-tts-google-key") || "").trim();
+    voice = (localStorage.getItem("ossm-tts-google-voice") || "").trim();
+  } catch (e) {}
+  return { provider, key, voice, workerUrl: workerBaseUrl() };
+}
+function aiPlayBase64Audio(b64) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => { if (!settled) { settled = true; resolve(true); } };
+    try {
+      const a = new Audio("data:audio/mp3;base64," + b64);
+      a.onended = done;
+      a.onerror = () => { if (!settled) { settled = true; resolve(false); } };
+      a.play().then(() => {}).catch(() => done());
+      setTimeout(done, 90000);
+    } catch (e) { resolve(false); }
+  });
+}
+async function aiSpeakCloud(text) {
+  const s = aiTtsProviderSettings();
+  const tts = aiTtsSettings();
+  const langCode = aiTtsLangCode();
+  const voice = s.voice || GOOGLE_TTS_DEFAULT_VOICE[langCode] || "";
+  const pitch = Math.max(-20, Math.min(20, Math.round((tts.pitch - 1) * 24)));
+  const body = { text: String(text || "").slice(0, 5000), languageCode: langCode, voice, rate: tts.rate, pitch };
+  const res = await fetch(s.workerUrl + "?tts=1", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + s.key },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error("TTS HTTP " + res.status);
+  const j = await res.json();
+  if (!j || !j.audioContent) throw new Error((j && j.error) ? j.error : "no audio returned");
+  return j.audioContent;
+}
+function aiSpeakBrowser(text) {
   try {
     if (!window.speechSynthesis) return;
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = navigator.language || "en-US";
+    u.lang = aiTtsLangCode();
     const v = aiPickVoice(u.lang);
     if (v) u.voice = v;
     const tts = aiTtsSettings();
@@ -5618,6 +5697,24 @@ function aiProcessVoice(text) {
     aiPopulateVoiceList();
     voiceSel.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-tts-voice", voiceSel.value); } catch (e) {} });
   }
+  const ttsProvider = $("aiTtsProvider");
+  const ttsGoogleRow = $("aiTtsGoogleRow");
+  const ttsGoogleKey = $("aiTtsGoogleKey");
+  const ttsGoogleVoice = $("aiTtsGoogleVoice");
+  const ttsWorkerUrl = $("aiTtsWorkerUrl");
+  const syncTtsProviderUI = () => {
+    const s = aiTtsProviderSettings();
+    if (ttsProvider) ttsProvider.value = s.provider;
+    if (ttsGoogleRow) ttsGoogleRow.style.display = (s.provider === "google") ? "" : "none";
+    if (ttsGoogleKey) ttsGoogleKey.value = s.key;
+    if (ttsGoogleVoice) ttsGoogleVoice.value = s.voice;
+    if (ttsWorkerUrl) ttsWorkerUrl.value = getExtractorUrl();
+  };
+  if (ttsProvider) ttsProvider.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-provider", ttsProvider.value); } catch (e) {} syncTtsProviderUI(); });
+  if (ttsGoogleKey) ttsGoogleKey.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-google-key", ttsGoogleKey.value.trim()); } catch (e) {} });
+  if (ttsGoogleVoice) ttsGoogleVoice.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-google-voice", ttsGoogleVoice.value.trim()); } catch (e) {} });
+  if (ttsWorkerUrl) ttsWorkerUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-extractor-url", ttsWorkerUrl.value.trim()); } catch (e) {} });
+  syncTtsProviderUI();
   const syncAiSettingsUI = () => {
     const s = aiProviderSettings();
     if (prov) prov.value = s.provider;

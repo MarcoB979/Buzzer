@@ -228,6 +228,37 @@ async function handleDeepSeek(request) {
   }
 }
 
+// ---- Google Cloud TTS proxy: forwards to texttospeech.googleapis.com with YOUR key ----
+// The app sends POST ?tts=1 with "Authorization: Bearer <gcp-key>" and a JSON body
+// {text, languageCode, voice, rate, pitch}. This worker relays it server-side
+// (Google Cloud TTS has no browser CORS), so your GCP key bills your own project.
+async function handleTts(request) {
+  const key = (request.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "").trim();
+  if (!key) return json({ error: "Missing Google Cloud API key." }, 400);
+  let payload;
+  try { payload = await request.json(); } catch (e) { return json({ error: "Invalid JSON body." }, 400); }
+  const text = String(payload.text || "").slice(0, 5000);
+  if (!text) return json({ error: "Missing text." }, 400);
+  const voice = { languageCode: String(payload.languageCode || "nl-NL") };
+  if (payload.voice) voice.name = String(payload.voice);
+  const rate = Math.max(0.25, Math.min(4, Number(payload.rate) || 1));
+  const pitch = Math.max(-20, Math.min(20, Number(payload.pitch) || 0));
+  try {
+    const res = await fetch("https://texttospeech.googleapis.com/v1/text:synthesize?key=" + encodeURIComponent(key), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": UA },
+      body: JSON.stringify({ input: { text }, voice, audioConfig: { audioEncoding: "MP3", speakingRate: rate, pitch } }),
+    });
+    const out = await res.text();
+    return new Response(out, {
+      status: res.status,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" },
+    });
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 500);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -246,6 +277,7 @@ export default {
     }
 
     if (url.searchParams.get("deepseek")) return handleDeepSeek(request);
+    if (url.searchParams.get("tts")) return handleTts(request);
 
     if (request.method === "PUT" || request.method === "POST") {
       return handleUpload(request, env);
