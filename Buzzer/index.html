@@ -705,6 +705,7 @@
       <div class="ai-settings-body">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiEnabled" checked> Enable AI assistant</label>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCanRun"> Allow AI to start / pause the machine</label>
+        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
@@ -5314,6 +5315,9 @@ function aiEnabled() {
 function aiCanRun() {
   try { return localStorage.getItem("ossm-ai-run") === "1"; } catch (e) { return false; }
 }
+function aiSpeakEnabled() {
+  try { return localStorage.getItem("ossm-ai-speak") !== "0"; } catch (e) { return true; }
+}
 
 async function aiCallDeepSeek(messages, key) {
   let lastErr = "DeepSeek request failed";
@@ -5476,7 +5480,7 @@ async function aiSend(opts) {
     }
     if (res.reply) {
       aiAddMsg("assistant", escapeHtml(res.reply));
-      if (aiLive || fromVoice) aiSpeak(res.reply);
+      if (aiSpeakEnabled()) aiSpeak(res.reply);
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     // Safety-limit changes: propose first, apply only after a clear confirmation.
@@ -5661,6 +5665,11 @@ function aiProcessVoice(text) {
   if (runBox) {
     runBox.checked = aiCanRun();
     runBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-run", runBox.checked ? "1" : "0"); } catch (e) {} });
+  }
+  const speakBox = $("aiSpeakReplies");
+  if (speakBox) {
+    speakBox.checked = aiSpeakEnabled();
+    speakBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-speak", speakBox.checked ? "1" : "0"); } catch (e) {} });
   }
   if (btn) btn.onclick = aiToggle;
   if (send) send.onclick = aiSend;
