@@ -4960,8 +4960,7 @@ function aiApplyParams(p) {
 }
 
 function aiAddApplied(applied) {
-  if (!applied || !applied.length) return;
-  aiAddMsg("system", "Set: " + applied.join(" · "));
+  // Values are applied to the device/UI directly; the chat shows only the conversation.
 }
 
 function aiAddMsg(role, html) {
@@ -5137,14 +5136,13 @@ async function aiSend(opts) {
       aiAddMsg("assistant", escapeHtml(res.reply));
       if (aiLive || fromVoice) aiSpeak(res.reply);
     }
-    if (res.params) aiAddApplied(aiApplySet(res.params));
+    if (res.params) aiApplySet(res.params);
     if (!res.reply && !res.params) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
         if (applied && applied.length) {
           aiAddMsg("assistant", escapeHtml("Offline — I set these based on what you said. Tell me what to adjust."));
-          aiAddApplied(applied);
         } else {
           aiAddMsg("assistant", escapeHtml("Couldn't understand that — try simpler wording (e.g. \"slow deep full strokes\")."));
         }
