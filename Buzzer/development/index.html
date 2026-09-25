@@ -5391,6 +5391,20 @@ async function aiSend(opts) {
 function aiMicHelp() {
   return "Microphone is blocked for this site. Tap the lock icon in the address bar → Permissions → Microphone → Allow, then reload. (Or: browser Settings → Site settings → Microphone.)";
 }
+async function aiFixMic() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+    aiAddMsg("system", "Microphone is now allowed ✓ — tap 🎤 or 🎧 to talk.");
+  } catch (e) {
+    aiAddMsg("system", "Still blocked — open the lock icon in the address bar → Permissions → Microphone → Allow, then reload.");
+  }
+}
+function aiMicHelpMsg() {
+  const d = aiAddMsg("system", escapeHtml(aiMicHelp()) + ' <button class="ai-yes" type="button">Fix</button>');
+  const b = d && d.querySelector("button");
+  if (b) b.onclick = aiFixMic;
+}
 
 function aiVoice() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -5414,7 +5428,7 @@ function aiVoice() {
   rec.onerror = (e) => {
     aiListening = null;
     if (mic) { mic.textContent = "🎤"; mic.classList.remove("recording"); }
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") aiAddMsg("system", aiMicHelp());
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") aiMicHelpMsg();
     else if (e.error === "no-speech") aiAddMsg("system", "Didn't catch that — try again.");
     else if (e.error !== "aborted") aiAddMsg("system", "Voice error: " + e.error);
   };
@@ -5465,7 +5479,7 @@ function aiLiveStartRecognition() {
   rec.onerror = (e) => {
     if (e.error === "not-allowed" || e.error === "service-not-allowed") {
       aiStopLive();
-      aiAddMsg("system", aiMicHelp());
+      aiMicHelpMsg();
     }
   };
   rec.onend = () => {
