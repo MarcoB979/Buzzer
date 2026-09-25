@@ -4729,6 +4729,8 @@ function aiExtractJson(text) {
   if (s < 0 || e <= s) return null;
   try {
     const j = JSON.parse(text.slice(s, e + 1).replace(/```/g, ""));
+    if (!j || typeof j !== "object" || Array.isArray(j)) return null;
+    if (typeof j.error === "string" && j.error) return null; // rate-limit / error envelope
     const norm = {};
     for (const k of Object.keys(j)) {
       let key = k.trim();
@@ -4736,7 +4738,11 @@ function aiExtractJson(text) {
       if (key === "Min Depth") key = "Min Pos";
       norm[key] = j[k];
     }
-    return norm;
+    const baseKeys = ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel", "Speed"];
+    const hasUsable = Object.keys(norm).some(k =>
+      typeof norm[k] === "number" && (baseKeys.includes(k) || MODIFIER_NAMES.some(mn => k.endsWith(mn)))
+    );
+    return hasUsable ? norm : null;
   } catch (err) { return null; }
 }
 
@@ -4793,21 +4799,17 @@ function aiAddMsg(role, html) {
 }
 
 async function aiCall(messages) {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    let msgs = messages;
-    if (attempt > 0) msgs = [...messages, { role: "user", content: "Reply with ONLY the JSON object now — no explanation, no markdown." }];
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const body = JSON.stringify({ model: "openai", jsonMode: true, messages: msgs });
+      const body = JSON.stringify({ model: "openai", jsonMode: true, messages });
       const r = await fetch("https://text.pollinations.ai/", { method: "POST", headers: { "Content-Type": "application/json" }, body });
       const raw = await r.text();
       if (r.ok) {
         const params = aiExtractJson(raw);
         if (params) return { raw, params, error: null };
       }
-      // fall through and retry
-    } catch (e) {
-      // fall through and retry
-    }
+    } catch (e) {}
+    if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
   return { raw: "", params: null, error: "the AI service is busy or returned an unusable reply" };
 }
