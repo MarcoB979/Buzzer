@@ -4670,6 +4670,15 @@ let onlineBusy = false;
 let onlineHasMore = true;
 let onlineStarted = false;
 
+function jinaExtractJson(text) {
+  let raw = text;
+  const idx = text.indexOf("Markdown Content:");
+  if (idx >= 0) raw = text.slice(idx + "Markdown Content:".length);
+  raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const start = raw.search(/[\[{]/);
+  if (start < 0) throw new Error("no JSON in response");
+  return JSON.parse(raw.slice(start));
+}
 async function onlineFetch(params) {
   const base = workerBaseUrl();
   if (base) {
@@ -4680,12 +4689,17 @@ async function onlineFetch(params) {
   }
   const api = new URL("https://www.funscripthub.com/app/openapi/" + params.hub);
   for (const [k, v] of Object.entries(params)) if (k !== "hub") api.searchParams.set(k, v);
-  try { const r = await fetch(api.toString()); if (r.ok) return await r.json(); } catch (e) {}
-  const proxies = ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest=", "https://corsproxy.io/?url="];
-  for (const p of proxies) {
-    try { const r = await fetch(p + encodeURIComponent(api.toString())); if (r.ok) return await r.json(); } catch (e) {}
+  const apiUrl = api.toString();
+  // No worker: try direct (rarely allowed), then the free Jina reader, then public proxies.
+  try { const r = await fetch(apiUrl); if (r.ok) return await r.json(); } catch (e) {}
+  try {
+    const r = await fetch("https://r.jina.ai/" + apiUrl);
+    if (r.ok) return jinaExtractJson(await r.text());
+  } catch (e) {}
+  for (const p of ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest="]) {
+    try { const r = await fetch(p + encodeURIComponent(apiUrl)); if (r.ok) return await r.json(); } catch (e) {}
   }
-  throw new Error("Online videos need your extractor worker (⚙) — set it and retry.");
+  throw new Error("Could not reach Funscripthub — try again in a moment.");
 }
 
 async function onlineLoadTags() {
