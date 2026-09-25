@@ -323,6 +323,9 @@
   .ai-set-hint { font-size: .66rem; color: #64748b; line-height: 1.4; }
   .ai-enable { display: flex; align-items: center; gap: 6px; }
   .ai-settings-body input[type=checkbox] { width: auto; }
+  .ai-help { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; background: #334155; color: #e2e8f0; border: 1px solid var(--border-color); font-size: .72rem; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
+  .ai-memory-label-row { display: flex; align-items: center; gap: 8px; }
+  .ai-memory-label-row .ai-enable { flex: 1; }
   .presets-panel { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 12px; margin-top: 12px; }
   .presets-panel summary {
     list-style: none; cursor: pointer; user-select: none;
@@ -704,9 +707,19 @@
       <summary><span class="summary-left">🤖 AI assistant<span class="summary-value" id="aiProviderLabel"></span></span></summary>
       <div class="ai-settings-body">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiEnabled" checked> Enable AI assistant</label>
-        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCanRun"> Allow AI to start / pause the machine</label>
+        <div id="aiExtrasRow" style="display:none;">
+          <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCanRun"> Allow AI to start / pause the machine</label>
+          <div class="ai-memory-label-row">
+            <label class="ai-set-label ai-enable"><input type="checkbox" id="aiMemoryEnabled"> Allow AI to remember me</label>
+            <button type="button" class="ai-help" id="aiMemoryHelp" title="What does this do?">?</button>
+          </div>
+          <div class="ai-set-hint" id="aiMemoryHelpText" style="display:none;">If you turn this on, the AI remembers what you voluntarily tell it about yourself (your name, role, preferences) — stored only on this device. It never asks for personal details, and “Forget me” erases it all.</div>
+          <div id="aiForgetRow" style="display:none;">
+            <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
+            <div class="ai-set-hint">The AI remembers what you tell it about yourself (name, role, preferences) — stored only on this device. “Forget me” erases all of it so the AI starts fresh.</div>
+          </div>
+        </div>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
-        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiMemoryEnabled"> Allow AI to remember me</label>
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
@@ -731,10 +744,6 @@
         <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiTtsCloud"> Use free cloud voice (better, auto-language)</label>
         <div class="ai-set-hint">“Voice tone” filters the list to masculine or feminine voices (inferred from their names), and “Auto” prefers your chosen tone. Tick “free cloud voice” to use Google’s online voice — no key, automatically in your language (the cloud voice is one voice per language).</div>
-        <div id="aiForgetRow" style="display:none;">
-          <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
-          <div class="ai-set-hint">The AI remembers what you tell it about yourself (name, role, preferences) — stored only on this device. “Forget me” erases all of it so the AI starts fresh.</div>
-        </div>
       </div>
     </details>
 
@@ -4955,7 +4964,7 @@ function aiCurrentState() {
   return cur;
 }
 function aiRunContext(running) {
-  if (!aiCanRun()) return "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".";
+  if (!aiCanRunActive()) return "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".";
   if (running) return "Machine running: yes. You MAY pause it when the user asks (include \"run\":\"pause\" in your JSON). To resume after pausing, include \"run\":\"start\".";
   return "Machine running: no. You MAY start it when the user asks (include \"run\":\"start\" in your JSON). To pause it, include \"run\":\"pause\". This is the only run control you have — never use it unless asked.";
 }
@@ -5329,6 +5338,15 @@ function aiSpeakEnabled() {
 function aiMemoryEnabled() {
   try { return localStorage.getItem("ossm-ai-memory-enabled") === "1"; } catch (e) { return false; }
 }
+function aiIsDeepSeek() {
+  return aiProviderSettings().provider === "deepseek";
+}
+function aiCanRunActive() {
+  return aiCanRun() && aiIsDeepSeek();
+}
+function aiMemoryActive() {
+  return aiMemoryEnabled() && aiIsDeepSeek();
+}
 function aiMemory() {
   try { return (localStorage.getItem("ossm-ai-memory") || "").trim(); } catch (e) { return ""; }
 }
@@ -5487,7 +5505,7 @@ async function aiSend(opts) {
   try {
     const cur = aiCurrentState();
     aiMessages.push({ role: "user", content: text });
-    const memOn = aiMemoryEnabled();
+    const memOn = aiMemoryActive();
     const mem = memOn ? aiMemory() : "";
     const memLine = memOn
       ? (mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "")
@@ -5508,7 +5526,7 @@ async function aiSend(opts) {
       if (aiSpeakEnabled()) aiSpeak(res.reply);
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
-    if (res.memory && aiMemoryEnabled()) aiSetMemory(res.memory);
+    if (res.memory && aiMemoryActive()) aiSetMemory(res.memory);
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiPendingLimits && aiIsYes(text)) {
@@ -5530,7 +5548,7 @@ async function aiSend(opts) {
       aiPendingLimits = null;
     }
     if (res.params) aiApplySet(res.params);
-    if (res.run && aiCanRun()) {
+    if (res.run && aiCanRunActive()) {
       if (res.run === "start") aiStartMachine();
       else if (res.run === "pause") aiPauseMachine();
     }
@@ -5678,6 +5696,7 @@ function aiProcessVoice(text) {
   const keyInp = $("aiKey");
   const keyRow = $("aiKeyRow");
   const provLabel = $("aiProviderLabel");
+  const extrasRow = $("aiExtrasRow");
   const enabledBox = $("aiEnabled");
   if (enabledBox) {
     enabledBox.checked = aiEnabled();
@@ -5713,6 +5732,11 @@ function aiProcessVoice(text) {
     });
   }
   syncMemoryUI();
+  const memHelp = $("aiMemoryHelp");
+  const memHelpText = $("aiMemoryHelpText");
+  if (memHelp && memHelpText) {
+    memHelp.onclick = () => { memHelpText.style.display = (memHelpText.style.display === "none") ? "" : "none"; };
+  }
   const forgetBtn = $("aiForget");
   if (forgetBtn) {
     forgetBtn.onclick = () => {
@@ -5778,6 +5802,7 @@ function aiProcessVoice(text) {
     if (prov) prov.value = s.provider;
     if (keyInp) keyInp.value = s.key;
     if (keyRow) keyRow.style.display = (s.provider === "deepseek") ? "" : "none";
+    if (extrasRow) extrasRow.style.display = (s.provider === "deepseek") ? "" : "none";
     if (provLabel) provLabel.textContent = (s.provider === "deepseek") ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : "Free";
   };
   if (prov) prov.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {} syncAiSettingsUI(); });
