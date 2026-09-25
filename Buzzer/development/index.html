@@ -297,7 +297,7 @@
   .ai-row { display: flex; gap: 6px; }
   .ai-row input { flex: 1 1 auto; min-width: 0; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; }
   .ai-yes { background: #16a34a; color: #fff; border: none; border-radius: 6px; padding: 2px 8px; font-size: .72rem; font-weight: bold; cursor: pointer; margin-left: 6px; }
-  .ai-mic.recording { background: #dc2626; animation: ai-pulse 1s ease-in-out infinite; }
+  .ai-mic.recording, .ai-live.active { background: #dc2626; animation: ai-pulse 1s ease-in-out infinite; }
   @keyframes ai-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
   .ai-note { font-size: .64rem; color: #64748b; }
   .ai-settings-body { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
@@ -579,10 +579,11 @@
       <div class="ai-history" id="aiHistory"></div>
       <div class="ai-row">
         <input type="text" id="aiInput" placeholder="Describe how you want it… e.g. slow and deep, then faster">
-        <button class="ble-btn small" id="aiMic" type="button" title="Speak instead of typing">🎤</button>
+        <button class="ble-btn small" id="aiMic" type="button" title="Speak once">🎤</button>
+        <button class="ble-btn small" id="aiLive" type="button" title="Keep listening — talk hands-free while playing">🎧</button>
         <button class="ble-btn small" id="aiSend" type="button">Go</button>
       </div>
-      <div class="ai-note">Sets depth, speed and rhythm. Keep chatting to fine-tune — it remembers the conversation.</div>
+      <div class="ai-note">Works in Standard &amp; Advanced. 🎧 keeps listening so you can talk hands-free — say "stop" any time.</div>
     </div>
 
     <div class="visualizer-area">
@@ -662,6 +663,11 @@
           <input type="password" id="aiKey" placeholder="sk-…" autocomplete="off">
           <div class="ai-set-hint">Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.</div>
         </div>
+        <label class="ai-set-label" for="aiMaxDepth">Safety cap — max depth (0-100)</label>
+        <input type="number" id="aiMaxDepth" min="0" max="100" step="1">
+        <label class="ai-set-label" for="aiMaxSpeed">Safety cap — max speed (0-100)</label>
+        <input type="number" id="aiMaxSpeed" min="0" max="100" step="1">
+        <div class="ai-set-hint">The AI never goes past these limits — a hard ceiling on depth and speed.</div>
       </div>
     </details>
 
@@ -4695,53 +4701,29 @@ function syncModeDropdown() {
     if (target === "ap") o.disabled = !apAvailable();
   });
   const aiBtn = $("aiBtn");
-  if (aiBtn) aiBtn.style.display = (appMode === "ap") ? "" : "none";
+  if (aiBtn) aiBtn.style.display = (appMode === "ap" || appMode === "std") ? "" : "none";
   const aiPanel = $("aiPanel");
-  if (aiPanel && appMode !== "ap") aiPanel.style.display = "none";
+  if (aiPanel && appMode !== "ap" && appMode !== "std") aiPanel.style.display = "none";
 }
 
 // ---------- Advanced-mode AI movement assistant (free, no-key Pollinations) ----------
-const AI_SYSTEM = `You are the movement assistant for an OSSM sex machine's Advanced Penetration mode. You are a warm, collaborative partner: you talk WITH the user about exactly how the movement should feel, then turn those wishes into machine settings.
+const AI_SYSTEM = `You are the voice and movement assistant for an OSSM sex machine. You are a warm, collaborative partner: you talk WITH the user about exactly how the movement should feel, then turn those wishes into machine settings.
 
 The rail strokes back and forth between a shallow point and a deep point. Each stroke moves in (penetrating) then out (withdrawing).
 
-BASE CONTROLS (all 0-100 unless noted):
-- "Max Pos": deepest point of the stroke. Higher = deeper. Stay conservative unless deep/full is clearly requested.
-- "Min Pos": shallowest point it withdraws to. 0 = fully out, higher = stays deeper. Keep it <= "Max Pos".
-- "In Speed": inward (penetrating) stroke speed, 1-100.
-- "Out Speed": outward (withdrawing) stroke speed, 1-100. Different in/out = teasing.
-- "In Accel": inward motion smoothness. 0 = very smooth, eased, gentle; 100 = sharp, mechanical, abrupt.
-- "Out Accel": outward motion smoothness. Same scale.
-- "Speed": overall stroke rate, 0-100.
-
-TIME-VARYING MODIFIERS (this is the advanced part): any base control can change over several strokes to create build-up, fade, breathing and hold patterns. For each base you may add these optional keys (omit them if that control stays constant):
-- "<Base>Amplitude" (0-100): how much that control swings over the cycle. 100 = full swing, 0 = constant.
-- "<Base>Steps to Max" (1-25): number of strokes to ramp that control up to its peak.
-- "<Base>Steps at Max" (0-25): number of strokes to hold at the peak.
-- "<Base>Steps to Min" (1-25): number of strokes to ramp back down.
-- "<Base>Steps at Min" (0-25): number of strokes to hold at the low point.
-- "<Base>Offset" (0-100): phase shift of the modulation.
-<Base> is one of: Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel. Examples: "Max PosAmplitude" modulates depth, "In SpeedSteps to Max" ramps the inward speed up over strokes, "Max PosSteps at Max" holds the deep point for a few strokes.
-
-EXAMPLES of parameter values (request -> JSON):
-1. "gentle long slow strokes, shallow" -> {"Max Pos":40,"Min Pos":0,"In Speed":25,"Out Speed":25,"In Accel":10,"Out Accel":10,"Speed":25}
-2. "slow deep full strokes" -> {"Max Pos":100,"Min Pos":0,"In Speed":30,"Out Speed":30,"In Accel":15,"Out Accel":15,"Speed":30}
-3. "fast shallow jackhammer" -> {"Max Pos":45,"Min Pos":10,"In Speed":90,"Out Speed":90,"In Accel":80,"Out Accel":80,"Speed":90}
-4. "start slow and shallow, build up to fast and deep, then ease off" -> {"Max Pos":45,"Min Pos":0,"In Speed":30,"Out Speed":30,"In Accel":20,"Out Accel":20,"Speed":30,"Max PosAmplitude":60,"Max PosSteps to Max":4,"Max PosSteps at Max":2,"Max PosSteps to Min":4,"In SpeedAmplitude":50,"In SpeedSteps to Max":4,"In SpeedSteps to Min":4}
-5. "teasing: slow in, quick out" -> {"Max Pos":60,"Min Pos":0,"In Speed":25,"Out Speed":80,"In Accel":15,"Out Accel":50,"Speed":40}
-
 HOW TO CONVERSE:
-- The user may write in any language (English, Dutch, French, German, ...). Reply in the SAME language the user used.
-- Be warm, natural and concise — like a partner talking about what feels good, not a robot. A few short sentences at most.
-- When the user describes a movement, set the values, apply them, tell them briefly what you did, and invite feedback (e.g. "I've set slow, deep strokes — does that feel right?").
-- When the user gives feedback about the movement or about "the graph" (depth, speed, smoothness, rhythm over time), interpret it, ADJUST the values, and explain what you changed.
-- If the request is ambiguous or you're unsure, ask ONE short clarifying question instead of guessing (then use "set": null).
-- Each turn you can see the current device settings; when the user asks to adjust something, start from those and only change what matters.
+- The user may write or speak in any language (English, Dutch, French, German, ...). Reply in the SAME language the user used.
+- Be warm, natural and VERY concise — like a partner talking about what feels good. One or two short sentences at most.
+- When the user asks for a change, apply it and briefly confirm what you did. Invite feedback when starting a new idea.
+- When the user gives feedback about the movement or "the graph" (depth, speed, smoothness, rhythm over time), interpret it, ADJUST the values, and say what you changed.
+- If a request is ambiguous, ask ONE short clarifying question instead of guessing (then use "set": null).
+- "harder"/"faster" raises speed a little, "softer"/"slower" lowers it, "deeper"/"shallower" adjusts depth, "a lot"/"much" makes the change bigger. Adjust incrementally, not to extremes.
+- The machine only moves after the user presses Start. If it is not running you can still set values, but do not claim you started it.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 {"reply":"<your conversational reply, in the user's language>","set":{ ... }}
 - "reply": your natural message to the user.
-- "set": the parameters to apply. Include ALL 7 base keys whenever you change settings. If you are only talking or asking a question and not changing any setting, use "set": null.`;
+- "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.`;
 let aiMessages = [];
 let aiBusy = false;
 let aiListening = null;
@@ -4752,6 +4734,7 @@ function aiToggle() {
   const show = p.style.display === "none";
   p.style.display = show ? "" : "none";
   if (show) { const i = $("aiInput"); if (i) i.focus(); }
+  else aiStopLive();
 }
 
 function aiNormalizeParams(obj) {
@@ -4763,10 +4746,13 @@ function aiNormalizeParams(obj) {
     if (key === "Min Depth") key = "Min Pos";
     norm[key] = obj[k];
   }
-  const baseKeys = ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel", "Speed"];
-  const hasUsable = Object.keys(norm).some(k =>
-    typeof norm[k] === "number" && (baseKeys.includes(k) || MODIFIER_NAMES.some(mn => k.endsWith(mn)))
-  );
+  const baseKeys = ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel", "Speed", "Sensation"];
+  const hasUsable = Object.keys(norm).some(k => {
+    const v = norm[k];
+    if (typeof v === "number") return baseKeys.includes(k) || MODIFIER_NAMES.some(mn => k.endsWith(mn));
+    if (k === "Pattern") return typeof v === "string" || typeof v === "number";
+    return false;
+  });
   return hasUsable ? norm : null;
 }
 
@@ -4786,6 +4772,156 @@ function aiExtractJson(text) {
   return { reply: null, params: aiNormalizeParams(j) };
 }
 
+// ---------- mode context, safety caps, standard-mode apply ----------
+function aiSafetyCaps() {
+  const read = (key) => {
+    try {
+      const r = localStorage.getItem(key);
+      if (r === null || r === "") return 100;
+      const n = parseInt(r, 10);
+      return isNaN(n) ? 100 : clamp(n, 0, 100);
+    } catch (e) { return 100; }
+  };
+  return { maxDepth: read("ossm-ai-max-depth"), maxSpeed: read("ossm-ai-max-speed") };
+}
+function aiCapForKey(key) {
+  const caps = aiSafetyCaps();
+  if (key === "Max Pos" || key === "Min Pos") return caps.maxDepth;
+  if (key === "Speed" || key === "In Speed" || key === "Out Speed") return caps.maxSpeed;
+  return 100;
+}
+function aiCurrentState() {
+  if (appMode === "std") {
+    const pat = stdPatterns.find(p => p.idx === stdValues.pattern);
+    return {
+      "Max Pos": Math.round(stdValues.max),
+      "Min Pos": Math.round(stdValues.min),
+      "Sensation": Math.round(stdValues.sensation),
+      "Pattern": pat ? pat.name : String(stdValues.pattern),
+      "Speed": Math.round(stdValues.speed)
+    };
+  }
+  const cur = {};
+  for (const bn of ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel"]) {
+    cur[bn] = Math.round(sv(bn, 0));
+    for (const mn of MODIFIER_NAMES) {
+      const s = getSetting(bn + mn);
+      if (s) cur[bn + mn] = Math.round(s.value);
+    }
+  }
+  cur["Speed"] = Math.round(sv("SP", 0));
+  return cur;
+}
+function aiModeContext(cur) {
+  const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
+  if (appMode === "std") {
+    const names = stdPatterns.map(p => '"' + p.name + '"').join(", ");
+    return "CURRENT MODE: Standard. In \"set\" you may only use these keys: \"Max Pos\" (depth 0-100), \"Min Pos\" (withdrawal 0-100), \"Speed\" (0-100), \"Sensation\" (0-100), \"Pattern\" (one exact pattern name). Do NOT use In Speed, Out Speed, In Accel, Out Accel or modifier keys in this mode.\n"
+      + "Available patterns: " + names + ".\n"
+      + "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".\n"
+      + "Current settings: " + JSON.stringify(cur);
+  }
+  return "CURRENT MODE: Advanced Penetration. In \"set\" you may use these keys:\n"
+    + "BASE (all 0-100): \"Max Pos\" (depth), \"Min Pos\" (withdrawal, keep <= Max Pos), \"In Speed\", \"Out Speed\", \"In Accel\", \"Out Accel\", \"Speed\".\n"
+    + "OPTIONAL MODIFIERS for changes over time (omit if constant): \"<Base>Amplitude\" (0-100), \"<Base>Steps to Max\" (1-25), \"<Base>Steps at Max\" (0-25), \"<Base>Steps to Min\" (1-25), \"<Base>Steps at Min\" (0-25), \"<Base>Offset\" (0-100), where <Base> is Max Pos, Min Pos, In Speed, Out Speed, In Accel or Out Accel.\n"
+    + "EXAMPLES: slow deep full strokes -> {\"Max Pos\":100,\"Min Pos\":0,\"In Speed\":30,\"Out Speed\":30,\"In Accel\":15,\"Out Accel\":15,\"Speed\":30}; teasing slow-in/quick-out -> {\"Max Pos\":60,\"Min Pos\":0,\"In Speed\":25,\"Out Speed\":80,\"In Accel\":15,\"Out Accel\":50,\"Speed\":40}; build slow/shallow to fast/deep then ease off -> {\"Max Pos\":45,\"Min Pos\":0,\"In Speed\":30,\"Out Speed\":30,\"In Accel\":20,\"Out Accel\":20,\"Speed\":30,\"Max PosAmplitude\":60,\"Max PosSteps to Max\":4,\"Max PosSteps at Max\":2,\"Max PosSteps to Min\":4,\"In SpeedAmplitude\":50,\"In SpeedSteps to Max\":4,\"In SpeedSteps to Min\":4}.\n"
+    + "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".\n"
+    + "Current settings: " + JSON.stringify(cur);
+}
+function aiPatternIndex(raw) {
+  if (typeof raw === "number") {
+    const n = Math.round(raw);
+    return stdPatterns.some(p => p.idx === n) ? n : -1;
+  }
+  const name = String(raw).trim().toLowerCase();
+  if (!name) return -1;
+  const exact = stdPatterns.find(p => p.name.toLowerCase() === name);
+  if (exact) return exact.idx;
+  const prefix = stdPatterns.find(p => p.name.toLowerCase().indexOf(name) === 0);
+  if (prefix) return prefix.idx;
+  if (name.length >= 3) {
+    const partial = stdPatterns.find(p => p.name.toLowerCase().includes(name));
+    if (partial) return partial.idx;
+  }
+  return -1;
+}
+function aiApplyStd(p) {
+  const caps = aiSafetyCaps();
+  const applied = [];
+  const running = stdValues.speed > 0.5;
+  const put = (label, v) => applied.push(label + " " + v);
+  for (const k of Object.keys(p)) {
+    const raw = p[k];
+    if (raw === null || raw === undefined || raw === "") continue;
+    if (k === "Max Pos" || k === "Min Pos") {
+      const v = clamp(Math.round(Number(raw)), 0, caps.maxDepth);
+      if (k === "Max Pos") { stdValues.max = v; stdWrite("set:max:" + v); put("Max Pos", v); }
+      else { stdValues.min = v; stdWrite("set:min:" + v); put("Min Pos", v); }
+    } else if (k === "Speed") {
+      const target = clamp(Math.round(Number(raw)), 0, caps.maxSpeed);
+      const v = running ? target : 0; // never auto-start
+      applySpeedInstant(v);
+      put("Speed", (!running && target > 0) ? "0 (press Start)" : v);
+    } else if (k === "Sensation") {
+      const v = clamp(Math.round(Number(raw)), 0, 100);
+      stdValues.sensation = v; stdWrite("set:sensation:" + v); put("Sensation", v);
+    } else if (k === "Pattern") {
+      const idx = aiPatternIndex(raw);
+      if (idx >= 0) {
+        stdValues.pattern = idx; stdWrite("set:pattern:" + idx);
+        const pat = stdPatterns.find(x => x.idx === idx);
+        put("Pattern", pat ? pat.name : idx);
+      }
+    }
+  }
+  if (stdValues.min > stdValues.max) { stdValues.min = stdValues.max; stdWrite("set:min:" + stdValues.min); }
+  saveStdValues();
+  buildInterface();
+  drawGraph();
+  return applied;
+}
+function aiApplySet(p) {
+  return (appMode === "std") ? aiApplyStd(p) : aiApplyParams(p);
+}
+function aiLocalStd(text) {
+  const t = (text || "").toLowerCase();
+  const p = {};
+  const mentionsPattern = /pattern|patroon/.test(t);
+  const patHit = stdPatterns.find(pt => {
+    const n = (pt.name || "").toLowerCase();
+    if (!n || !t.includes(n)) return false;
+    if (n.indexOf(" ") < 0 && !mentionsPattern) return false; // single-word names are ambiguous
+    return true;
+  });
+  if (patHit) p["Pattern"] = patHit.name;
+  if (/(tease|teasing)/.test(t) && !p["Pattern"]) p["Pattern"] = "Teasing Pounding";
+  if (/(simple stroke|\bsimple\b)/.test(t) && !p["Pattern"]) p["Pattern"] = "Simple Stroke";
+  if (/(lots? deeper|much deeper|balls.?deep|volledig|helemaal diep|veel dieper)/.test(t)) p["Max Pos"] = 90;
+  else if (/(deeper|dieper|deep|diep)/.test(t)) p["Max Pos"] = 70;
+  else if (/(shallow|ondiep|less deep|tip only|minder diep)/.test(t)) p["Max Pos"] = 30;
+  if (/(faster|harder|sneller|quicker)/.test(t)) p["Speed"] = 75;
+  else if (/(slower|slow down|zachter|langzamer)/.test(t)) p["Speed"] = 25;
+  if (/(gentle|soft|zacht|sensual)/.test(t)) p["Speed"] = Math.min(p["Speed"] || 35, 30);
+  const sm = t.match(/(?:sensation|sensatie)\D{0,12}(\d+)/);
+  if (sm) p["Sensation"] = clamp(parseInt(sm[1], 10), 0, 100);
+  return p;
+}
+function aiIsStop(text) {
+  const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  if (t.split(" ").length > 5) return false;
+  return /\b(stop|halt|abort|freeze|stoppen|arrête|arrêt|anhalten|parar|detente|noodstop|emergency stop)\b/.test(t);
+}
+function aiSpeak(text) {
+  try {
+    if (!window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = navigator.language || "en-US";
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  } catch (e) {}
+}
+
 function aiApplyParams(p) {
   const baseMap = { "Max Pos": 0, "Min Pos": 1, "In Speed": 2, "Out Speed": 3, "In Accel": 4, "Out Accel": 5, "Speed": 6 };
   const applied = [];
@@ -4795,7 +4931,8 @@ function aiApplyParams(p) {
     if (baseMap[k] !== undefined) {
       const i = baseMap[k];
       const s = getSetting(baseKey(i));
-      const val = clamp(Math.round(v), s.min, s.max);
+      let val = clamp(Math.round(v), s.min, Math.min(s.max, aiCapForKey(k)));
+      if (k === "Speed" && val > 0 && speed() === 0) val = 0; // never auto-start
       s.value = val;
       settings[baseKey(i)] = s;
       if (i === speedIndex()) writeControlReliable(`${i}:${val},`).catch(() => {});
@@ -4964,27 +5101,29 @@ function aiLocalInterpret(text) {
   return p;
 }
 
-async function aiSend() {
+async function aiSend(opts) {
+  const fromVoice = !!(opts && opts.fromVoice);
   const inp = $("aiInput");
   const text = (inp ? inp.value : "").trim();
   if (!text || aiBusy) return;
+  if (aiIsStop(text)) {
+    if (inp) inp.value = "";
+    aiAddMsg("user", escapeHtml(text));
+    emergencyStop();
+    aiStopLive();
+    aiAddMsg("assistant", "Stopped — you're safe.");
+    aiSpeak("Stopped.");
+    return;
+  }
   aiBusy = true;
   if (inp) inp.value = "";
   aiAddMsg("user", escapeHtml(text));
   const th = aiAddMsg("assistant", "<span class=\"ai-thinking\">Thinking…</span>");
   try {
-    const cur = {};
-    for (const bn of ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel"]) {
-      cur[bn] = Math.round(sv(bn, 0));
-      for (const mn of MODIFIER_NAMES) {
-        const s = getSetting(bn + mn);
-        if (s) cur[bn + mn] = Math.round(s.value);
-      }
-    }
-    cur["Speed"] = Math.round(sv("SP", 0));
+    const cur = aiCurrentState();
     aiMessages.push({ role: "user", content: text });
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\nCurrent device settings (adjust from these): " + JSON.stringify(cur) },
+      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
@@ -4992,15 +5131,23 @@ async function aiSend() {
     if (res.reply || res.params) {
       if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
-      aiMessages.pop(); // drop the failed exchange so it doesn't confuse later turns
+      aiMessages.pop();
     }
-    if (res.reply) aiAddMsg("assistant", escapeHtml(res.reply));
-    if (res.params) aiAddApplied(aiApplyParams(res.params));
+    if (res.reply) {
+      aiAddMsg("assistant", escapeHtml(res.reply));
+      if (aiLive || fromVoice) aiSpeak(res.reply);
+    }
+    if (res.params) aiAddApplied(aiApplySet(res.params));
     if (!res.reply && !res.params) {
-      const local = aiLocalInterpret(text);
+      const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
-        aiAddMsg("assistant", escapeHtml("Offline — I set these based on what you said. Tell me what to adjust."));
-        aiAddApplied(aiApplyParams(local));
+        const applied = aiApplySet(local);
+        if (applied && applied.length) {
+          aiAddMsg("assistant", escapeHtml("Offline — I set these based on what you said. Tell me what to adjust."));
+          aiAddApplied(applied);
+        } else {
+          aiAddMsg("assistant", escapeHtml("Couldn't understand that — try simpler wording (e.g. \"slow deep full strokes\")."));
+        }
       } else {
         aiAddMsg("assistant", escapeHtml("Couldn't understand that — try simpler wording (e.g. \"slow deep full strokes\")."));
       }
@@ -5028,7 +5175,7 @@ function aiVoice() {
     if (text && text.trim()) {
       const inp = $("aiInput");
       if (inp) inp.value = text.trim();
-      aiSend();
+      aiSend({ fromVoice: true });
     }
   };
   rec.onerror = (e) => {
@@ -5043,6 +5190,69 @@ function aiVoice() {
     if (mic) { mic.textContent = "🎤"; mic.classList.remove("recording"); }
   };
   try { rec.start(); } catch (e) { aiAddMsg("system", "Couldn't start the microphone."); }
+}
+
+// ---------- continuous "live" listening (hands-free) ----------
+let aiLive = false;
+let aiLiveRec = null;
+function aiStopLive() {
+  aiLive = false;
+  if (aiLiveRec) { try { aiLiveRec.stop(); } catch (e) {} aiLiveRec = null; }
+  const btn = $("aiLive");
+  if (btn) btn.classList.remove("active");
+}
+function aiLiveToggle() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { aiAddMsg("system", "Voice input isn't supported in this browser."); return; }
+  if (aiLive) { aiStopLive(); aiAddMsg("system", "Listening off."); return; }
+  if (!connected && !demoMode) { aiAddMsg("system", "Connect to the OSSM first."); return; }
+  aiLive = true;
+  const btn = $("aiLive");
+  if (btn) btn.classList.add("active");
+  aiAddMsg("system", "Listening — talk to me. Say \"stop\" any time.");
+  aiLiveStartRecognition();
+}
+function aiLiveStartRecognition() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!aiLive || !SR) return;
+  const rec = new SR();
+  rec.lang = navigator.language || "en-US";
+  rec.continuous = true;
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  aiLiveRec = rec;
+  rec.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (!r || !r.isFinal) continue;
+      const text = ((r[0] && r[0].transcript) || "").trim();
+      if (text) aiProcessVoice(text);
+    }
+  };
+  rec.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      aiStopLive();
+      aiAddMsg("system", "Microphone access was denied.");
+    }
+  };
+  rec.onend = () => {
+    aiLiveRec = null;
+    if (aiLive) setTimeout(() => { if (aiLive) aiLiveStartRecognition(); }, 400);
+  };
+  try { rec.start(); } catch (e) {}
+}
+function aiProcessVoice(text) {
+  if (aiIsStop(text)) {
+    aiAddMsg("user", escapeHtml(text));
+    emergencyStop();
+    aiStopLive();
+    aiAddMsg("assistant", "Stopped — you're safe.");
+    aiSpeak("Stopped.");
+    return;
+  }
+  const inp = $("aiInput");
+  if (inp) inp.value = text;
+  aiSend({ fromVoice: true });
 }
 
 (function wireAiAssistant() {
@@ -5060,6 +5270,22 @@ function aiVoice() {
   if (mic) {
     if (window.SpeechRecognition || window.webkitSpeechRecognition) mic.onclick = aiVoice;
     else mic.style.display = "none";
+  }
+  const liveBtn = $("aiLive");
+  if (liveBtn) {
+    if (window.SpeechRecognition || window.webkitSpeechRecognition) liveBtn.onclick = aiLiveToggle;
+    else liveBtn.style.display = "none";
+  }
+  const maxDepthInp = $("aiMaxDepth");
+  const maxSpeedInp = $("aiMaxSpeed");
+  const readCap = (key) => { try { const r = localStorage.getItem(key); if (r === null || r === "") return 100; const n = parseInt(r, 10); return isNaN(n) ? 100 : clamp(n, 0, 100); } catch (e) { return 100; } };
+  if (maxDepthInp) {
+    maxDepthInp.value = readCap("ossm-ai-max-depth");
+    maxDepthInp.addEventListener("change", () => { const n = parseInt(maxDepthInp.value, 10); try { localStorage.setItem("ossm-ai-max-depth", isNaN(n) ? 100 : clamp(n, 0, 100)); } catch (e) {} });
+  }
+  if (maxSpeedInp) {
+    maxSpeedInp.value = readCap("ossm-ai-max-speed");
+    maxSpeedInp.addEventListener("change", () => { const n = parseInt(maxSpeedInp.value, 10); try { localStorage.setItem("ossm-ai-max-speed", isNaN(n) ? 100 : clamp(n, 0, 100)); } catch (e) {} });
   }
   const syncAiSettingsUI = () => {
     const s = aiProviderSettings();
