@@ -152,6 +152,57 @@ function extractVideo(html) {
   return { error: "No direct video URL found in this page." };
 }
 
+// ---- Funscripthub proxy (free JSON API, no auth) ----
+const HUB_OPENAPI = "https://www.funscripthub.com/app/openapi/";
+async function handleHub(url) {
+  const action = url.searchParams.get("hub");
+  const api = new URL(HUB_OPENAPI + action);
+  for (const [k, v] of url.searchParams) {
+    if (k !== "hub") api.searchParams.set(k, v);
+  }
+  try {
+    const res = await fetch(api.toString(), { headers: { "User-Agent": UA, Accept: "application/json" } });
+    if (!res.ok) return json({ error: "Funscripthub status " + res.status }, 502);
+    const text = await res.text();
+    return new Response(text, { status: 200, headers: { "Content-Type": "application/json; charset=utf-8", "Access-Control-Allow-Origin": "*" } });
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 500);
+  }
+}
+
+// ---- Gofile resolver (best effort; folder listings require Premium) ----
+async function handleGofile(code) {
+  if (!code) return json({ error: "Missing gofile code" }, 400);
+  try {
+    const acct = await fetch("https://api.gofile.io/accounts", {
+      method: "POST",
+      headers: { "User-Agent": UA, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    let token = "";
+    try { const aj = await acct.json(); token = (aj && aj.data && aj.data.token) || ""; } catch (e) {}
+    if (!token) return json({ error: "gofile-token" }, 502);
+    const c = await fetch("https://api.gofile.io/contents/" + encodeURIComponent(code), {
+      headers: { "User-Agent": UA, Authorization: "Bearer " + token },
+    });
+    const cj = await c.json().catch(() => ({}));
+    if (cj && cj.status === "error-notPremium") return json({ error: "gofile-premium" }, 402);
+    if (cj && cj.status && cj.status !== "ok") return json({ error: String(cj.status) }, 502);
+    const data = (cj && cj.data) || {};
+    const files = [];
+    const walk = (node) => {
+      if (!node) return;
+      if (node.type === "file") files.push({ name: node.name || "", size: node.size || 0, link: node.link || node.directLink || "" });
+      if (node.children && typeof node.children === "object") for (const k in node.children) walk(node.children[k]);
+    };
+    walk(data);
+    if (!files.length) return json({ error: "gofile-empty" }, 404);
+    return json({ files }, 200);
+  } catch (e) {
+    return json({ error: String((e && e.message) || e) }, 500);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -178,6 +229,9 @@ export default {
       if (request.method === "HEAD") return new Response(null, { status: res.status, headers: res.headers });
       return res;
     }
+
+    if (url.searchParams.get("hub")) return handleHub(url);
+    if (url.searchParams.get("gofile")) return handleGofile(url);
 
     const target = url.searchParams.get("url");
     if (!target) return json({ error: "Missing ?url= for extraction, or use PUT /upload/<name> to host a local video." }, 400);

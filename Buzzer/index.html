@@ -320,6 +320,24 @@
   .watch-favs .fun-row { margin-bottom: 4px; }
   .watch-favs .fun-btn { font-size: .72rem; padding: 6px 8px; }
   .watch-body .fun-cast-overlay { position: static; inset: auto; }
+  .online-videos { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
+  .online-videos summary { list-style: none; cursor: pointer; user-select: none; font-size: .8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; }
+  .online-videos summary::-webkit-details-marker { display: none; }
+  .online-videos summary::after { content: "▾"; font-size: .7rem; }
+  .online-videos[open] summary { margin-bottom: 8px; }
+  .online-videos[open] summary::after { content: "▴"; }
+  .online-body { display: flex; flex-direction: column; gap: 8px; }
+  .online-controls { display: flex; flex-direction: column; gap: 6px; }
+  .online-controls input, .online-controls select { background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; width: 100%; box-sizing: border-box; }
+  .online-results { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
+  .online-item { display: flex; align-items: center; gap: 8px; background: #111827; border: 1px solid var(--border-color); border-radius: 8px; padding: 6px; }
+  .online-thumb { width: 64px; height: 40px; object-fit: cover; border-radius: 4px; background: #0b0f19; flex: 0 0 auto; }
+  .online-info { flex: 1 1 auto; min-width: 0; }
+  .online-title { font-size: .74rem; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .online-meta { font-size: .66rem; color: #94a3b8; margin-top: 2px; }
+  .online-load { flex: 0 0 auto; background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 6px 10px; font-size: .72rem; font-weight: bold; cursor: pointer; }
+  .online-note { font-size: .72rem; color: #94a3b8; padding: 8px 2px; }
+  .online-more { display: flex; justify-content: center; }
   #presetList { display: flex; gap: 8px; align-items: center; }
   #presetList select { flex: 1; width: auto; min-width: 0; }
   #presetList button { background: #2563eb; color: #fff; border: none; border-radius: 6px; padding: 8px 12px; font-weight: bold; cursor: pointer; white-space: nowrap; }
@@ -590,6 +608,18 @@
         <input type="text" id="presetName" placeholder="New preset name" />
         <button id="btnSavePreset">Save</button>
         <button id="btnFactoryReset" class="danger">Reset</button>
+      </div>
+    </details>
+
+    <details class="online-videos" id="onlineVideos">
+      <summary>🌐 Online videos</summary>
+      <div class="online-body">
+        <div class="online-controls">
+          <input type="text" id="onlineTagFilter" placeholder="Filter tags…">
+          <select id="onlineTagSelect"><option value="">All videos</option></select>
+        </div>
+        <div class="online-results" id="onlineResults"></div>
+        <div class="online-more" id="onlineMore" style="display:none;"><button class="ble-btn small" id="onlineMoreBtn" type="button">More…</button></div>
       </div>
     </details>
 
@@ -4631,6 +4661,205 @@ if (modeMenuEl) {
   });
 }
 document.addEventListener("click", () => setModeMenuOpen(false));
+
+// ================= Online videos (Funscripthub) =================
+let onlineTags = [];
+let onlineSelectedTag = "";
+let onlinePage = 1;
+let onlineBusy = false;
+let onlineHasMore = true;
+let onlineStarted = false;
+
+async function onlineFetch(params) {
+  const base = workerBaseUrl();
+  if (base) {
+    const qs = new URLSearchParams(params);
+    const r = await fetch(base + "?" + qs.toString());
+    if (!r.ok) throw new Error("hub status " + r.status);
+    return await r.json();
+  }
+  const api = new URL("https://www.funscripthub.com/app/openapi/" + params.hub);
+  for (const [k, v] of Object.entries(params)) if (k !== "hub") api.searchParams.set(k, v);
+  try { const r = await fetch(api.toString()); if (r.ok) return await r.json(); } catch (e) {}
+  const proxies = ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest=", "https://corsproxy.io/?url="];
+  for (const p of proxies) {
+    try { const r = await fetch(p + encodeURIComponent(api.toString())); if (r.ok) return await r.json(); } catch (e) {}
+  }
+  throw new Error("Online videos need your extractor worker (⚙) — set it and retry.");
+}
+
+async function onlineLoadTags() {
+  try {
+    const tags = await onlineFetch({ hub: "getAllTags" });
+    onlineTags = Array.isArray(tags) ? tags : [];
+    renderOnlineTagSelect();
+  } catch (e) {
+    funLog("Online tags failed: " + (e && e.message ? e.message : e));
+  }
+}
+
+function renderOnlineTagSelect() {
+  const sel = $("onlineTagSelect");
+  if (!sel) return;
+  const filter = ($("onlineTagFilter") ? $("onlineTagFilter").value : "").trim().toLowerCase();
+  const opts = onlineTags.filter(t => !filter || (t.tagname || "").toLowerCase().includes(filter));
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const all = document.createElement("option");
+  all.value = ""; all.textContent = "All videos";
+  sel.appendChild(all);
+  for (const t of opts) {
+    const o = document.createElement("option");
+    o.value = String(t.id); o.textContent = t.tagname + " (" + t.icount + ")";
+    sel.appendChild(o);
+  }
+  sel.value = prev && onlineTags.some(t => String(t.id) === prev) ? prev : "";
+}
+
+async function onlineLoadResults(reset) {
+  if (onlineBusy) return;
+  const box = $("onlineResults");
+  if (!box) return;
+  if (reset) { onlinePage = 1; onlineHasMore = true; box.innerHTML = ""; }
+  onlineBusy = true;
+  const note = document.createElement("div");
+  note.className = "online-note"; note.textContent = "Loading…";
+  box.appendChild(note);
+  try {
+    const params = { hub: "getVideos", page: String(onlinePage) };
+    if (onlineSelectedTag) params.tag = onlineSelectedTag;
+    const items = await onlineFetch(params);
+    note.remove();
+    if (!Array.isArray(items) || !items.length) {
+      onlineHasMore = false;
+      if (reset) { const e = document.createElement("div"); e.className = "online-note"; e.textContent = "No videos found for this tag."; box.appendChild(e); }
+    } else {
+      for (const it of items) box.appendChild(onlineItemEl(it));
+      onlineHasMore = true;
+      onlinePage++;
+    }
+    const more = $("onlineMore");
+    if (more) more.style.display = onlineHasMore ? "" : "none";
+  } catch (e) {
+    note.remove();
+    const err = document.createElement("div");
+    err.className = "online-note"; err.textContent = "Could not reach Funscripthub: " + ((e && e.message) || e);
+    box.appendChild(err);
+  }
+  onlineBusy = false;
+}
+
+function onlineItemEl(it) {
+  const row = document.createElement("div");
+  row.className = "online-item";
+  const img = document.createElement("img");
+  img.className = "online-thumb";
+  img.loading = "lazy";
+  img.src = "https://funbase8a9d.blob.core.windows.net/images/small_" + (it.imageurl || "");
+  img.alt = "";
+  img.onerror = () => { img.style.visibility = "hidden"; };
+  const info = document.createElement("div");
+  info.className = "online-info";
+  const title = document.createElement("div");
+  title.className = "online-title"; title.textContent = it.title || "";
+  const meta = document.createElement("div");
+  meta.className = "online-meta";
+  meta.textContent = (it.duration && it.duration !== "00:00:00" ? it.duration + " · " : "") + (it.username || "");
+  info.appendChild(title); info.appendChild(meta);
+  const load = document.createElement("button");
+  load.type = "button"; load.className = "online-load"; load.textContent = "Load";
+  load.onclick = () => onlineLoadVideo(it.id);
+  row.appendChild(img); row.appendChild(info); row.appendChild(load);
+  return row;
+}
+
+async function onlineResolveVideo(links) {
+  for (const link of links) {
+    if (!link) continue;
+    if (/\.(mp4|m3u8|webm|m4v|mov)([?#]|$)/i.test(link)) return link;
+    const g = String(link).match(/gofile\.io\/d\/([A-Za-z0-9]+)/i);
+    if (g) {
+      const base = workerBaseUrl();
+      if (!base) continue;
+      try {
+        const r = await fetch(base + "?gofile=" + encodeURIComponent(g[1]));
+        const res = await r.json().catch(() => ({}));
+        if (res && res.files && res.files.length) {
+          const f = res.files.find(x => /\.(mp4|m3u8|webm|m4v|mov)([?#]|$)/i.test(x.link || x.name || ""));
+          if (f && f.link) return f.link;
+        }
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
+async function onlineLoadVideo(id) {
+  funLog("Loading Funscripthub entry…");
+  try {
+    const d = await onlineFetch({ hub: "getDetail", id: String(id) });
+    if (!d || !d.title) throw new Error("detail unavailable");
+    const scriptUrl = (d.scripts && d.scripts[0] && d.scripts[0].url) || null;
+    const links = (d.videos || []).map(v => v.url);
+    const video = await onlineResolveVideo(links);
+    if (appMode === "fun") {
+      if (scriptUrl) await loadFunscriptUrl(scriptUrl);
+      if (video) {
+        const inp = $("funPhId");
+        if (inp) inp.value = video;
+        await loadVideoUrl(video);
+      } else {
+        funLog("Video link not directly castable (gofile Premium / expired) — funscript loaded anyway.");
+      }
+    } else {
+      if (video) {
+        setWatchVideo(video, d.title, null);
+        log("Video loaded — press Cast to TV.");
+      } else {
+        log("This video is not directly castable (gofile Premium / link expired).");
+      }
+    }
+  } catch (e) {
+    funLog("Online load failed: " + (e && e.message ? e.message : e));
+  }
+}
+
+async function loadFunscriptUrl(url) {
+  try {
+    let text = null;
+    try { const r = await fetch(url); if (r.ok) text = await r.text(); } catch (e) {}
+    if (text == null) {
+      for (const p of ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest="]) {
+        try { const r = await fetch(p + encodeURIComponent(url)); if (r.ok) { text = await r.text(); break; } } catch (e) {}
+      }
+    }
+    if (text == null) throw new Error("script unreachable");
+    const j = JSON.parse(text);
+    funState.scriptName = (url.split("/").pop() || "script").split("?")[0];
+    funState.rawActions = (j.actions || []).filter(a => a && typeof a.at === "number" && typeof a.pos === "number").sort((a, b) => a.at - b.at);
+    funState.offsetMs = 0;
+    applyRememberedOffset();
+    rebuildFunscript();
+    updateOffsetUI();
+    funLog("Funscript loaded (" + funState.rawActions.length + " pts).");
+  } catch (e) {
+    funLog("Funscript load failed: " + (e && e.message ? e.message : e));
+  }
+}
+
+(function wireOnlineVideos() {
+  const f = $("onlineTagFilter");
+  const sel = $("onlineTagSelect");
+  const more = $("onlineMoreBtn");
+  const ov = $("onlineVideos");
+  if (f) f.addEventListener("input", renderOnlineTagSelect);
+  if (sel) sel.addEventListener("change", () => { onlineSelectedTag = sel.value; onlineLoadResults(true); });
+  if (more) more.onclick = () => onlineLoadResults(false);
+  if (ov) ov.addEventListener("toggle", () => {
+    if (ov.open && !onlineStarted) { onlineStarted = true; onlineLoadResults(true); }
+  });
+  onlineLoadTags();
+})();
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
 function setDemoMode(on) {
