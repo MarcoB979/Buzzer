@@ -572,10 +572,10 @@
       <div class="ai-title">✨ Describe the movement you want</div>
       <div class="ai-history" id="aiHistory"></div>
       <div class="ai-row">
-        <input type="text" id="aiInput" placeholder="e.g. slow, deep, full strokes with a teasing feel">
+        <input type="text" id="aiInput" placeholder="e.g. slow deep strokes, or build from slow to fast">
         <button class="ble-btn small" id="aiSend" type="button">Go</button>
       </div>
-      <div class="ai-note">Sets Speed, Max/Min depth and In/Out speed + acceleration. Free, no login.</div>
+      <div class="ai-note">Sets depth, speed, acceleration and time-varying patterns. Free, no login.</div>
     </div>
 
     <div class="visualizer-area">
@@ -4678,20 +4678,35 @@ function syncModeDropdown() {
 }
 
 // ---------- Advanced-mode AI movement assistant (free, no-key Pollinations) ----------
-const AI_SYSTEM = `You interpret movement requests for an OSSM sex machine in Advanced Penetration mode.
-The machine drives a rail back and forth in a smooth stroke between a shallow point and a deep point.
+const AI_SYSTEM = `You are the movement assistant for an OSSM sex machine's Advanced Penetration mode.
+The rail strokes back and forth between a shallow point and a deep point. Each stroke moves in (penetrating) then out (withdrawing).
 
-Controls (all numeric):
-- "Max Pos": the deepest point of the stroke, 0-100. Higher = deeper penetration. SAFETY: depth is the main risk — stay conservative (low) unless the user clearly asks for deep or full strokes.
-- "Min Pos": the shallowest point it withdraws to, 0-100. 0 = fully out, higher = the stroke stays deeper. Keep it <= "Max Pos". Stroke length = Max Pos minus Min Pos.
-- "In Speed": speed of the inward (penetrating) stroke, 1-100.
-- "Out Speed": speed of the outward (withdrawing) stroke, 1-100. Setting In and Out differently gives a teasing feel (e.g. slow in, fast out).
-- "In Accel": how smooth vs abrupt the inward stroke is, 0-100. Low = smooth, eased, gentle (sine-like); high = sharp, mechanical, immediate direction changes.
-- "Out Accel": same for the outward stroke, 0-100.
-- "Speed": the overall stroke rate, 0-100 (master speed over everything).
-There are also advanced modifiers (amplitude, dwell steps, offset) that make the rail pause or hold at the ends — ignore those unless the user explicitly asks for pauses or holds.
+BASE CONTROLS (all 0-100 unless noted):
+- "Max Pos": deepest point of the stroke. Higher = deeper (riskier). Stay conservative unless deep/full is clearly requested.
+- "Min Pos": shallowest point it withdraws to. 0 = fully out, higher = stays deeper. Keep it <= "Max Pos".
+- "In Speed": inward (penetrating) stroke speed, 1-100.
+- "Out Speed": outward (withdrawing) stroke speed, 1-100. Different in/out = teasing.
+- "In Accel": inward motion smoothness. 0 = very smooth, eased, gentle; 100 = sharp, mechanical, abrupt.
+- "Out Accel": outward motion smoothness. Same scale.
+- "Speed": overall stroke rate, 0-100.
 
-Reply with ONLY a JSON object using exactly those 7 keys and numeric values. No prose, no markdown fences.`;
+TIME-VARYING MODIFIERS (this is the advanced part): any base control can change over several strokes to create build-up, fade, breathing and hold patterns. For each base you may add these optional keys (omit them if that control stays constant):
+- "<Base>Amplitude" (0-100): how much that control swings over the cycle. 100 = full swing, 0 = constant.
+- "<Base>Steps to Max" (1-25): number of strokes to ramp that control up to its peak.
+- "<Base>Steps at Max" (0-25): number of strokes to hold at the peak.
+- "<Base>Steps to Min" (1-25): number of strokes to ramp back down.
+- "<Base>Steps at Min" (0-25): number of strokes to hold at the low point.
+- "<Base>Offset" (0-100): phase shift of the modulation.
+<Base> is one of: Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel. Examples: "Max PosAmplitude" modulates depth, "In SpeedSteps to Max" ramps the inward speed up over strokes, "Max PosSteps at Max" holds the deep point for a few strokes.
+
+EXAMPLES (request -> JSON):
+1. "gentle long slow strokes, shallow" -> {"Max Pos":40,"Min Pos":0,"In Speed":25,"Out Speed":25,"In Accel":10,"Out Accel":10,"Speed":25}
+2. "slow deep full strokes" -> {"Max Pos":100,"Min Pos":0,"In Speed":30,"Out Speed":30,"In Accel":15,"Out Accel":15,"Speed":30}
+3. "fast shallow jackhammer" -> {"Max Pos":45,"Min Pos":10,"In Speed":90,"Out Speed":90,"In Accel":80,"Out Accel":80,"Speed":90}
+4. "start slow and shallow, build up to fast and deep, then ease off" -> {"Max Pos":45,"Min Pos":0,"In Speed":30,"Out Speed":30,"In Accel":20,"Out Accel":20,"Speed":30,"Max PosAmplitude":60,"Max PosSteps to Max":4,"Max PosSteps at Max":2,"Max PosSteps to Min":4,"In SpeedAmplitude":50,"In SpeedSteps to Max":4,"In SpeedSteps to Min":4}
+5. "teasing: slow in, quick out" -> {"Max Pos":60,"Min Pos":0,"In Speed":25,"Out Speed":80,"In Accel":15,"Out Accel":50,"Speed":40}
+
+Reply with ONLY a JSON object: always include the 7 base keys, plus any modifier keys needed to express changes over time. No prose, no markdown fences.`;
 let aiMessages = [];
 let aiBusy = false;
 
@@ -4722,15 +4737,38 @@ function aiExtractJson(text) {
 }
 
 function aiApplyParams(p) {
-  const map = { "Max Pos": 0, "Min Pos": 1, "In Speed": 2, "Out Speed": 3, "In Accel": 4, "Out Accel": 5, "Speed": 6 };
+  const baseMap = { "Max Pos": 0, "Min Pos": 1, "In Speed": 2, "Out Speed": 3, "In Accel": 4, "Out Accel": 5, "Speed": 6 };
   const applied = [];
-  for (const k of Object.keys(map)) {
+  for (const k of Object.keys(p)) {
     const v = p[k];
-    if (typeof v === "number" && isFinite(v)) {
-      setBase(map[k], v);
-      applied.push(k + " " + Math.round(v));
+    if (typeof v !== "number" || !isFinite(v)) continue;
+    if (baseMap[k] !== undefined) {
+      const i = baseMap[k];
+      const s = getSetting(baseKey(i));
+      const val = clamp(Math.round(v), s.min, s.max);
+      s.value = val;
+      settings[baseKey(i)] = s;
+      if (i === speedIndex()) writeControlReliable(`${i}:${val},`).catch(() => {});
+      else writeControl(`${i}:${val},`).catch(() => {});
+      applied.push(k + " " + val);
+    } else {
+      for (let bi = 0; bi < BASE_NAMES.length; bi++) {
+        const bname = BASE_NAMES[bi];
+        if (k === bname || k.indexOf(bname) !== 0) continue;
+        const mi = MODIFIER_NAMES.indexOf(k.slice(bname.length));
+        if (mi < 0) continue;
+        const key = modifierKey(bi, mi);
+        const s = getSetting(key);
+        const val = clamp(Math.round(v), s.min, s.max);
+        s.value = val;
+        settings[key] = s;
+        writeControl(`${bi}:${mi}:${val},`).catch(() => {});
+        applied.push(k + " " + val);
+        break;
+      }
     }
   }
+  buildInterface();
   return applied;
 }
 
@@ -4759,18 +4797,19 @@ async function aiSend() {
   aiAddMsg("user", escapeHtml(text));
   const th = aiAddMsg("assistant", "<span class=\"ai-thinking\">Thinking…</span>");
   try {
-    const cur = {
-      "Max Pos": Math.round(sv("Max Pos", 0)),
-      "Min Pos": Math.round(sv("Min Pos", 0)),
-      "In Speed": Math.round(sv("In Speed", 0)),
-      "Out Speed": Math.round(sv("Out Speed", 0)),
-      "In Accel": Math.round(sv("In Accel", 0)),
-      "Out Accel": Math.round(sv("Out Accel", 0)),
-      "Speed": Math.round(sv("SP", 0))
-    };
+    const cur = {};
+    for (const bn of ["Max Pos", "Min Pos", "In Speed", "Out Speed", "In Accel", "Out Accel"]) {
+      cur[bn] = Math.round(sv(bn, 0));
+      for (const mn of MODIFIER_NAMES) {
+        const s = getSetting(bn + mn);
+        if (s) cur[bn + mn] = Math.round(s.value);
+      }
+    }
+    cur["Speed"] = Math.round(sv("SP", 0));
     aiMessages.push({ role: "user", content: text });
     const body = JSON.stringify({
       model: "openai",
+      jsonMode: true,
       messages: [
         { role: "system", content: AI_SYSTEM + "\nCurrent device settings (start from these when the user asks to adjust): " + JSON.stringify(cur) },
         ...aiMessages
