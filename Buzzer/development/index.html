@@ -660,7 +660,7 @@
         <div id="aiKeyRow" style="display:none;">
           <label class="ai-set-label" for="aiKey">DeepSeek API key</label>
           <input type="password" id="aiKey" placeholder="sk-…" autocomplete="off">
-          <div class="ai-set-hint">Routed through your own Worker, so the key bills your DeepSeek account directly (no extra account). Also set your Worker URL under ⚙ if you haven't.</div>
+          <div class="ai-set-hint">Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.</div>
         </div>
       </div>
     </details>
@@ -4827,12 +4827,10 @@ function aiProviderSettings() {
 }
 
 async function aiCallDeepSeek(messages, key) {
-  const base = workerBaseUrl();
-  if (!base) return { raw: "", params: null, error: "no Worker URL — set it under ⚙ (your DeepSeek key is relayed through your own worker)" };
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const body = JSON.stringify({ model: "deepseek-chat", messages, response_format: { type: "json_object" } });
-      const r = await fetch(base + "/?deepseek=1", {
+      const r = await fetch("https://api.deepseek.com/chat/completions", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
         body
@@ -4845,9 +4843,9 @@ async function aiCallDeepSeek(messages, key) {
         if (params) return { raw: content, params, error: null };
       }
     } catch (e) {}
-    if (attempt === 0) await sleepMs(1500);
+    if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", params: null, error: "DeepSeek request failed — check your API key and Worker URL" };
+  return { raw: "", params: null, error: "DeepSeek request failed — check your API key" };
 }
 
 async function aiCall(messages) {
