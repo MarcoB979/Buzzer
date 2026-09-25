@@ -4810,9 +4810,15 @@ async function onlineResolveVideo(links) {
 }
 
 async function onlineLoadVideo(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; btn._t = (btn._t || 0) + 1; }
   funLog("Loading Funscripthub entry…");
-  const done = (label) => { if (btn) { btn.textContent = label; btn.disabled = false; } };
+  const done = (label) => {
+    if (!btn) return;
+    btn.textContent = label;
+    btn.disabled = false;
+    const t = btn._t || 0;
+    setTimeout(() => { if (btn && (btn._t || 0) === t && !btn.disabled) btn.textContent = "Load"; }, 3000);
+  };
   try {
     const d = await onlineFetch({ hub: "getDetail", id: String(id) });
     if (!d || !d.title) throw new Error("detail unavailable");
@@ -4828,11 +4834,11 @@ async function onlineLoadVideo(id, btn) {
         await loadVideoUrl(video);
         done(scriptLoaded ? "Script + video ✓" : "Video ✓");
       } else if (scriptLoaded) {
-        funLog("Funscript loaded — no playable video link (gofile expired/Premium).");
+        funLog("Funscript loaded — no playable video (gofile link expired). Paste a video URL above if you have one.");
         done("Script ✓");
       } else if (scriptUrl) {
         downloadScript(scriptUrl);
-        funLog("Script host blocks auto-load, so I saved it to your Downloads — then tap 'Load Funscript' and pick that file.");
+        funLog("Script saved to Downloads — no playable video (gofile link expired). Tap 'Load Funscript' to open the script, and paste a video URL above if you have one.");
         done("Saved ⤓");
       } else {
         funLog("No playable video link and no script available.");
