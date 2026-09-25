@@ -57,7 +57,7 @@ function waitIceComplete(pc, timeoutMs) {
 }
 function setStatus(s) { statusEl.textContent = s; }
 function pushStatus() {
-  send({ type: "status", t: video.currentTime || 0, playing: !video.paused, duration: video.duration || 0 });
+  send({ type: "status", v: 3, t: video.currentTime || 0, playing: !video.paused, duration: video.duration || 0 });
 }
 setInterval(pushStatus, 250);
 // Safety net: if MSE never actually starts playing, fall back to whole-file buffering.
@@ -282,7 +282,7 @@ function onMessage(event) {
         .then(() => localPc.createAnswer())
         .then(a => localPc.setLocalDescription(a))
         .then(() => waitIceComplete(localPc, 1500))
-        .then(() => { answered = true; answering = false; send({ type: "answer", sdp: localPc.localDescription.sdp }); setStatus("Answered — connecting…"); })
+        .then(() => { answered = true; answering = false; send({ type: "answer", v: 3, sdp: localPc.localDescription.sdp }); setStatus("Answered — connecting…"); })
         .catch(e => { answering = false; send({ type: "error", msg: "Signaling failed: " + (e && e.message) }); });
     } else if (m.type === "seek") {
       try { video.currentTime = Math.max(0, m.t || 0); } catch (e) {}
