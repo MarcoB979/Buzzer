@@ -334,6 +334,8 @@
   .online-src-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; font-weight: bold; }
   .ero-search-row { display: flex; gap: 6px; }
   .ero-search-row input { flex: 1 1 auto; min-width: 0; }
+  .ero-creds { display: flex; flex-direction: column; gap: 6px; }
+  .ero-hint { font-size: .66rem; color: #94a3b8; padding: 2px; }
   .online-results { display: flex; flex-direction: column; gap: 6px; max-height: 420px; overflow-y: auto; }
   .online-item { display: flex; flex-direction: column; align-items: stretch; gap: 6px; background: #111827; border: 1px solid var(--border-color); border-radius: 8px; padding: 8px; }
   .online-title { font-size: .9rem; color: #e2e8f0; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -633,6 +635,11 @@
             <input type="text" id="eroSearch" placeholder="Search funscripts… (scene, actress, JAV code)">
             <button type="button" id="eroSearchBtn" class="ble-btn small">Search</button>
           </div>
+          <div class="ero-creds">
+            <input type="text" id="eroUser" placeholder="EroScripts username" autocomplete="username">
+            <input type="password" id="eroKey" placeholder="EroScripts API key" autocomplete="off">
+          </div>
+          <div class="ero-hint">Get an API key at EroScripts → your avatar → Settings → API keys. It lets the app download scripts as you.</div>
         </div>
         <div class="online-results" id="onlineResults"></div>
         <div class="online-more" id="onlineMore" style="display:none;"><button class="ble-btn small" id="onlineMoreBtn" type="button">More…</button></div>
@@ -4853,17 +4860,85 @@ function eroItemEl(t) {
   meta.className = "online-meta";
   meta.textContent = ((t.posts_count ? t.posts_count + " replies · " : "") + (t.last_poster_username || ""));
   const get = document.createElement("button");
-  get.type = "button"; get.className = "online-load"; get.textContent = "Open topic";
-  get.onclick = () => eroOpenTopic(t.id, get);
+  get.type = "button"; get.className = "online-load"; get.textContent = "Get script";
+  get.onclick = () => eroGetScript(t.id, get);
   bottom.appendChild(meta); bottom.appendChild(get);
   row.appendChild(title); row.appendChild(bottom);
   return row;
 }
 
-function eroOpenTopic(topicId, btn) {
-  if (btn) { btn.textContent = "Opened ✓"; btn.disabled = false; }
-  funLog("EroScripts needs a login to download files, so this opens the topic — sign in there and download the script, then load it with 'Load Funscript'.");
-  try { window.open("https://discuss.eroscripts.com/t/" + topicId, "_blank"); } catch (e) {}
+function eroCreds() {
+  const user = ($("eroUser") ? $("eroUser").value : "").trim();
+  const key = ($("eroKey") ? $("eroKey").value : "").trim();
+  return { user, key };
+}
+
+async function eroCollectScriptUrls(topicId) {
+  const out = [];
+  const seen = new Set();
+  const collect = (posts) => {
+    for (const p of posts || []) {
+      const re = /href="([^"]+)"/gi;
+      let m;
+      while ((m = re.exec(p.cooked || ""))) {
+        let u = m[1].replace(/&amp;/g, "&");
+        if (/\.funscript(\?|#|$)/i.test(u)) {
+          if (u.startsWith("/")) u = "https://discuss.eroscripts.com" + u;
+          if (!seen.has(u)) { seen.add(u); out.push(u); }
+        }
+      }
+    }
+  };
+  try {
+    const first = await jinaGetJson("https://discuss.eroscripts.com/t/" + topicId + ".json");
+    const postsCount = first.posts_count || 0;
+    const chunk = first.chunk_size || 20;
+    collect(first.post_stream && first.post_stream.posts);
+    let offset = chunk;
+    const cap = Math.min(postsCount, 120);
+    while (!out.length && offset < cap) {
+      const j = await jinaGetJson("https://discuss.eroscripts.com/t/" + topicId + "/" + offset + ".json");
+      collect(j.post_stream && j.post_stream.posts);
+      offset += chunk;
+    }
+  } catch (e) {}
+  return out;
+}
+
+async function eroGetScript(topicId, btn) {
+  const creds = eroCreds();
+  if (!creds.user || !creds.key) {
+    funLog("Add your EroScripts username + API key above, then tap 'Get script' again.");
+    if (btn) btn.textContent = "Add login";
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "Fetching…"; }
+  funLog("Downloading the funscript with your EroScripts account…");
+  const done = (label) => { if (btn) { btn.textContent = label; btn.disabled = false; } };
+  try {
+    const urls = await eroCollectScriptUrls(topicId);
+    if (!urls.length) {
+      funLog("No .funscript attached in this topic — opening it so you can grab the file there.");
+      try { window.open("https://discuss.eroscripts.com/t/" + topicId, "_blank"); } catch (e) {}
+      done("No script");
+      return;
+    }
+    let ok = false;
+    for (const u of urls) {
+      const sep = u.indexOf("?") >= 0 ? "&" : "?";
+      const authed = u + sep + "api_key=" + encodeURIComponent(creds.key) + "&api_username=" + encodeURIComponent(creds.user);
+      if (await loadFunscriptUrl(authed)) { ok = true; break; }
+    }
+    done(ok ? "Loaded ✓" : "Failed");
+    if (ok) {
+      if (appMode !== "fun") funLog("Script loaded — switch to Funscript mode to play it.");
+    } else {
+      funLog("Couldn't fetch the script — check your API key, or open the topic and download it manually.");
+    }
+  } catch (e) {
+    funLog("EroScripts load failed: " + (e && e.message ? e.message : e));
+    done("Failed");
+  }
 }
 
 function onlineItemEl(it) {
@@ -5022,12 +5097,18 @@ async function loadFunscriptUrl(url) {
   const eroBtn = $("srcEroBtn");
   const eroSearch = $("eroSearch");
   const eroSearchBtn = $("eroSearchBtn");
+  const eroUser = $("eroUser");
+  const eroKey = $("eroKey");
   if (f) f.addEventListener("input", renderOnlineTagSelect);
   if (sel) sel.addEventListener("change", () => { onlineSelectedTag = sel.value; onlineLoadResults(true); });
   if (hubBtn) hubBtn.onclick = () => setOnlineSource("hub");
   if (eroBtn) eroBtn.onclick = () => setOnlineSource("ero");
   if (eroSearch) eroSearch.addEventListener("keydown", (e) => { if (e.key === "Enter") eroLoadResults(true); });
   if (eroSearchBtn) eroSearchBtn.onclick = () => eroLoadResults(true);
+  try { if (eroUser) eroUser.value = localStorage.getItem("ossm-ero-user") || ""; } catch (e) {}
+  try { if (eroKey) eroKey.value = localStorage.getItem("ossm-ero-key") || ""; } catch (e) {}
+  if (eroUser) eroUser.addEventListener("change", () => { try { localStorage.setItem("ossm-ero-user", eroUser.value.trim()); } catch (e) {} });
+  if (eroKey) eroKey.addEventListener("change", () => { try { localStorage.setItem("ossm-ero-key", eroKey.value.trim()); } catch (e) {} });
   if (more) more.onclick = () => { if (onlineSource === "ero") eroLoadResults(false); else onlineLoadResults(false); };
   if (ov) ov.addEventListener("toggle", () => {
     if (ov.open && !onlineStarted) {
