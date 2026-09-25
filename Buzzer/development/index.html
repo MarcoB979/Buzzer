@@ -4765,13 +4765,17 @@ let aiMessages = [];
 let aiBusy = false;
 let aiListening = null;
 let aiPendingLimits = null;
+let aiFirstOpen = true;
 
 function aiToggle() {
   const p = $("aiPanel");
   if (!p) return;
   const show = p.style.display === "none";
   p.style.display = show ? "" : "none";
-  if (show) { const i = $("aiInput"); if (i) i.focus(); }
+  if (show) {
+    const i = $("aiInput"); if (i) i.focus();
+    if (aiFirstOpen) { aiFirstOpen = false; aiNewSession(); } // a fresh page load is a new session
+  }
   else aiStopLive();
 }
 
