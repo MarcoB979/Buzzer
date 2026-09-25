@@ -695,6 +695,7 @@
       <summary><span class="summary-left">🤖 AI assistant<span class="summary-value" id="aiProviderLabel"></span></span></summary>
       <div class="ai-settings-body">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiEnabled" checked> Enable AI assistant</label>
+        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCanRun"> Allow AI to start / pause the machine</label>
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
@@ -1374,7 +1375,7 @@ async function refreshStdPatterns() {
   if (stdPatternsChar) {
     try {
       const arr = JSON.parse(decode(await stdPatternsChar.readValue()));
-      if (Array.isArray(arr)) stdPatterns = arr.map(p => ({ name: p.name, idx: p.idx, desc: "" }));
+      if (Array.isArray(arr)) stdPatterns = arr.map(p => ({ name: p.name, idx: p.idx, desc: String(p.desc || p.description || "").trim() }));
     } catch (e) {}
   }
   if (!stdPatterns.length) stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: "" }));
@@ -4763,7 +4764,7 @@ HOW TO CONVERSE:
 - When the user gives feedback about the movement or "the graph" (depth, speed, smoothness, rhythm over time), interpret it, ADJUST the values, and say what you changed.
 - If a request is ambiguous, ask ONE short clarifying question instead of guessing (then use "set": null).
 - In Advanced mode, "harder"/"faster" raises speed a little, "softer"/"slower" lowers it, "deeper"/"shallower" adjusts depth. In Standard mode, follow the INTENT guide given with the patterns (there "harder" means more forceful pounding, not just speed). Adjust incrementally, not to extremes.
-- The machine only moves after the user presses Start. If it is not running you can still set values, but do not claim you started it.
+- The machine only moves after the user presses Start — unless your context explicitly says you may start/pause it (then use "run":"start" or "run":"pause"). If you did not start it, do not claim you did.
 - SAFETY LIMITS (critical): limits are the user's depth range (min depth and max depth, 0-100) and max speed (0-100). The CURRENT limits are only a safe starting point — the user may choose ANY limits, including higher ones. When they tell you their limits, extract THREE concrete numbers: min depth, max depth and max speed.
   - Take the user's numbers EXACTLY as stated — never reduce, cap, or talk them down, even if they are higher than the current limits. The confirmation step is what keeps raising safe.
   - If any of the three is missing or vague (e.g. "half depth", "a quarter", "not too fast", "you decide"), DO NOT guess or fill it in. Ask specifically for the missing value(s) and restate the values you did understand.
@@ -4772,10 +4773,11 @@ HOW TO CONVERSE:
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
+- "run" (optional, ONLY when your context says you are allowed to start/pause): "start" or "pause". Otherwise leave it null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -4815,15 +4817,15 @@ function aiNormalizeParams(obj) {
 }
 
 function aiExtractJson(text) {
-  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "lang": ".."} or a flat params object.
-  if (!text) return { reply: null, params: null, limits: null, lang: null };
+  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "lang": ".."} or a flat params object.
+  if (!text) return { reply: null, params: null, limits: null, run: null, lang: null };
   const s = text.indexOf("{");
   const e = text.lastIndexOf("}");
-  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, lang: null };
+  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, run: null, lang: null };
   let j = null;
   try { j = JSON.parse(text.slice(s, e + 1).replace(/```/g, "")); } catch (err) {}
-  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, lang: null };
-  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, lang: null }; // rate-limit / error envelope
+  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, run: null, lang: null };
+  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, run: null, lang: null }; // rate-limit / error envelope
   const parseLimits = (L) => {
     if (!L || typeof L !== "object" || Array.isArray(L)) return null;
     const out = {};
@@ -4834,10 +4836,11 @@ function aiExtractJson(text) {
     return ok ? out : null;
   };
   const lang = (typeof j.lang === "string" && /^[a-z]{2}$/i.test(j.lang)) ? j.lang.toLowerCase() : null;
-  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits")) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), lang };
+  const run = (typeof j.run === "string" && /^(start|pause)$/i.test(j.run)) ? j.run.trim().toLowerCase() : null;
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -4926,6 +4929,11 @@ function aiCurrentState() {
   cur["Speed"] = Math.round(sv("SP", 0));
   return cur;
 }
+function aiRunContext(running) {
+  if (!aiCanRun()) return "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".";
+  if (running) return "Machine running: yes. You MAY pause it when the user asks (include \"run\":\"pause\" in your JSON). To resume after pausing, include \"run\":\"start\".";
+  return "Machine running: no. You MAY start it when the user asks (include \"run\":\"start\" in your JSON). To pause it, include \"run\":\"pause\". This is the only run control you have — never use it unless asked.";
+}
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
   if (appMode === "std") {
@@ -4934,7 +4942,7 @@ function aiModeContext(cur) {
       + "PATTERNS (name — what it does):\n" + patternList + "\n"
       + "INTENT in Standard mode: \"harder\"/\"pound me\"/\"hard\" = more forceful, harder-hitting thrusts (pounding), NOT just speed — prefer a pounding/intense pattern from the list and/or raise \"Sensation\" and \"Speed\". \"faster\"/\"sneller\"/\"quicker\" (speed only) = raise \"Speed\". \"softer\"/\"gentle\"/\"zacht\" = the simplest gentle pattern with lower Speed and Sensation. \"tease me\"/\"teasing\" = a teasing/pounding pattern with lower Sensation. \"deeper\" = raise \"Max Pos\"; \"shallower\" = lower \"Max Pos\".\n"
       + aiLimitsText() + "\n"
-      + "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".\n"
+      + aiRunContext(running) + "\n"
       + "Current settings: " + JSON.stringify(cur);
   }
   return "CURRENT MODE: Advanced Penetration. In \"set\" you may use these keys:\n"
@@ -4942,7 +4950,7 @@ function aiModeContext(cur) {
     + "OPTIONAL MODIFIERS for changes over time (omit if constant): \"<Base>Amplitude\" (0-100), \"<Base>Steps to Max\" (1-25), \"<Base>Steps at Max\" (0-25), \"<Base>Steps to Min\" (1-25), \"<Base>Steps at Min\" (0-25), \"<Base>Offset\" (0-100), where <Base> is Max Pos, Min Pos, In Speed, Out Speed, In Accel or Out Accel.\n"
     + "EXAMPLES: slow deep full strokes -> {\"Max Pos\":100,\"Min Pos\":0,\"In Speed\":30,\"Out Speed\":30,\"In Accel\":15,\"Out Accel\":15,\"Speed\":30}; teasing slow-in/quick-out -> {\"Max Pos\":60,\"Min Pos\":0,\"In Speed\":25,\"Out Speed\":80,\"In Accel\":15,\"Out Accel\":50,\"Speed\":40}; build slow/shallow to fast/deep then ease off -> {\"Max Pos\":45,\"Min Pos\":0,\"In Speed\":30,\"Out Speed\":30,\"In Accel\":20,\"Out Accel\":20,\"Speed\":30,\"Max PosAmplitude\":60,\"Max PosSteps to Max\":4,\"Max PosSteps at Max\":2,\"Max PosSteps to Min\":4,\"In SpeedAmplitude\":50,\"In SpeedSteps to Max\":4,\"In SpeedSteps to Min\":4}.\n"
     + aiLimitsText() + "\n"
-    + "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".\n"
+    + aiRunContext(running) + "\n"
     + "Current settings: " + JSON.stringify(cur);
 }
 function aiPatternIndex(raw) {
@@ -5001,6 +5009,22 @@ function aiApplyStd(p) {
 }
 function aiApplySet(p) {
   return (appMode === "std") ? aiApplyStd(p) : aiApplyParams(p);
+}
+function aiMachineRunning() {
+  if (appMode === "std") return stdRunning;
+  return speed() > 0;
+}
+function aiStartMachine() {
+  if (!connected) { aiAddMsg("system", "Not connected — connect the OSSM first."); return; }
+  if (!machineRunningState()) { aiAddMsg("system", "The OSSM isn't ready yet (still homing)."); return; }
+  if (aiMachineRunning()) return; // already running
+  if (appMode === "std") { monitor("OSSM started"); rampSpeed(stdValues.speed, stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED); }
+  else { monitor("OSSM started"); rampSpeed(speed(), lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED); }
+}
+function aiPauseMachine() {
+  if (!connected || !aiMachineRunning()) return; // already paused
+  if (appMode === "std") { monitor("OSSM stopped"); rampSpeed(stdValues.speed, 0); }
+  else { monitor("OSSM stopped"); rampSpeed(speed(), 0); }
 }
 function aiLocalStd(text) {
   const t = (text || "").toLowerCase();
@@ -5204,6 +5228,9 @@ function aiProviderSettings() {
 function aiEnabled() {
   try { return localStorage.getItem("ossm-ai-enabled") !== "0"; } catch (e) { return true; }
 }
+function aiCanRun() {
+  try { return localStorage.getItem("ossm-ai-run") === "1"; } catch (e) { return false; }
+}
 
 async function aiCallDeepSeek(messages, key) {
   let lastErr = "DeepSeek request failed";
@@ -5220,7 +5247,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5232,7 +5259,7 @@ async function aiCallDeepSeek(messages, key) {
     }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, lang: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, run: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5247,12 +5274,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, run: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5359,7 +5386,7 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits) {
+    if (res.reply || res.params || res.limits || res.run) {
       if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
       aiMessages.pop();
@@ -5390,7 +5417,11 @@ async function aiSend(opts) {
       aiPendingLimits = null;
     }
     if (res.params) aiApplySet(res.params);
-    if (!res.reply && !res.params && !res.limits) {
+    if (res.run && aiCanRun()) {
+      if (res.run === "start") aiStartMachine();
+      else if (res.run === "pause") aiPauseMachine();
+    }
+    if (!res.reply && !res.params && !res.limits && !res.run) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
@@ -5542,6 +5573,11 @@ function aiProcessVoice(text) {
       if (!enabledBox.checked) aiStopLive();
       buildInterface();
     });
+  }
+  const runBox = $("aiCanRun");
+  if (runBox) {
+    runBox.checked = aiCanRun();
+    runBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-run", runBox.checked ? "1" : "0"); } catch (e) {} });
   }
   if (btn) btn.onclick = aiToggle;
   if (send) send.onclick = aiSend;
