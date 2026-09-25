@@ -4754,7 +4754,10 @@ HOW TO CONVERSE:
 - If a request is ambiguous, ask ONE short clarifying question instead of guessing (then use "set": null).
 - "harder"/"faster" raises speed a little, "softer"/"slower" lowers it, "deeper"/"shallower" adjusts depth, "a lot"/"much" makes the change bigger. Adjust incrementally, not to extremes.
 - The machine only moves after the user presses Start. If it is not running you can still set values, but do not claim you started it.
-- Safety limits: the user has set a depth range and a max speed that you must never exceed. The user MAY ask you to change these limits (e.g. "raise my max depth to 40", "increase my max speed", "let me pull out further"). When they do, propose the new limit(s) in the "limits" field and ask clearly for confirmation. Do NOT apply or repeat "limits" until they give a clear positive answer. Only after that explicit yes, include "limits" again to execute it and briefly say what changed.
+- SAFETY LIMITS (critical): the user has set a depth range (min depth and max depth, 0-100) and a max speed (0-100). When they start a new session they will tell you their limits — you must extract THREE concrete numbers: min depth, max depth and max speed.
+  - If any of the three is missing or vague (e.g. "half depth", "a quarter", "not too fast", "you decide"), DO NOT guess or fill it in. Ask specifically for the missing value(s) and restate the values you did understand.
+  - Once you have all three concrete numbers, propose them in "limits" as {"minDepth":<n>,"maxDepth":<n>,"maxSpeed":<n>} AND restate the exact numbers in "reply" and ask the user to confirm (e.g. "So: min depth 0, max depth 40, max speed 60 — correct?").
+  - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm. Lowering limits is allowed freely; RAISING them requires this same confirmation.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 {"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"lang":"<2-letter code>"}
@@ -5341,6 +5344,12 @@ async function aiSend(opts) {
         aiPendingLimits = null;
       } else if (!aiPendingLimits) {
         aiPendingLimits = res.limits;
+        const L = res.limits;
+        const parts = [];
+        if (typeof L.minDepth === "number") parts.push("min depth " + Math.round(L.minDepth));
+        if (typeof L.maxDepth === "number") parts.push("max depth " + Math.round(L.maxDepth));
+        if (typeof L.maxSpeed === "number") parts.push("max speed " + Math.round(L.maxSpeed));
+        if (parts.length) aiAddMsg("system", "Confirm limits: " + parts.join(", ") + " — reply \"yes\" to apply.");
       } else {
         aiPendingLimits = null; // not a clear confirmation → drop
       }
