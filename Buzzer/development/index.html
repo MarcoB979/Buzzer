@@ -5284,7 +5284,7 @@ function aiPosContext() {
     + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} to begin, {\"action\":\"move\",\"to\":<0-100>} to move the rail in steps of at most " + AI_POS_STEP + " (just 2-3 units for \"a little more\"), {\"action\":\"record\"} to save the current spot (Min first, then Max), {\"action\":\"speedNote\",\"speed\":<n>} for the agreed speed, and {\"action\":\"done\",\"min\":<n>,\"max\":<n>,\"speed\":<n>} to finish. Also {\"action\":\"safeWord\",\"word\":\"...\"} and {\"action\":\"rehomeDone\"}. Only say the rail moved when you actually just sent {\"action\":\"move\"}.";
   if (aiPos.phase === "return") return "POSITION SETUP — the rail is slowly returning to the Min position and will then be ready to play. Do NOT send more moves; just wait, or answer the user briefly.";
   return "POSITION SETUP ACTIVE — guiding the user to set Min Pos, Max Pos and Speed by feel. Phase: " + aiPos.phase
-    + ". Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed
+    + ". Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed + " (max " + AI_POS_MAX_SPEED + " — keep it gentle)"
     + ". Safe word: " + (aiPos.safeWord ? "\"" + aiPos.safeWord + "\"" : "none yet")
     + ". " + rehome + stopTxt
     + " Move the rail in steps of max " + AI_POS_STEP + " — but when the user asks for only a tiny adjustment (\"a little more\", \"just a bit\", \"a little deeper\"), move just 2-3 units, never the full " + AI_POS_STEP + ". After each move, briefly ask \"a little more?\". When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\"), the rail has ALREADY stopped and the app asks \"is this the spot?\" for you — so do NOT move again; just briefly echo the confirmation in one short line and wait. When they clearly confirm (\"yes\", \"that's the spot\", \"perfect\"), send {\"action\":\"record\"} to save the point (Min first, then Max). Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
@@ -5849,8 +5849,9 @@ function aiLocalInterpret(text) {
 
 // ---------- AI-guided position setup (set Min/Max by feel) ----------
 const AI_POS_STEP = 10;   // max move per step
+const AI_POS_MAX_SPEED = 5; // positioning is always gentle — never faster than this
 let aiPosSettleTimer = null;
-let aiPosReturnAp = false; // position setup temporarily switched AP -> std; restore after
+let aiPosReturnAp = false; // position setup used the stroke engine in the background; restore the firmware to AP after
 let aiPos = {
   active: false,
   phase: "safeWord",      // safeWord | rehome | min | max | speed | return | done
@@ -5862,10 +5863,10 @@ let aiPos = {
   max: null
 };
 function aiPosSpeed() {
-  try { const n = parseInt(localStorage.getItem("ossm-ai-pos-speed"), 10); return (isNaN(n) || n < 1) ? 5 : clamp(n, 1, 100); } catch (e) { return 5; }
+  try { const n = parseInt(localStorage.getItem("ossm-ai-pos-speed"), 10); return (isNaN(n) || n < 1) ? AI_POS_MAX_SPEED : clamp(n, 1, AI_POS_MAX_SPEED); } catch (e) { return AI_POS_MAX_SPEED; }
 }
 function aiPosSetSpeed(n) {
-  try { localStorage.setItem("ossm-ai-pos-speed", String(clamp(Math.round(n), 1, 100))); } catch (e) {}
+  try { localStorage.setItem("ossm-ai-pos-speed", String(clamp(Math.round(n), 1, AI_POS_MAX_SPEED))); } catch (e) {}
 }
 function aiPosRehomeConfirmed() {
   try { return localStorage.getItem("ossm-ai-pos-rehome") === "1"; } catch (e) { return false; }
@@ -5892,7 +5893,37 @@ function aiPosReset() {
 function aiPosRestoreMode() {
   const back = aiPosReturnAp;
   aiPosReturnAp = false;
-  if (back && apAvailable() && appMode === "std") setModeFromDropdown("ap");
+  if (back && apAvailable() && connected && ctlChar) {
+    // Return the FIRMWARE to Advanced Penetration in the background. The screen
+    // never left Advanced mode, so we only send the AP command (that is what
+    // makes the firmware enter Advanced Penetration).
+    const sp = getSetting(SPEED_KEY);
+    sp.value = 0;
+    settings[SPEED_KEY] = sp;
+    writeControlReliable(speedIndex() + ":0,").catch(() => {});
+  }
+}
+// Switch the FIRMWARE into the stroke engine in the background (for position
+// setup) without changing the visible app mode.
+function aiPosEnterStd() {
+  if (!connected || !stdCmd) return Promise.resolve(false);
+  if ((stdStateName || "").indexOf("strokeEngine") === 0) return Promise.resolve(true);
+  stdStateName = "";
+  requestMode("go:strokeEngine");
+  return aiPosWaitStd();
+}
+function aiPosWaitStd() {
+  return new Promise((resolve) => {
+    let waited = 0;
+    const iv = setInterval(() => {
+      waited += 100;
+      if (!connected || !stdCmd || (stdStateName || "").indexOf("strokeEngine") === 0) {
+        clearInterval(iv); resolve(true);
+      } else if (waited >= 10000) {
+        clearInterval(iv); resolve(false);
+      }
+    }, 100);
+  });
 }
 function aiPosPointIndex() {
   const p = stdPatterns.find(x => /go to point|point stroke|point/i.test((x.name || "").toLowerCase()));
@@ -5904,7 +5935,7 @@ function aiPosSimplePatternIndex() {
 }
 async function aiPosMoveTo(pos) {
   const p = Math.round(clamp(pos, 0, 100));
-  if (!connected || appMode !== "std") return;
+  if (!connected || !stdCmd) return;
   const idx = aiPosPointIndex();
   if (idx < 0) return;
   // Even if the AI forgot to send "start", make sure the client knows we are positioning
@@ -5914,56 +5945,64 @@ async function aiPosMoveTo(pos) {
     if (!aiPos.safeWord) aiPos.safeWord = aiPosSafeWord();
     aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
   }
+  // Background: make sure the FIRMWARE is in the stroke engine (the visible app
+  // mode stays exactly as it is), then command the point.
+  await aiPosEnterStd();
   // PointStroke: sensation = position between Min Pos and Max Pos.
   // Fix Min=0, Max=100 so sensation equals the absolute rail position (0-100).
-  stdWrite("set:min:0");
-  stdWrite("set:max:100");
-  stdWrite("set:pattern:" + idx);
-  stdWrite("set:sensation:" + p);
-  applySpeedInstant(aiPos.speed);
+  const spd = Math.min(AI_POS_MAX_SPEED, Math.max(1, Math.round(aiPos.speed)));
+  stdWriteReliable("set:min:0");
+  stdWriteReliable("set:max:100");
+  stdWriteReliable("set:pattern:" + idx);
+  stdWriteReliable("set:sensation:" + p);
+  stdWriteReliable("set:speed:" + spd);
+  aiPos.speed = spd;
   aiPos.current = p;
   aiPos.moving = true;
 }
 function aiPosStop() {
   if (aiPos.moving) {
-    applySpeedInstant(0);   // gentle stop — no re-home
+    if (connected && stdCmd) stdWriteReliable("set:speed:0");   // gentle stop — no re-home
     aiPos.moving = false;
   }
 }
-function aiPosFinishReturn() {
+async function aiPosFinishReturn() {
   const caps = aiSafetyCaps();
   const mn = caps.minDepth, mx = caps.maxDepth;
   const pointIdx = aiPosPointIndex();
   const simpleIdx = aiPosSimplePatternIndex();
-  if (!connected || appMode !== "std" || pointIdx < 0) {
+  if (!connected || !stdCmd || pointIdx < 0) {
     aiPosReset();
+    aiPosRestoreMode();
     aiAddMsg("assistant", "Ready to play — your positions are saved. Pick a pattern and press Start when you like.");
     return;
   }
   // Slowly return the rail to Min (PointStroke holds the point), then restore Simple Stroke.
+  await aiPosEnterStd();
   aiPos.active = true;
   aiPos.phase = "return";
   aiPos.current = mn;
   aiPos.moving = true;
-  stdWrite("set:min:" + mn);
-  stdWrite("set:max:" + mx);
-  stdWrite("set:pattern:" + pointIdx);
-  stdWrite("set:sensation:0");
-  applySpeedInstant(aiPos.speed);
+  const spd = Math.min(AI_POS_MAX_SPEED, Math.max(1, Math.round(aiPos.speed)));
+  stdWriteReliable("set:min:" + mn);
+  stdWriteReliable("set:max:" + mx);
+  stdWriteReliable("set:pattern:" + pointIdx);
+  stdWriteReliable("set:sensation:0");
+  stdWriteReliable("set:speed:" + spd);
   const range = Math.max(0, mx - mn);
   const delay = Math.min(15000, 1500 + range * 120);
   if (aiPosSettleTimer) clearTimeout(aiPosSettleTimer);
   aiPosSettleTimer = setTimeout(() => {
     aiPosSettleTimer = null;
-    stdWrite("set:min:" + mn);
-    stdWrite("set:max:" + mx);
-    stdWrite("set:pattern:" + simpleIdx);
+    stdWriteReliable("set:min:" + mn);
+    stdWriteReliable("set:max:" + mx);
+    stdWriteReliable("set:pattern:" + simpleIdx);
     stdValues.pattern = simpleIdx;
     stdValues.sensation = 50;
-    stdWrite("set:sensation:50");
-    applySpeedInstant(0);
+    stdWriteReliable("set:sensation:50");
+    stdWriteReliable("set:speed:0");
     saveStdValues();
-    buildInterface();
+    if (appMode === "std") buildInterface();
     aiPosReset();
     aiPosRestoreMode();
     aiAddMsg("assistant", "We are ready to play — the rail is back at your starting position. What would you like?");
@@ -6031,7 +6070,7 @@ function aiPosApplyEnvelope(P, canRun) {
   }
   if (a === "start") {
     aiPosReturnAp = (appMode === "ap");
-    if (aiPosReturnAp) setModeFromDropdown("std");
+    aiPosEnterStd();   // background: switch the FIRMWARE to the stroke engine — screen stays as-is
     aiPosReset(); aiPos.active = true;
     aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
   } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
@@ -6049,7 +6088,7 @@ function aiPosApplyEnvelope(P, canRun) {
     if (aiPos.phase === "min" && aiPos.min === null) { aiPos.min = aiPos.current; aiPos.phase = "max"; }
     else if (aiPos.phase === "max" && aiPos.max === null) { aiPos.max = aiPos.current; aiPos.phase = "speed"; }
   } else if (a === "speedNote") {
-    if (typeof P.speed === "number") { aiPos.speed = clamp(Math.round(P.speed), 1, 100); aiPosSetSpeed(aiPos.speed); }
+    if (typeof P.speed === "number") { aiPos.speed = clamp(Math.round(P.speed), 1, AI_POS_MAX_SPEED); aiPosSetSpeed(aiPos.speed); }
   } else if (a === "stopMode") {
     aiSetStopMode(P.mode);
   } else if (a === "ready") {
@@ -6063,12 +6102,12 @@ function aiPosApplyEnvelope(P, canRun) {
       aiApplyLimits({ minDepth: mn, maxDepth: mx, maxSpeed: sp });
       stdValues.min = mn; stdValues.max = mx;
       if (connected && stdCmd) {
-        stdWrite("set:min:" + mn);
-        stdWrite("set:max:" + mx);
+        stdWriteReliable("set:min:" + mn);
+        stdWriteReliable("set:max:" + mx);
       }
       stdLastSpeed = sp;
       saveStdValues();
-      buildInterface();
+      if (appMode === "std") buildInterface();
     }
     aiLimitsSetConfirmed();
     aiPosSetSpeed(aiPos.speed);   // remember positioning speed preference
