@@ -4797,6 +4797,7 @@ HOW TO CONVERSE:
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
   - MEMORY: only store what the user VOLUNTARILY shares about themselves (their name, role, what they like to be called, pronouns, orientation, boundaries, preferences). NEVER ask for personal details — do not quiz them about their name, orientation, pronouns or preferences, as that would be offensive. When they share something lasting on their own, note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts, and never store anything they didn't choose to share.
   - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): before any movement, ask them to choose a SAFE WORD (that word alone triggers a full emergency stop) and make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if they confirm it, send {"action":"rehomeDone"} and remember it. Then guide them: move the rail in steps of at most 10 at a time using {"action":"move","to":<0-100>}, and ask "a little more?" between steps. Their "stop"/"here"/"good" already stops the rail — then ask them to confirm that position. When they confirm the shallowest point, send {"action":"record"} (that saves Min), then repeat for the deepest point (saves Max), then agree the speed (a number, or "twice as fast" via {"action":"speedNote","speed":<n>}). Finish with {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}. Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
+  - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their shallowest and deepest points, then agree the speed — and ask if they want to begin.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 {"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"lang":"<2-letter code>"}
@@ -5193,10 +5194,10 @@ function aiSpeakBrowser(text) {
 }
 
 const AI_ASK_LIMITS = {
-  en: "New session — what depth range should I work within? Tell me your min depth, max depth and max speed.",
-  nl: "Nieuwe sessie — in welk dieptebereik moet ik werken? Vertel me je minimale en maximale diepte en je maximale snelheid.",
-  de: "Neue Sitzung — in welchem Tiefenbereich soll ich arbeiten? Sag mir deine minimale und maximale Tiefe und deine maximale Geschwindigkeit.",
-  fr: "Nouvelle session — dans quelle plage de profondeur dois-je travailler ? Dis-moi ta profondeur minimale et maximale et ta vitesse maximale."
+  en: "New session — what depth range should I work within? Tell me your min depth, max depth and max speed. Or, if you'd rather, I can help you find your perfect positions together — by feel.",
+  nl: "Nieuwe sessie — in welk dieptebereik moet ik werken? Vertel me je minimale en maximale diepte en je maximale snelheid. Of, als je liever wilt, kan ik je helpen om samen je perfecte posities te vinden — op gevoel.",
+  de: "Neue Sitzung — in welchem Tiefenbereich soll ich arbeiten? Sag mir deine minimale und maximale Tiefe und deine maximale Geschwindigkeit. Oder, wenn du möchtest, helfe ich dir, gemeinsam deine perfekten Positionen zu finden — ganz nach Gefühl.",
+  fr: "Nouvelle session — dans quelle plage de profondeur dois-je travailler ? Dis-moi ta profondeur minimale et maximale et ta vitesse maximale. Ou, si tu préfères, je peux t'aider à trouver ensemble tes positions parfaites — au feeling."
 };
 function aiStoredLang() {
   let l = "";
