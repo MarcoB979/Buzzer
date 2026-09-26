@@ -693,6 +693,11 @@
       <button class="ble-btn" id="ble-button">Connect</button>
     </div>
 
+    <div class="ble-panel small" id="fullscreen-panel">
+      <span class="ble-status">Fullscreen hides the phone status bar</span>
+      <button class="ble-btn small" id="fullscreen-button" type="button">⛶ Fullscreen</button>
+    </div>
+
     <details class="presets-panel" id="presets-panel">
       <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
       <div id="presetList"></div>
@@ -4622,8 +4627,39 @@ function updateCastButton() {
   }
 }
 
+function toggleAppFullscreen() {
+  const el = document.documentElement;
+  if (document.fullscreenElement || document.webkitFullscreenElement) {
+    if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+  } else if (el.requestFullscreen) {
+    el.requestFullscreen().catch(() => {});
+  } else if (el.webkitRequestFullscreen) {
+    el.webkitRequestFullscreen();
+  }
+  updateFullscreenButton();
+}
+function updateFullscreenButton() {
+  const b = $("fullscreen-button");
+  if (!b) return;
+  const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  b.textContent = on ? "Exit fullscreen" : "⛶ Fullscreen";
+}
+
 // ---------- Events ----------
 $("ble-button").onclick = connect;
+const fsBtn = $("fullscreen-button");
+if (fsBtn) {
+  const supported = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+  if (supported) {
+    fsBtn.onclick = toggleAppFullscreen;
+    document.addEventListener("fullscreenchange", updateFullscreenButton);
+    document.addEventListener("webkitfullscreenchange", updateFullscreenButton);
+  } else {
+    fsBtn.disabled = true;
+    fsBtn.textContent = "Not supported";
+  }
+}
 $("header-disconnect").onclick = disconnect;
 $("header-stop").onclick = emergencyStop;
 const kofiToggleBtn = $("kofiToggle");
