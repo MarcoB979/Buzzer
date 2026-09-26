@@ -733,10 +733,12 @@
       <div class="companion-head">
         <span class="companion-title">💞 AI Companion</span>
         <div class="companion-head-actions">
+          <button class="ble-btn small" id="compLocalBtn" type="button" title="Show me your videos (pick a folder)">📂</button>
           <button class="ble-btn small" id="compLayout" type="button" title="Switch layout (split / focused)">▦</button>
           <button class="ble-btn small" id="compSetupBtn" type="button" title="Set up your companion — persona &amp; look">✨ Setup</button>
           <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
         </div>
+        <input type="file" id="aiLocalFolder" webkitdirectory multiple style="display:none;">
       </div>
       <div class="companion-body" id="companionBody">
         <div class="comp-main">
@@ -886,13 +888,6 @@
           <select id="aiMicDevice"><option value="">Default microphone</option></select>
           <div class="ai-set-hint">Whisper records with the mic you pick here (e.g. a Bluetooth headset) and transcribes in the cloud. Needs an OpenAI-compatible key. When off, plain voice input is used — it can't choose a mic.</div>
         </div>
-        <label class="ai-set-label" for="aiLocalFolder">Local videos folder</label>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <button class="ble-btn small" id="aiLocalFolderBtn" type="button">📁 Pick folder</button>
-          <span style="font-size:.7rem;color:#94a3b8;" id="aiLocalCount"></span>
-          <input type="file" id="aiLocalFolder" webkitdirectory multiple style="display:none;">
-        </div>
-        <div class="ai-set-hint">Browsers can't read a fixed folder path, so pick the folder each time (Chrome/Edge). The companion can then play or suggest these local videos. Names are remembered; re-pick the folder after reloading the app.</div>
         <div class="ai-set-hint">The Voice list shows whatever your browser exposes. On Android that’s usually one voice per language — the one you picked in your system Text-to-speech settings — and “Auto” uses that device default. On desktop you can pick a specific voice here.</div>
       </div>
     </details>
@@ -6042,8 +6037,12 @@ function playLocalVideoByName(name) {
 }
 function localVideoContext() {
   const names = localVideoNames();
-  if (!names.length) return "\n\nLOCAL VIDEOS: none picked on this device. The user can pick a folder in 🤖 AI assistant → Local videos folder.";
-  return "\n\nLOCAL VIDEOS (on this device; suggest or play them by name — set \"video\":{\"local\":\"<exact file name>\"}):\n" + names.map(n => '- "' + n + '"').join("\n");
+  const loaded = localVideoFiles.length > 0;
+  if (!names.length && !loaded) return "\n\nLOCAL VIDEOS: none yet. If the user asks for a local video, tell them — in your character's voice (e.g. a dominant persona might command \"show me where your porn is, you dirty slut\") — to tap the folder button (📂) to show where their videos are.";
+  const prefix = loaded
+    ? "\n\nLOCAL VIDEOS (loaded this session; suggest or play them by name — set \"video\":{\"local\":\"<exact file name>\"}):\n"
+    : "\n\nLOCAL VIDEOS (names remembered, but the files are NOT loaded this session — ask the user to tap the folder button (📂) again before playing):\n";
+  return prefix + names.map(n => '- "' + n + '"').join("\n");
 }
 // ---------- cloud speech-to-text (Whisper) + mic picker ----------
 function aiWhisperEnabled() { try { return localStorage.getItem("ossm-ai-whisper") === "1"; } catch (e) { return false; } }
@@ -6113,7 +6112,7 @@ function aiApplyVideo(v) {
 function aiVideoContext() {
   const favs = getFavorites();
   const searchNote = "\n\nSEARCH: you can't browse the web yourself, but you can search the built-in Funscripthub directory by category. Set \"search\":{\"query\":\"<a short tag or keyword like twink, blonde, brat>\"} to pull up matches, and add \"play\":true to load the first match. Funscripthub usually works, but its entries often only provide a funscript (not a direct video) — if the video can't load, tell the user and ask for a direct video link instead (when they give a link, the app adds it to favorites and plays it automatically).";
-  if (!favs.length) return "\n\nFAVORITE VIDEOS: none saved yet. If the user asks you to play porn or put something on, either ask them for a direct video link (the app will favorite and play it), or use \"search\" to find something." + searchNote;
+  if (!favs.length) return "\n\nFAVORITE VIDEOS: none saved yet. If the user asks you to play porn or put something on, ask them (in your character's voice) to tap the folder button (📂) to show where their local videos are, or ask for a direct video link (the app will favorite and play it), or use \"search\" to find something." + searchNote;
   const lines = favs.map((f, i) => (i + 1) + '. title: "' + favDisplayTitle(f) + '", kind: "' + (f.kind === "fun" ? "funscript video (syncs with the machine)" : "plain video (just casts to TV)") + '", url: "' + f.url + '"').join("\n");
   return "\n\nFAVORITE VIDEOS (play these when the user asks to \"play porn\", \"put something on\", \"surprise me\", etc.). A title starting with [F] is a funscript video that syncs with the machine; anything else is a plain video that just casts to TV.\n" + lines
     + "\nHOW TO PLAY: for a surprise pick one at random; if they want to choose, list a few titles and ask which (translate any English title into the language you're replying in — e.g. \"Ethan fucks a little brat deep and hard\" becomes \"Ethan neukt een kleine brat hard\" in Dutch). To play one, set \"video\":{\"url\":\"<that exact url>\"}. The user picks the cast device themselves — tell them to press Cast to TV and choose their device."
@@ -6514,6 +6513,8 @@ function compLiveStart() {
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
   const castBtn = $("compCastBtn");
   if (castBtn) castBtn.onclick = () => { toggleCast(); };
+  const compLocal = $("compLocalBtn");
+  if (compLocal) compLocal.onclick = () => { const inp = $("aiLocalFolder"); if (inp) inp.click(); };
   window.addEventListener("resize", () => { if (companionState.shown) companionApplyLayout(); });
   const prev = $("compPrev"); if (prev) prev.onclick = () => companionPreset(-1);
   const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
@@ -6949,19 +6950,21 @@ function aiProcessVoice(text) {
     syncWhisper();
   }
   if (micSel) micSel.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-mic-device", micSel.value); } catch (e) {} });
-  const localBtn = $("aiLocalFolderBtn");
   const localInput = $("aiLocalFolder");
-  if (localBtn && localInput) {
-    localBtn.onclick = () => localInput.click();
+  if (localInput) {
     localInput.addEventListener("change", () => {
       const files = Array.from(localInput.files || []).filter(f => /\.(mp4|mkv|webm|mov|m4v|avi|mpg|mpeg)$/i.test(f.name));
       localVideoFiles = files;
       saveLocalVideoNames(files.map(f => f.name));
-      const count = $("aiLocalCount");
-      if (count) count.textContent = files.length ? ("(" + files.length + " videos)") : "";
-      if (files.length) aiAddMsg("system", "Loaded " + files.length + " local videos — the companion can play them now.");
-      else aiAddMsg("system", "No video files found in that folder.");
+      const msg = files.length ? ("Loaded " + files.length + " local videos.") : "No video files found in that folder.";
       localInput.value = "";
+      if (companionState.shown) {
+        compAddMsg("system", msg);
+        const inp = $("compInput");
+        if (inp && files.length) { inp.value = "I've shown you my local videos folder."; compSend(); }
+      } else {
+        aiAddMsg("system", msg);
+      }
     });
   }
   syncAiSettingsUI();
