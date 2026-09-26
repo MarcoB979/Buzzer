@@ -1598,26 +1598,30 @@ async function refreshStdPatterns() {
   if (stdPatternsChar) {
     try {
       const arr = JSON.parse(decode(await stdPatternsChar.readValue()));
-      if (Array.isArray(arr)) stdPatterns = arr.map(p => ({ name: p.name, idx: p.idx, desc: String(p.desc || p.description || "").trim() }));
+      if (Array.isArray(arr) && arr.length) stdPatterns = arr.map(p => ({ name: p.name, idx: p.idx, desc: String(p.desc || p.description || "").trim() }));
     } catch (e) {}
   }
-  if (!stdPatterns.length) stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: "" }));
-
-  // Fetch live descriptions from the OSSM: write the index, read back "name:description".
-  if (senptlChar) {
-    for (const p of stdPatterns) {
+  // Enumerate the device's REAL pattern list through the "Engine Pattern List"
+  // characteristic (write index → read "name:description"). This keeps pattern
+  // indices correct across firmware versions — "Go to Point"/PointStroke sits at
+  // a different index in different releases, so the hardcoded fallback can pick
+  // the wrong pattern.
+  if (!stdPatterns.length && senptlChar) {
+    const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const pretty = {};
+    STD_PATTERN_FALLBACK.forEach((n) => { pretty[norm(n)] = n; });
+    for (let i = 0; i < 40; i++) {
       try {
-        await senptlChar.writeValueWithResponse(encode(String(p.idx)));
+        await senptlChar.writeValueWithResponse(encode(String(i)));
         const resp = decode(await senptlChar.readValue());
         const colon = resp.indexOf(":");
-        p.desc = (colon >= 0 ? resp.slice(colon + 1) : resp).trim();
-      } catch (e) {}
+        const rawName = (colon >= 0 ? resp.slice(0, colon) : resp).trim();
+        if (!rawName) break;
+        stdPatterns.push({ name: pretty[norm(rawName)] || rawName, idx: i, desc: (colon >= 0 ? resp.slice(colon + 1) : "").trim() });
+      } catch (e) { break; }
     }
   }
-  // Fill any still-missing descriptions from the built-in list.
-  stdPatterns.forEach(p => {
-    if (!p.desc && p.idx >= 0 && p.idx < STD_PATTERN_DESC_FALLBACK.length) p.desc = STD_PATTERN_DESC_FALLBACK[p.idx];
-  });
+  if (!stdPatterns.length) stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
 }
 
 async function refreshStdValues() {
@@ -5903,15 +5907,21 @@ function aiPosSimplePatternIndex() {
   const p = stdPatterns.find(x => /simple/i.test((x.name || "").toLowerCase()));
   return p ? p.idx : 0;
 }
-function aiPosWaitStd(timeoutMs = 5000) {
+function aiPosWaitStd(timeoutMs = 12000) {
   return new Promise((resolve) => {
     if (!connected || !stdCmd) return resolve(false);
     if ((stdStateName || "").indexOf("strokeEngine") === 0) return resolve(true);
+    monitor("pos: switching to Standard mode…", "warn");
     const start = Date.now();
     const t = setInterval(() => {
-      if ((stdStateName || "").indexOf("strokeEngine") === 0) { clearInterval(t); resolve(true); }
-      else if (Date.now() - start > timeoutMs) { clearInterval(t); resolve(false); }
-    }, 80);
+      const s = stdStateName || "";
+      if (s.indexOf("strokeEngine") === 0) { clearInterval(t); resolve(true); }
+      else if (Date.now() - start > timeoutMs) {
+        clearInterval(t);
+        monitor("pos: still not in Standard mode — state is \"" + s + "\"", "err");
+        resolve(false);
+      }
+    }, 150);
   });
 }
 async function aiPosMoveTo(pos) {
@@ -5925,7 +5935,7 @@ async function aiPosMoveTo(pos) {
   }
   // The device switch is asynchronous — wait until it's actually in strokeEngine
   // before sending the positioning commands, or they get dropped.
-  if (!(await aiPosWaitStd())) { aiAddMsg("system", "The OSSM didn't switch to Standard mode in time — try again."); return; }
+  if (!(await aiPosWaitStd())) { aiAddMsg("system", "The OSSM didn't switch to Standard mode in time (state: \"" + (stdStateName || "unknown") + "\") — try again."); return; }
   // Even if the AI forgot to send "start", make sure the client knows we are positioning
   // so "stop"/"here" stay gentle and only the safe word is a full emergency stop.
   if (!aiPos.active) {
