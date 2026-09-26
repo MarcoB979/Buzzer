@@ -596,6 +596,28 @@
     #btnStartHeader { display: inline-flex; align-items: center; justify-content: center; }
     .start-stop-row { display: none; }
   }
+
+  /* AI companion face */
+  .companion-view { position: fixed; inset: 0; z-index: 90; background: #05050a; display: flex; flex-direction: column; padding: 12px; }
+  .companion-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .companion-title { font-size: 1rem; font-weight: bold; color: #fff; }
+  .companion-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .companion-avatar { position: relative; width: min(52vw, 280px); height: min(52vw, 280px); flex: 0 0 auto; }
+  .companion-avatar .comp-svg, .companion-avatar .companion-img { width: 100%; height: 100%; display: block; }
+  .companion-img { overflow: hidden; border-radius: 50%; }
+  .companion-img img { width: 100%; height: 100%; object-fit: cover; animation: compBreathe 4s ease-in-out infinite; }
+  .companion-controls { display: flex; gap: 6px; }
+  .companion-history { flex: 1 1 auto; min-height: 0; width: 100%; max-height: none; overflow-y: auto; }
+  .companion-view .ai-row { width: 100%; }
+  .comp-eye-closed { opacity: 0; }
+  #companionAvatar.blinking .comp-eye-open { opacity: 0; }
+  #companionAvatar.blinking .comp-eye-closed { opacity: 1; }
+  .comp-mouth-talk { opacity: 0; }
+  #companionAvatar.talking .comp-mouth-idle { opacity: 0; }
+  #companionAvatar.talking .comp-mouth-talk { opacity: 1; animation: compTalk .16s ease-in-out infinite alternate; }
+  .comp-gaze { transition: transform .25s ease; }
+  @keyframes compTalk { from { transform: scaleY(.35); } to { transform: scaleY(1.2); } }
+  @keyframes compBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
 </style>
 <script>
   // Keep --app-vh in sync with the real visible viewport so the layout never
@@ -669,6 +691,7 @@
           <button class="ai-limits-toggle" id="aiLimitsToggle" type="button" title="Show / hide limits">▸</button>
         </div>
         <div class="ai-title-actions">
+          <button class="ble-btn small" id="aiFaceBtn" type="button" title="Open AI Companion">😊</button>
           <button class="ble-btn small" id="aiMic" type="button" title="Speak once">🎤</button>
           <button class="ble-btn small" id="aiLive" type="button" title="Keep listening — talk hands-free while playing">🎧</button>
           <button class="ble-btn small" id="aiNew" type="button" title="Start a new session (clears this chat)">New</button>
@@ -685,6 +708,29 @@
         <button class="ble-btn small" id="aiSend" type="button">Go</button>
       </div>
       <div class="ai-note">Works in Standard &amp; Advanced. 🎧 keeps listening so you can talk hands-free — say "stop" any time.</div>
+    </div>
+
+    <div class="companion-view" id="companionView" style="display:none;">
+      <div class="companion-head">
+        <span class="companion-title">💞 AI Companion</span>
+        <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
+      </div>
+      <div class="companion-body">
+        <div class="companion-avatar" id="companionAvatar"></div>
+        <div class="companion-controls">
+          <button class="ble-btn small" id="compPrev" type="button" title="Previous face">◀</button>
+          <button class="ble-btn small" id="compNext" type="button" title="Next face">▶</button>
+          <button class="ble-btn small" id="compUploadBtn" type="button" title="Use your own image">📁</button>
+          <input type="file" id="compUpload" accept="image/*" style="display:none;">
+        </div>
+        <div class="ai-history companion-history" id="compHistory"></div>
+        <div class="ai-row">
+          <input type="text" id="compInput" placeholder="Talk to me… share what you like">
+          <button class="ble-btn small" id="compMic" type="button" title="Speak once">🎤</button>
+          <button class="ble-btn small" id="compLive" type="button" title="Keep listening">🎧</button>
+          <button class="ble-btn small" id="compSend" type="button">Go</button>
+        </div>
+      </div>
     </div>
 
     <div class="visualizer-area">
@@ -4894,7 +4940,7 @@ HOW TO CONVERSE:
 - APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: press Connect at the top of Settings (or you can send "ui":{"action":"connect"}). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
@@ -4902,6 +4948,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
 - "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to try connecting to the OSSM. Otherwise null.
+- "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","hairStyle":"short|long|spiky","eyes":"blue|green|brown|grey|violet|amber","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -4977,10 +5024,12 @@ function aiExtractJson(text) {
   let ui = null;
   if (typeof j.ui === "string" && j.ui.trim()) ui = j.ui.trim().toLowerCase();
   else if (j.ui && typeof j.ui === "object" && !Array.isArray(j.ui) && typeof j.ui.action === "string") ui = j.ui;
-  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, lang };
+  let face = null;
+  if (j.face && typeof j.face === "object" && !Array.isArray(j.face)) face = j.face;
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -5480,7 +5529,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5492,7 +5541,7 @@ async function aiCallDeepSeek(messages, key) {
     }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, lang: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5507,12 +5556,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5836,6 +5885,245 @@ function aiApplyUi(ui) {
   }
 }
 
+// ---------- AI Companion face ----------
+const COMPANION_PRESETS = [
+  { name:"Kai", hair:"#f6d365", hairStyle:"short", eyes:"#3b82f6", skin:"#ffe0bd", blush:true },
+  { name:"Ren", hair:"#4b5563", hairStyle:"spiky", eyes:"#84cc16", skin:"#ffd9b3", blush:true },
+  { name:"Yuki", hair:"#e2e8f0", hairStyle:"long", eyes:"#a855f7", skin:"#fff0e0", blush:true },
+  { name:"Haru", hair:"#a16207", hairStyle:"short", eyes:"#10b981", skin:"#ffccaa", blush:false },
+  { name:"Sora", hair:"#38bdf8", hairStyle:"spiky", eyes:"#f59e0b", skin:"#ffd9b3", blush:true }
+];
+let companionState = { preset:0, custom:null, customImage:null, shown:false };
+let companionBlinkTimer = null;
+try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
+function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
+function companionFace() { return companionState.custom || COMPANION_PRESETS[((companionState.preset % COMPANION_PRESETS.length) + COMPANION_PRESETS.length) % COMPANION_PRESETS.length]; }
+function companionEye(cx, color) {
+  return '<g transform="translate(' + cx + ',116)">'
+    + '<g class="comp-eye-open">'
+    +   '<path d="M-17 0 Q 0 -15 17 0 Q 0 15 -17 0 Z" fill="#fff" stroke="#00000033" stroke-width="1.5"/>'
+    +   '<g class="comp-gaze"><circle r="8.5" fill="' + color + '"/><circle r="4" fill="#111"/><circle cx="-3" cy="-3" r="2.2" fill="#ffffffcc"/></g>'
+    + '</g>'
+    + '<g class="comp-eye-closed"><path d="M-17 0 Q 0 6 17 0" stroke="#00000066" stroke-width="2.5" fill="none" stroke-linecap="round"/></g>'
+    + '</g>';
+}
+function companionHair(f) {
+  const c = f.hair;
+  if (f.hairStyle === "long") return '<path d="M40 112 Q 34 60 70 44 Q 110 28 150 44 Q 186 60 180 112 L 176 206 Q 170 192 160 186 Q 166 150 162 118 Q 148 86 110 92 Q 72 86 58 118 Q 54 150 60 186 Q 50 192 44 206 Z" fill="' + c + '"/>';
+  if (f.hairStyle === "spiky") return '<path d="M42 112 Q 36 58 76 40 L 90 22 L 94 44 L 106 16 L 112 46 L 126 14 L 132 48 L 146 24 L 150 50 Q 184 60 178 112 Q 166 78 110 82 Q 54 78 42 112 Z" fill="' + c + '"/>';
+  return '<path d="M42 112 Q 36 60 72 42 Q 110 26 148 42 Q 184 60 178 112 Q 166 78 110 82 Q 54 78 42 112 Z" fill="' + c + '"/>';
+}
+function companionRender() {
+  const box = $("companionAvatar");
+  if (!box) return;
+  if (companionState.customImage) {
+    box.innerHTML = '<div class="companion-img"><img src="' + companionState.customImage + '" alt="Companion"></div>';
+    return;
+  }
+  const f = companionFace();
+  const blush = f.blush ? '<ellipse cx="72" cy="138" rx="12" ry="6" fill="#fca5a5" opacity=".55"/><ellipse cx="148" cy="138" rx="12" ry="6" fill="#fca5a5" opacity=".55"/>' : '';
+  box.innerHTML = '<svg class="comp-svg" viewBox="0 0 220 240" xmlns="http://www.w3.org/2000/svg">'
+    + '<ellipse cx="110" cy="112" rx="74" ry="86" fill="' + f.hair + '"/>'
+    + '<rect x="92" y="178" width="36" height="42" rx="14" fill="' + f.skin + '"/>'
+    + '<path d="M28 242 Q 48 198 110 200 Q 172 198 192 242 Z" fill="#1f2937"/>'
+    + '<ellipse cx="110" cy="116" rx="66" ry="78" fill="' + f.skin + '"/>'
+    + blush
+    + companionEye(78, f.eyes) + companionEye(142, f.eyes)
+    + '<path d="M58 86 Q 78 76 98 86" stroke="' + f.hair + '" stroke-width="4" fill="none" stroke-linecap="round"/>'
+    + '<path d="M122 86 Q 142 76 162 86" stroke="' + f.hair + '" stroke-width="4" fill="none" stroke-linecap="round"/>'
+    + '<g class="comp-mouth-idle"><path d="M96 156 Q 110 168 124 156" stroke="#7f1d1d" stroke-width="4" fill="none" stroke-linecap="round"/></g>'
+    + '<g class="comp-mouth-talk"><ellipse cx="110" cy="158" rx="10" ry="4" fill="#7f1d1d"/></g>'
+    + companionHair(f)
+    + '</svg>';
+}
+function companionScheduleBlink() {
+  clearTimeout(companionBlinkTimer);
+  companionBlinkTimer = setTimeout(companionBlink, 2200 + Math.random() * 3800);
+}
+function companionBlink() {
+  const av = $("companionAvatar");
+  if (av) { av.classList.add("blinking"); setTimeout(() => av.classList.remove("blinking"), 120); }
+  companionScheduleBlink();
+}
+function companionOpen() {
+  const v = $("companionView");
+  if (v) v.style.display = "";
+  companionState.shown = true;
+  companionRender();
+  companionSave();
+}
+function companionClose() {
+  const v = $("companionView");
+  if (v) v.style.display = "none";
+  companionState.shown = false;
+  companionSave();
+  compLiveStop();
+}
+function companionPreset(delta) {
+  companionState.custom = null;
+  companionState.customImage = null;
+  companionState.preset = (companionState.preset + delta + COMPANION_PRESETS.length) % COMPANION_PRESETS.length;
+  companionRender(); companionSave();
+}
+function companionUpload(file) {
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => { companionState.customImage = String(rd.result); companionState.custom = null; companionRender(); companionSave(); };
+  rd.readAsDataURL(file);
+}
+function companionApplyFace(f) {
+  if (!f || typeof f !== "object") return;
+  const hairMap = { blonde:"#f6d365", blond:"#f6d365", brown:"#8b5a2b", black:"#1f2937", dark:"#1f2937", white:"#e2e8f0", silver:"#cbd5e1", blue:"#38bdf8", red:"#ef4444", pink:"#f9a8d4", ginger:"#f59e0b", orange:"#f59e0b" };
+  const eyeMap = { blue:"#3b82f6", green:"#10b981", brown:"#8b5a2b", grey:"#9ca3af", gray:"#9ca3af", violet:"#8b5cf6", purple:"#a855f7", amber:"#f59e0b", hazel:"#b45309", pink:"#ec4899" };
+  const skinMap = { fair:"#ffe0bd", light:"#ffd9b3", tan:"#eab68f", deep:"#c68a5b", dark:"#a9714b" };
+  const base = Object.assign({}, companionFace());
+  if (typeof f.hair === "string" && hairMap[String(f.hair).toLowerCase().trim()]) base.hair = hairMap[String(f.hair).toLowerCase().trim()];
+  if (typeof f.eyes === "string" && eyeMap[String(f.eyes).toLowerCase().trim()]) base.eyes = eyeMap[String(f.eyes).toLowerCase().trim()];
+  if (typeof f.hairStyle === "string" && /long|short|spiky/.test(String(f.hairStyle).toLowerCase())) base.hairStyle = String(f.hairStyle).toLowerCase().match(/long|short|spiky/)[0];
+  if (typeof f.skin === "string" && skinMap[String(f.skin).toLowerCase().trim()]) base.skin = skinMap[String(f.skin).toLowerCase().trim()];
+  companionState.custom = base;
+  companionState.customImage = null;
+  companionState.shown = true;
+  companionRender(); companionSave();
+}
+const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant.
+
+You can ALSO control the machine when they ask — use this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context; "memory" stores what they voluntarily share about themselves (name, desires, likes); "face" changes how you look when they describe it (hair, hairStyle, eyes, skin). Only use those fields when relevant — most of the time, just be yourself and talk.`;
+
+let compMessages = [];
+let compBusy = false;
+let compListening = null;
+let compLive = false;
+let compLiveRec = null;
+
+function compAddMsg(role, html) {
+  const h = $("compHistory");
+  if (!h) return null;
+  const d = document.createElement("div");
+  d.className = "ai-msg ai-" + role;
+  d.innerHTML = html;
+  h.appendChild(d);
+  h.scrollTop = h.scrollHeight;
+  return d;
+}
+
+async function compSend() {
+  const inp = $("compInput");
+  const text = (inp ? inp.value : "").trim();
+  if (!text || compBusy) return;
+  compBusy = true;
+  if (inp) inp.value = "";
+  compAddMsg("user", escapeHtml(text));
+  const th = compAddMsg("assistant", '<span class="ai-thinking">Thinking…</span>');
+  try {
+    const cur = aiCurrentState();
+    const memOn = aiMemoryActive();
+    const mem = memOn ? aiMemory() : "";
+    const memLine = memOn && mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    compMessages.push({ role: "user", content: text });
+    const msgs = [
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine },
+      ...compMessages
+    ];
+    const res = await aiCall(msgs);
+    if (th) th.remove();
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face) {
+      if (res.raw) compMessages.push({ role: "assistant", content: res.raw });
+    } else {
+      compMessages.pop();
+    }
+    if (res.reply) {
+      compAddMsg("assistant", escapeHtml(res.reply));
+      if (aiSpeakEnabled()) aiSpeak(res.reply);
+    }
+    if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
+    if (res.memory && aiMemoryActive()) aiSetMemory(res.memory);
+    if (res.face) companionApplyFace(res.face);
+    if (res.params) aiApplySet(res.params);
+    if (res.limits) aiApplyLimits(res.limits);
+    if (res.run && aiCanRunActive()) {
+      if (res.run === "start") aiStartMachine();
+      else if (res.run === "pause") aiPauseMachine();
+      else if (res.run === "home") aiHomeMachine();
+    }
+    if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
+    if (res.ui) aiApplyUi(res.ui);
+  } catch (e) {
+    if (th) th.remove();
+    compAddMsg("assistant", "Hmm, I lost the connection — try again?");
+  }
+  compBusy = false;
+}
+
+function compVoice() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { compAddMsg("system", "Voice input isn't supported in this browser."); return; }
+  if (compListening) { try { compListening.stop(); } catch (e) {} return; }
+  const rec = new SR();
+  rec.lang = navigator.language || "en-US";
+  rec.interimResults = false;
+  rec.maxAlternatives = 1;
+  compListening = rec;
+  rec.onresult = (e) => {
+    const t = (e.results && e.results[0] && e.results[0][0]) ? e.results[0][0].transcript : "";
+    if (t && t.trim()) { const i = $("compInput"); if (i) i.value = t.trim(); compSend(); }
+  };
+  rec.onend = () => { compListening = null; };
+  try { rec.start(); } catch (e) { compAddMsg("system", "Couldn't start the microphone."); }
+}
+
+function compLiveStop() {
+  compLive = false;
+  if (compLiveRec) { try { compLiveRec.stop(); } catch (e) {} compLiveRec = null; }
+}
+function compLiveToggle() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { compAddMsg("system", "Voice input isn't supported in this browser."); return; }
+  if (compLive) { compLiveStop(); compAddMsg("system", "Listening off."); return; }
+  compLive = true;
+  compAddMsg("system", "Listening — talk to me.");
+  compLiveStart();
+}
+function compLiveStart() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!compLive || !SR) return;
+  const rec = new SR();
+  rec.lang = navigator.language || "en-US";
+  rec.continuous = true; rec.interimResults = false; rec.maxAlternatives = 1;
+  compLiveRec = rec;
+  rec.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r && r.isFinal) { const t = ((r[0] && r[0].transcript) || "").trim(); if (t) { const inp = $("compInput"); if (inp) inp.value = t; compSend(); } }
+    }
+  };
+  rec.onend = () => { compLiveRec = null; if (compLive) setTimeout(() => { if (compLive) compLiveStart(); }, 150); };
+  try { rec.start(); } catch (e) {}
+}
+
+(function wireCompanion() {
+  const fb = $("aiFaceBtn"); if (fb) fb.onclick = companionOpen;
+  const close = $("compClose"); if (close) close.onclick = companionClose;
+  const prev = $("compPrev"); if (prev) prev.onclick = () => companionPreset(-1);
+  const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
+  const up = $("compUploadBtn"); const upi = $("compUpload");
+  if (up && upi) { up.onclick = () => upi.click(); upi.onchange = () => companionUpload(upi.files && upi.files[0]); }
+  const send = $("compSend"); if (send) send.onclick = compSend;
+  const mic = $("compMic"); if (mic) mic.onclick = compVoice;
+  const live = $("compLive"); if (live) live.onclick = compLiveToggle;
+  const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); compSend(); } });
+  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = !!(window.speechSynthesis && speechSynthesis.speaking); av.classList.toggle("talking", sp); }, 180);
+  document.addEventListener("pointermove", (e) => {
+    const av = $("companionAvatar"); if (!av || !companionState.shown) return;
+    const r = av.getBoundingClientRect();
+    if (r.width < 10) return;
+    const dx = Math.max(-3.5, Math.min(3.5, ((e.clientX - (r.left + r.width / 2)) / (r.width / 2)) * 3.5));
+    const dy = Math.max(-2.5, Math.min(2.5, ((e.clientY - (r.top + r.height / 2)) / (r.height / 2)) * 2.5));
+    av.querySelectorAll(".comp-gaze").forEach(g => { g.style.transform = "translate(" + dx + "px," + dy + "px)"; });
+  });
+  companionScheduleBlink();
+})();
+
 async function aiSend(opts) {
   const fromVoice = !!(opts && opts.fromVoice);
   const inp = $("aiInput");
@@ -5883,7 +6171,7 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face) {
       if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
       aiMessages.pop();
@@ -5922,7 +6210,8 @@ async function aiSend(opts) {
     }
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
     if (res.ui) aiApplyUi(res.ui);
-    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos && !res.ui) {
+    if (res.face) companionApplyFace(res.face);
+    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos && !res.ui && !res.face) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
