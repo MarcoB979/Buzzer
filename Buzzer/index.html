@@ -1598,30 +1598,26 @@ async function refreshStdPatterns() {
   if (stdPatternsChar) {
     try {
       const arr = JSON.parse(decode(await stdPatternsChar.readValue()));
-      if (Array.isArray(arr) && arr.length) stdPatterns = arr.map(p => ({ name: p.name, idx: p.idx, desc: String(p.desc || p.description || "").trim() }));
+      if (Array.isArray(arr)) stdPatterns = arr.map(p => ({ name: p.name, idx: p.idx, desc: String(p.desc || p.description || "").trim() }));
     } catch (e) {}
   }
-  // Enumerate the device's REAL pattern list through the "Engine Pattern List"
-  // characteristic (write index → read "name:description"). This keeps pattern
-  // indices correct across firmware versions — "Go to Point"/PointStroke sits at
-  // a different index in different releases, so the hardcoded fallback can pick
-  // the wrong pattern.
-  if (!stdPatterns.length && senptlChar) {
-    const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-    const pretty = {};
-    STD_PATTERN_FALLBACK.forEach((n) => { pretty[norm(n)] = n; });
-    for (let i = 0; i < 40; i++) {
+  if (!stdPatterns.length) stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: "" }));
+
+  // Fetch live descriptions from the OSSM: write the index, read back "name:description".
+  if (senptlChar) {
+    for (const p of stdPatterns) {
       try {
-        await senptlChar.writeValueWithResponse(encode(String(i)));
+        await senptlChar.writeValueWithResponse(encode(String(p.idx)));
         const resp = decode(await senptlChar.readValue());
         const colon = resp.indexOf(":");
-        const rawName = (colon >= 0 ? resp.slice(0, colon) : resp).trim();
-        if (!rawName) break;
-        stdPatterns.push({ name: pretty[norm(rawName)] || rawName, idx: i, desc: (colon >= 0 ? resp.slice(colon + 1) : "").trim() });
-      } catch (e) { break; }
+        p.desc = (colon >= 0 ? resp.slice(colon + 1) : resp).trim();
+      } catch (e) {}
     }
   }
-  if (!stdPatterns.length) stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
+  // Fill any still-missing descriptions from the built-in list.
+  stdPatterns.forEach(p => {
+    if (!p.desc && p.idx >= 0 && p.idx < STD_PATTERN_DESC_FALLBACK.length) p.desc = STD_PATTERN_DESC_FALLBACK[p.idx];
+  });
 }
 
 async function refreshStdValues() {
@@ -4973,8 +4969,6 @@ function enterStreamingMode() {
 function applyStdSafeValues() {
   stdPendingSafeSync = false;
   stopSpeedRamp();
-  // Don't clobber the pattern/sensation/speed while position setup is driving them.
-  if (aiPos.active || aiPos.moving) { updateStartButton(); return; }
   stdValues.speed = 0;
   stdValues.max = STD_SAFE_MAX;
   stdValues.min = STD_SAFE_MIN;
@@ -5907,35 +5901,11 @@ function aiPosSimplePatternIndex() {
   const p = stdPatterns.find(x => /simple/i.test((x.name || "").toLowerCase()));
   return p ? p.idx : 0;
 }
-function aiPosWaitStd(timeoutMs = 12000) {
-  return new Promise((resolve) => {
-    if (!connected || !stdCmd) return resolve(false);
-    if ((stdStateName || "").indexOf("strokeEngine") === 0) return resolve(true);
-    monitor("pos: switching to Standard mode…", "warn");
-    const start = Date.now();
-    const t = setInterval(() => {
-      const s = stdStateName || "";
-      if (s.indexOf("strokeEngine") === 0) { clearInterval(t); resolve(true); }
-      else if (Date.now() - start > timeoutMs) {
-        clearInterval(t);
-        monitor("pos: still not in Standard mode — state is \"" + s + "\"", "err");
-        resolve(false);
-      }
-    }, 150);
-  });
-}
 async function aiPosMoveTo(pos) {
   const p = Math.round(clamp(pos, 0, 100));
-  if (!connected || !stdCmd) { aiAddMsg("system", "The OSSM isn't connected — connect it first, then I can move it."); return; }
+  if (!connected || appMode !== "std") return;
   const idx = aiPosPointIndex();
-  if (idx < 0) { aiAddMsg("system", "This device doesn't have the 'Go to Point' pattern, so I can't position by feel."); return; }
-  if (appMode !== "std") {
-    aiPosReturnAp = (appMode === "ap");
-    setModeFromDropdown("std");
-  }
-  // The device switch is asynchronous — wait until it's actually in strokeEngine
-  // before sending the positioning commands, or they get dropped.
-  if (!(await aiPosWaitStd())) { aiAddMsg("system", "The OSSM didn't switch to Standard mode in time (state: \"" + (stdStateName || "unknown") + "\") — try again."); return; }
+  if (idx < 0) return;
   // Even if the AI forgot to send "start", make sure the client knows we are positioning
   // so "stop"/"here" stay gentle and only the safe word is a full emergency stop.
   if (!aiPos.active) {
@@ -5945,10 +5915,10 @@ async function aiPosMoveTo(pos) {
   }
   // PointStroke: sensation = position between Min Pos and Max Pos.
   // Fix Min=0, Max=100 so sensation equals the absolute rail position (0-100).
-  await stdWriteReliable("set:min:0");
-  await stdWriteReliable("set:max:100");
-  await stdWriteReliable("set:pattern:" + idx);
-  await stdWriteReliable("set:sensation:" + p);
+  stdWrite("set:min:0");
+  stdWrite("set:max:100");
+  stdWrite("set:pattern:" + idx);
+  stdWrite("set:sensation:" + p);
   applySpeedInstant(aiPos.speed);
   aiPos.current = p;
   aiPos.moving = true;
