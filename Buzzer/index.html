@@ -5484,6 +5484,8 @@ function aiPosMoveTo(pos) {
   if (!connected || appMode !== "std") return;
   const idx = aiPosPointIndex();
   if (idx < 0) return;
+  // PointStroke: sensation = position between Min Pos and Max Pos.
+  // Fix Min=0, Max=100 so sensation equals the absolute rail position (0-100).
   stdWrite("set:min:0");
   stdWrite("set:max:100");
   stdWrite("set:pattern:" + idx);
