@@ -4849,6 +4849,7 @@ HOW TO CONVERSE:
 - If a request is ambiguous, ask ONE short clarifying question instead of guessing (then use "set": null).
 - In Advanced mode, "harder"/"faster" raises speed a little, "softer"/"slower" lowers it, "deeper"/"shallower" adjusts depth. In Standard mode, follow the INTENT guide given with the patterns (there "harder" means more forceful pounding, not just speed). Adjust incrementally, not to extremes.
 - The machine only moves after the user presses Start — unless your context explicitly says you may start/pause it (then use "run":"start" or "run":"pause"). If you did not start it, do not claim you did.
+- HOMING: when the user asks you to home the machine ("home", "recalibrate", "find home", "calibrate"), send "run":"home" — it forces the rail to retract home and measure, regardless of the firmware "Home between modes" setting. Only do this if your context says you may control the machine.
 - SAFETY LIMITS (critical): limits are the user's depth range (min depth and max depth, 0-100) and max speed (0-100). The CURRENT limits are only a safe starting point — the user may choose ANY limits, including higher ones. When they tell you their limits, extract THREE concrete numbers: min depth, max depth and max speed.
   - Take the user's numbers EXACTLY as stated — never reduce, cap, or talk them down, even if they are higher than the current limits. The confirmation step is what keeps raising safe.
   - If any of the three is missing or vague (e.g. "half depth", "a quarter", "not too fast", "you decide"), DO NOT guess or fill it in. Ask specifically for the missing value(s) and restate the values you did understand.
@@ -4867,7 +4868,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
-- "run" (optional, ONLY when your context says you are allowed to start/pause): "start" or "pause". Otherwise leave it null.
+- "run" (optional, ONLY when your context says you are allowed to start/pause): "start", "pause", or "home" (to force a full homing procedure). Otherwise leave it null.
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
 - "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
@@ -4933,7 +4934,7 @@ function aiExtractJson(text) {
     return ok ? out : null;
   };
   const lang = (typeof j.lang === "string" && /^[a-z]{2}$/i.test(j.lang)) ? j.lang.toLowerCase() : null;
-  const run = (typeof j.run === "string" && /^(start|pause)$/i.test(j.run)) ? j.run.trim().toLowerCase() : null;
+  const run = (typeof j.run === "string" && /^(start|pause|home)$/i.test(j.run)) ? j.run.trim().toLowerCase() : null;
   const memory = (typeof j.memory === "string" && j.memory.trim()) ? j.memory.trim().slice(0, 2000) : null;
   let pos = null;
   if (Array.isArray(j.pos)) {
@@ -5036,8 +5037,9 @@ function aiCurrentState() {
 }
 function aiRunContext(running) {
   if (!aiCanRunActive()) return "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".";
-  if (running) return "Machine running: yes. You MAY pause it when the user asks (include \"run\":\"pause\" in your JSON). To resume after pausing, include \"run\":\"start\".";
-  return "Machine running: no. You MAY start it when the user asks (include \"run\":\"start\" in your JSON). To pause it, include \"run\":\"pause\". This is the only run control you have — never use it unless asked.";
+  const homeNote = " You may also home the machine when the user asks (send \"run\":\"home\") — that forces a full homing procedure regardless of the firmware \"Home between modes\" setting.";
+  if (running) return "Machine running: yes. You MAY pause it when the user asks (include \"run\":\"pause\" in your JSON). To resume after pausing, include \"run\":\"start\"." + homeNote;
+  return "Machine running: no. You MAY start it when the user asks (include \"run\":\"start\" in your JSON). To pause it, include \"run\":\"pause\". This is the only run control you have — never use it unless asked." + homeNote;
 }
 function aiConnContext() {
   if (demoMode) return "OSSM connected: no (demo mode).";
@@ -5150,6 +5152,27 @@ function aiPauseMachine() {
   if (!connected || !aiMachineRunning()) return; // already paused
   if (appMode === "std") { monitor("OSSM stopped"); rampSpeed(stdValues.speed, 0); }
   else { monitor("OSSM stopped"); rampSpeed(speed(), 0); }
+}
+function aiHomeMachine() {
+  if (!connected || !stdCmd) { aiAddMsg("system", "Not connected — connect the OSSM first."); return; }
+  if (machineMoving()) { aiAddMsg("system", "The OSSM is moving — stop it first, then I'll home it."); return; }
+  aiAddMsg("system", "Homing — the rail will retract to home and measure.");
+  aiSpeak("Homing.");
+  modeWatchPausedUntil = Date.now() + 45000; // let homing finish before the watchdog steps in
+  stdStateName = "";
+  requestMode("go:streaming"); // streaming always homes, regardless of the "Home between modes" setting
+  const start = Date.now();
+  const timer = setInterval(() => {
+    const s = stdStateName || "";
+    if (/^streaming/.test(s)) {
+      clearInterval(timer);
+      aiAddMsg("system", "Homing complete — returning to Standard mode.");
+      requestMode("go:strokeEngine");
+    } else if (Date.now() - start > 30000) {
+      clearInterval(timer);
+      aiAddMsg("system", "Homing didn't finish in time — check the OSSM.");
+    }
+  }, 250);
 }
 function aiLocalStd(text) {
   const t = (text || "").toLowerCase();
@@ -5830,6 +5853,7 @@ async function aiSend(opts) {
     if (res.run && aiCanRunActive()) {
       if (res.run === "start") aiStartMachine();
       else if (res.run === "pause") aiPauseMachine();
+      else if (res.run === "home") aiHomeMachine();
     }
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
     if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos) {
