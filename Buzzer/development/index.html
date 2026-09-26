@@ -657,6 +657,7 @@
             <button type="button" class="mode-option" data-mode="ap">Advanced</button>
             <button type="button" class="mode-option" data-mode="std">Standard</button>
             <button type="button" class="mode-option" data-mode="fun">Funscript</button>
+            <button type="button" class="mode-option" data-mode="comp" id="modeCompOption" style="display:none;">💞 AI Companion</button>
           </div>
         </div>
         <span class="title-context" id="titleContext" style="display:none;"></span>
@@ -967,6 +968,7 @@ let connected = false;
 let running = false;
 let padStateText = "";       // last gamepad/keyboard status text
 let appMode = "std";         // "ap" (advanced penetration) | "std" (standard home)
+var compModeActive = false;   // companion overlay open as a "mode" (doesn't change appMode)
 let kofiHidden = false;      // session-only; resets on page refresh
 let kofiForceShow = false;   // user explicitly re-showed it on a short screen
 function isShortScreen() {
@@ -4897,11 +4899,13 @@ function enterApMode() {
 function syncModeDropdown() {
   const ml = $("modeCurrentLabel");
   if (ml) {
-    ml.textContent = appMode === "ap" ? "Advanced" : (appMode === "std" ? "Standard" : "Funscript");
+    ml.textContent = compModeActive ? "AI Companion" : (appMode === "ap" ? "Advanced" : (appMode === "std" ? "Standard" : "Funscript"));
   }
+  const compOpt = $("modeCompOption");
+  if (compOpt) compOpt.style.display = companionEnabled() ? "" : "none";
   document.querySelectorAll(".mode-option").forEach(o => {
     const target = o.getAttribute("data-mode");
-    o.classList.toggle("active", target === appMode);
+    o.classList.toggle("active", target === (compModeActive ? "comp" : appMode));
     if (target === "ap") o.disabled = !apAvailable();
   });
   const aiOn = aiEnabled();
@@ -5955,6 +5959,8 @@ function companionOpen() {
   const v = $("companionView");
   if (v) v.style.display = "";
   companionState.shown = true;
+  compModeActive = true;
+  syncModeDropdown();
   companionRender();
   companionSave();
 }
@@ -5962,6 +5968,8 @@ function companionClose() {
   const v = $("companionView");
   if (v) v.style.display = "none";
   companionState.shown = false;
+  compModeActive = false;
+  syncModeDropdown();
   companionSave();
   compLiveStop();
 }
@@ -6397,6 +6405,7 @@ function aiProcessVoice(text) {
       try { localStorage.setItem("ossm-companion-enabled", compBox.checked ? "1" : "0"); } catch (e) {}
       if (!compBox.checked) companionClose();
       companionSyncEntry();
+      syncModeDropdown();
     });
   }
   companionSyncEntry();
@@ -6528,7 +6537,9 @@ if (modeMenuEl) {
     opt.onclick = (e) => {
       e.stopPropagation();
       setModeMenuOpen(false);
-      setModeFromDropdown(opt.getAttribute("data-mode"));
+      const mode = opt.getAttribute("data-mode");
+      if (mode === "comp") companionOpen();
+      else setModeFromDropdown(mode);
     };
   });
 }
