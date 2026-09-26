@@ -5261,7 +5261,7 @@ function aiCurrentState() {
   return cur;
 }
 function aiRunContext(running) {
-  if (!aiCanRunActive()) return "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".";
+  if (!aiCanRunActive()) return "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ". You can still guide position setup by feel (the \"pos\" flow) whenever the OSSM is connected.";
   const homeNote = " You may also home the machine when the user asks (send \"run\":\"home\") — that forces a full homing procedure regardless of the firmware \"Home between modes\" setting.";
   if (!aiLimitsConfirmed()) return "Machine running: no. You MAY NOT start it yet — the user has not confirmed their safety limits this session. Ask for their min/max depth and max speed (or offer to find the positions together via \"pos\"), and do not send \"run\":\"start\" until they confirm. You may still adjust values and run position setup." + homeNote;
   if (running) return "Machine running: yes. You MAY pause it when the user asks (include \"run\":\"pause\" in your JSON). To resume after pausing, include \"run\":\"start\"." + homeNote;
@@ -6039,7 +6039,6 @@ function aiPosApplyEnvelope(P, canRun) {
     return;
   }
   if (a === "start") {
-    if (!canRun) return;
     aiPosReturnAp = (appMode === "ap");
     if (aiPosReturnAp) setModeFromDropdown("std");
     aiPosReset(); aiPos.active = true;
@@ -6052,7 +6051,6 @@ function aiPosApplyEnvelope(P, canRun) {
     aiPosSetRehomeConfirmed();
     aiPos.phase = aiPos.safeWord ? ((aiPos.min === null) ? "min" : "max") : "safeWord";
   } else if (a === "move" && typeof P.to === "number") {
-    if (!canRun) return;
     aiPosMoveTo(P.to);
   } else if (a === "stop") {
     aiPosStop();
@@ -6064,7 +6062,6 @@ function aiPosApplyEnvelope(P, canRun) {
   } else if (a === "stopMode") {
     aiSetStopMode(P.mode);
   } else if (a === "ready") {
-    if (!canRun) return;
     aiPosFinishReturn();
   } else if (a === "done") {
     const mn = clamp(Math.round(Number(P.min)), 0, 100);
