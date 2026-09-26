@@ -6756,7 +6756,7 @@ const GP_ACTIONS = [
   { id:"colLeft",  group:"general", label:"Hide/show sliders (◀)",  mode:"both", help:"Landscape: toggles the left sliders column." },
   { id:"colRight", group:"general", label:"Hide/show settings (▶)", mode:"both", help:"Landscape: toggles the right settings column." },
   { id:"estop", group:"general", label:"Emergency stop", mode:"both", help:"Immediately force-stops the OSSM and returns it to the menu." },
-  { id:"aiVoice", group:"general", label:"AI listen (voice)", mode:"both", help:"Opens the AI panel and starts listening with the microphone." },
+  { id:"aiVoice", group:"general", label:"AI listen (hands-free)", mode:"both", help:"Opens the AI panel and toggles continuous hands-free listening." },
 
   // ---- Standard screen ----
   { id:"patternNext", group:"std", label:"Pattern next", mode:"std", repeat:true, help:"Standard mode: next stroke pattern." },
@@ -7344,7 +7344,7 @@ function gpAiVoice() {
     const i = $("aiInput"); if (i) { try { i.focus(); } catch (e) {} }
   }
   syncAiOpenClass();
-  aiVoice();
+  aiLiveToggle();
 }
 
 function bindingHeld(b, gp) {
