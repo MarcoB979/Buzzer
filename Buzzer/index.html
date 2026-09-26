@@ -617,6 +617,18 @@
   .companion-view .ai-row { width: 100%; }
   #compSpeak.muted, #compSpeakTop.muted { opacity: .55; }
   #compLive.on, #compLiveTop.on { background: #166534; }
+  .companion-avatar .companion-img.live { overflow: hidden; border-radius: 50%; background: #0b1220; }
+  .companion-avatar canvas.live { width: 100%; height: 100%; display: block; }
+  .photo-modal { position: fixed; inset: 0; z-index: 140; background: rgba(0,0,0,.74); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .photo-modal-card { background: #0d1320; border: 1px solid #1e293b; border-radius: 14px; padding: 18px; max-width: 460px; width: 100%; color: #e2e8f0; }
+  .photo-modal-title { font-size: 1rem; font-weight: bold; margin-bottom: 8px; }
+  .photo-modal-body { font-size: .82rem; line-height: 1.45; color: #94a3b8; margin-bottom: 14px; }
+  .photo-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+  .photo-modal-actions .ble-btn.danger { background: #7f1d1d; }
+  .photo-calib-stage { position: relative; width: 100%; max-height: 52vh; overflow: hidden; border-radius: 10px; margin-bottom: 10px; cursor: crosshair; background: #000; }
+  .photo-calib-stage img { width: 100%; display: block; }
+  .photo-calib-dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #38bdf8; border: 2px solid #fff; transform: translate(-50%,-50%); pointer-events: none; box-shadow: 0 0 6px rgba(0,0,0,.5); }
+  .photo-calib-hint { font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
   #compConnect.on { background: #166534; }
   #compConnect.pulse { animation: compPulse .8s ease 3; }
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
@@ -776,6 +788,29 @@
             <button class="ble-btn small" id="compSpeak" type="button" title="Toggle spoken replies">🔊</button>
             <button class="ble-btn small" id="compSend" type="button">Go</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="photo-modal" id="photoConsent" style="display:none;">
+      <div class="photo-modal-card">
+        <div class="photo-modal-title">Turn this photo into a live avatar?</div>
+        <div class="photo-modal-body">Your photo will be animated on this device — eye blinks, lip movement while I talk, head motion and facial expressions. <b>You are solely responsible for the rights to this image.</b> By continuing you confirm that you own the photo (or have permission to use it), that the person shown consents where required, and that using and animating it here complies with all applicable laws.</div>
+        <div class="photo-modal-actions">
+          <button class="ble-btn small" id="photoConsentCancel" type="button">Cancel</button>
+          <button class="ble-btn small" id="photoConsentOk" type="button">I own it &amp; agree</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="photo-modal" id="photoCalib" style="display:none;">
+      <div class="photo-modal-card">
+        <div class="photo-modal-title" id="photoCalibTitle">Point out your face</div>
+        <div class="photo-calib-stage" id="photoCalibStage"><img id="photoCalibImg" alt=""></div>
+        <div class="photo-calib-hint" id="photoCalibHint">Tap one eye</div>
+        <div class="photo-modal-actions">
+          <button class="ble-btn small" id="photoCalibCancel" type="button">Cancel</button>
+          <button class="ble-btn small" id="photoCalibDone" type="button">Apply</button>
         </div>
       </div>
     </div>
@@ -6254,6 +6289,16 @@ function companionGen() {
 function companionRender() {
   const box = $("companionAvatar");
   if (!box) return;
+  if (companionState.source === "live" && companionState.customImage) {
+    box.innerHTML = '<div class="companion-img live"><canvas class="live"></canvas></div>';
+    if (companionLive.img) companionLiveStart();
+    else {
+      const img = new Image();
+      img.onload = () => { companionLive.img = img; companionLive.face = companionLiveComputeFace(img, companionState.landmarks || null); companionLiveSampleColors(img); companionLiveStart(); };
+      img.src = companionState.customImage;
+    }
+    return;
+  }
   if (companionState.source === "upload" && companionState.customImage) {
     box.innerHTML = '<div class="companion-img upload"><img src="' + companionState.customImage + '" alt="Companion"></div>';
     return;
@@ -6277,7 +6322,10 @@ function companionScheduleBlink() {
 }
 function companionBlink() {
   const av = $("companionAvatar");
-  if (av) { av.classList.add("blinking"); setTimeout(() => av.classList.remove("blinking"), 120); }
+  if (av) {
+    if (companionState.source === "live") { companionScheduleBlink(); return; }
+    av.classList.add("blinking"); setTimeout(() => av.classList.remove("blinking"), 120);
+  }
   companionScheduleBlink();
 }
 function compSetupState() { try { return localStorage.getItem("ossm-companion-setup") === "1"; } catch (e) { return false; } }
@@ -6303,6 +6351,7 @@ function companionOpen() {
   companionSave();
 }
 function companionClose() {
+  companionLiveStop();
   const v = $("companionView");
   if (v) v.style.display = "none";
   companionState.shown = false;
@@ -6324,6 +6373,7 @@ function companionPrefYoung() {
   return /\b(twinks?|twunks?|young|teen|femboys?|boys?)\b/.test(mem);
 }
 function companionRefresh() {
+  companionLiveStop();
   const pref = companionPref();
   const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
   const hairs = ["#f6d365", "#8b5a2b", "#1f2937", "#e2e8f0", "#38bdf8", "#ef4444", "#f9a8d4", "#f59e0b", "#b45309", "#a16207"];
@@ -6454,6 +6504,7 @@ function buildCompSliders() {
   }
 }
 function companionPreset(delta) {
+  companionLiveStop();
   companionState.custom = null;
   companionState.customImage = null;
   companionState.source = "generated";
@@ -6461,13 +6512,11 @@ function companionPreset(delta) {
   companionRender(); companionSave();
 }
 function companionUpload(file) {
-  if (!file) return;
-  const rd = new FileReader();
-  rd.onload = () => { companionState.customImage = String(rd.result); companionState.custom = null; companionState.source = "upload"; companionRender(); companionSave(); };
-  rd.readAsDataURL(file);
+  companionConsentAndLoad(file);
 }
 function companionApplyAvatar(a) {
   if (!a || typeof a !== "object") return;
+  companionLiveStop();
   const hairMap = { blonde:"#f6d365", blond:"#f6d365", brown:"#8b5a2b", black:"#1f2937", dark:"#1f2937", white:"#e2e8f0", silver:"#cbd5e1", blue:"#38bdf8", red:"#ef4444", pink:"#f9a8d4", ginger:"#f59e0b", orange:"#f59e0b" };
   const skinMap = { fair:"#ffdfc4", light:"#ffd9b3", tan:"#eab68f", deep:"#c68a5b", dark:"#a9714b" };
   const styleMap = { anime:"lorelei", manga:"lorelei", cartoon:"avataaars", toon:"avataaars", flat:"avataaars", fantasy:"adventurer", rpg:"adventurer", animal:"big-ears", furry:"big-ears", ears:"big-ears" };
@@ -6486,6 +6535,290 @@ function companionApplyAvatar(a) {
   companionRender(); companionSave();
 }
 function companionApplyFace(f) { companionApplyAvatar(f); }
+
+// ---------- Live photo companion (client-side face-cam animation) ----------
+const companionLive = {
+  img: null, face: null, active: false,
+  skinRgb: [232, 195, 158], lipRgb: [122, 59, 59], cheekRgb: [231, 121, 111],
+  blinkState: "open", blinkNext: 0, blinkT: 0,
+  mouth: 0, expression: null, exprUntil: 0,
+  raf: 0, cv: null, gazeX: 0, gazeY: 0
+};
+function companionLiveStop() {
+  if (companionLive.raf) { cancelAnimationFrame(companionLive.raf); companionLive.raf = 0; }
+  companionLive.active = false;
+}
+function companionConsentAndLoad(file) {
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    const dataUrl = String(rd.result);
+    const img = new Image();
+    img.onload = () => companionLiveAskConsent(img, dataUrl);
+    img.onerror = () => funLog("Couldn't read that image — try another.");
+    img.src = dataUrl;
+  };
+  rd.readAsDataURL(file);
+}
+function companionLiveAskConsent(img, dataUrl) {
+  const modal = $("photoConsent");
+  if (!modal) { companionLiveDetect(img, dataUrl); return; }
+  modal.style.display = "";
+  const ok = $("photoConsentOk"), cancel = $("photoConsentCancel");
+  const done = (apply) => {
+    modal.style.display = "none";
+    ok.onclick = null; cancel.onclick = null;
+    if (apply) companionLiveDetect(img, dataUrl);
+  };
+  ok.onclick = () => done(true);
+  cancel.onclick = () => done(false);
+}
+function companionLiveDetect(img, dataUrl) {
+  if (window.FaceDetector) {
+    try {
+      const fd = new window.FaceDetector({ fastMode: false, maxDetectedFaces: 1 });
+      fd.detect(img).then((faces) => {
+        if (faces && faces.length) {
+          const pts = companionLiveFromDetected(faces[0], img);
+          if (pts) { companionLiveSetImage(img, dataUrl, pts); return; }
+        }
+        companionLiveCalibrate(img, dataUrl);
+      }).catch(() => companionLiveCalibrate(img, dataUrl));
+      return;
+    } catch (e) { /* fall through to calibration */ }
+  }
+  companionLiveCalibrate(img, dataUrl);
+}
+function companionLiveFromDetected(f, img) {
+  try {
+    const mk = (lm) => {
+      const p = lm && lm.locations && lm.locations[0];
+      if (!p) return null;
+      return [p.x / img.naturalWidth, p.y / img.naturalHeight];
+    };
+    let le = null, re = null, m = null;
+    (f.landmarks || []).forEach((lm) => {
+      const t = String(lm.type || "").toLowerCase();
+      if (t === "eye") { if (!le) le = mk(lm); else re = mk(lm); }
+      else if (t === "mouth") m = mk(lm);
+    });
+    if (le && re && m) return { le: le, re: re, m: m, box: null };
+    return null;
+  } catch (e) { return null; }
+}
+function companionLiveCalibrate(img, dataUrl) {
+  const modal = $("photoCalib");
+  if (!modal) { companionLiveSetImage(img, dataUrl, null); return; }
+  modal.style.display = "";
+  const stage = $("photoCalibStage"), simg = $("photoCalibImg");
+  const hint = $("photoCalibHint"), apply = $("photoCalibDone"), cancel = $("photoCalibCancel");
+  simg.src = img.src;
+  const stepText = ["Tap one eye", "Tap the other eye", "Tap the mouth"];
+  let clicks = []; const dots = [];
+  const update = () => { hint.textContent = clicks.length < 3 ? stepText[clicks.length] : "All set — tap Apply."; };
+  const clearDots = () => { dots.forEach((d) => d.remove()); dots.length = 0; };
+  const addDot = (x, y) => {
+    const d = document.createElement("div");
+    d.className = "photo-calib-dot";
+    d.style.left = (x * 100) + "%"; d.style.top = (y * 100) + "%";
+    stage.appendChild(d); dots.push(d);
+  };
+  stage.onclick = (e) => {
+    const r = simg.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const nx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    const ny = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    clicks.push([nx, ny]); addDot(nx, ny);
+    update();
+  };
+  const finish = (ok) => {
+    let pts = null;
+    if (ok && clicks.length >= 3) {
+      const e1 = clicks[0], e2 = clicks[1], m = clicks[2];
+      pts = { le: e1, re: e2, m: m, box: null };
+    }
+    modal.style.display = "none";
+    stage.onclick = null; clearDots(); clicks = [];
+    apply.onclick = null; cancel.onclick = null;
+    companionLiveSetImage(img, dataUrl, pts);
+  };
+  apply.onclick = () => finish(true);
+  cancel.onclick = () => finish(false);
+  update();
+}
+function companionLiveComputeFace(img, pts) {
+  let le, re, m;
+  if (pts && pts.le && pts.re && pts.m) { le = pts.le; re = pts.re; m = pts.m; }
+  else { le = [0.4, 0.36]; re = [0.6, 0.36]; m = [0.5, 0.6]; }
+  const eyeMid = [(le[0] + re[0]) / 2, (le[1] + re[1]) / 2];
+  const eyeDist = Math.max(0.04, Math.hypot(re[0] - le[0], re[1] - le[1]));
+  const headW = Math.min(1.25, eyeDist * 3.6);
+  const headH = Math.min(1.25, eyeDist * 4.6);
+  const cx = eyeMid[0];
+  const cy = (eyeMid[1] + m[1]) / 2 - eyeDist * 0.18;
+  const x = Math.max(0, Math.min(1 - headW, cx - headW / 2));
+  const y = Math.max(0, Math.min(1 - headH, cy - headH / 2));
+  return { x: x, y: y, w: headW, h: headH, le: le, re: re, m: m, eyeDist: eyeDist };
+}
+function companionLiveSampleColors(img) {
+  try {
+    const c = document.createElement("canvas");
+    c.width = 64; c.height = 64;
+    const ctx = c.getContext("2d");
+    ctx.drawImage(img, 0, 0, 64, 64);
+    const f = companionLive.face;
+    if (!f) return;
+    const px = (nx, ny) => {
+      const x = Math.min(63, Math.max(0, Math.round(nx * 64)));
+      const y = Math.min(63, Math.max(0, Math.round(ny * 64)));
+      const d = ctx.getImageData(x, y, 1, 1).data;
+      return [d[0], d[1], d[2]];
+    };
+    const ex = (f.le[0] + f.re[0]) / 2, ey = (f.le[1] + f.re[1]) / 2;
+    const ed = f.eyeDist || 0.12;
+    companionLive.skinRgb = px(ex - ed * 0.9, ey + ed * 1.15);
+    const lip = px(f.m[0], f.m[1]);
+    companionLive.lipRgb = [Math.max(30, lip[0] - 50), Math.max(10, lip[1] - 35), Math.max(10, lip[2] - 35)];
+    const ck = px(ex, ey + ed * 1.3);
+    companionLive.cheekRgb = [Math.min(255, ck[0] + 55), Math.max(0, ck[1] - 15), Math.max(0, ck[2] - 15)];
+  } catch (e) {}
+}
+function companionLiveSetImage(img, dataUrl, pts) {
+  companionLiveStop();
+  companionLive.img = img;
+  companionLive.face = companionLiveComputeFace(img, pts);
+  companionLiveSampleColors(img);
+  companionLive.expression = null;
+  companionState.customImage = dataUrl;
+  companionState.custom = null;
+  companionState.source = "live";
+  companionState.landmarks = pts || null;
+  companionState.shown = true;
+  compSetupDone();
+  companionRender();
+  companionSave();
+}
+function companionLiveStart() {
+  companionLiveStop();
+  const box = $("companionAvatar");
+  if (!box) return;
+  const cv = box.querySelector("canvas.live");
+  if (!cv) return;
+  companionLive.cv = cv;
+  companionLive.active = true;
+  companionLive.blinkNext = performance.now() + 1500 + Math.random() * 2800;
+  const loop = () => {
+    if (!companionLive.active || companionState.source !== "live") { companionLive.raf = 0; return; }
+    companionLiveFrame(performance.now());
+    companionLive.raf = requestAnimationFrame(loop);
+  };
+  companionLive.raf = requestAnimationFrame(loop);
+}
+function companionLiveExpress(text) {
+  if (!companionLive.active || !text) return;
+  const t = String(text).toLowerCase();
+  const happy = /\b(love|good|yes|yeah|perfect|nice|amazing|great|more|harder|faster|please|kiss|miss you|wow)\b/.test(t);
+  const kind = happy || Math.random() < 0.22 ? (Math.random() < 0.55 ? "smile" : "blush") : null;
+  if (kind) { companionLive.expression = { kind: kind }; companionLive.exprUntil = performance.now() + 2400 + Math.random() * 2400; }
+}
+function companionLiveFrame(now) {
+  const cv = companionLive.cv;
+  if (!cv || !companionLive.img || !companionLive.face) return;
+  const ctx = cv.getContext("2d");
+  if (!ctx) return;
+  const w = cv.clientWidth || 300, h = cv.clientHeight || 300;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+
+  const f = companionLive.face, img = companionLive.img;
+  const t = now / 1000;
+  const speaking = !!(window.speechSynthesis && speechSynthesis.speaking);
+
+  const breathe = 1 + 0.015 * Math.sin(t * 1.5);
+  const sway = 0.5 * Math.sin(t * 0.45);
+  const bob = speaking ? 0.9 * Math.sin(t * 10.5) : 0;
+  const tilt = (sway + companionLive.gazeX * 1.4) * Math.PI / 180;
+  const lean = (bob + companionLive.gazeY * 0.9) * (h * 0.01);
+
+  let target = speaking ? 1 : 0;
+  if (companionLive.expression && now < companionLive.exprUntil) {
+    if (companionLive.expression.kind === "smile") target = Math.max(target, 0.28);
+  }
+  companionLive.mouth += (target - companionLive.mouth) * 0.32;
+  if (speaking) companionLive.mouth += Math.sin(t * 23) * 0.06;
+  companionLive.mouth = Math.max(0, Math.min(1, companionLive.mouth));
+
+  const sx = f.x * img.naturalWidth, sy = f.y * img.naturalHeight;
+  const sw = f.w * img.naturalWidth, sh = f.h * img.naturalHeight;
+  ctx.save();
+  ctx.translate(w / 2, h / 2);
+  ctx.rotate(tilt);
+  ctx.scale(breathe, breathe);
+  ctx.translate(-w / 2 + lean * 0.4, -h / 2 + lean);
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+  ctx.restore();
+
+  const fx = (nx) => (nx - f.x) / f.w * w;
+  const fy = (ny) => (ny - f.y) / f.h * h;
+  const eyeR = Math.max(6, (f.eyeDist / f.w) * w * 0.16);
+
+  if (now > companionLive.blinkNext && companionLive.blinkState === "open") {
+    companionLive.blinkState = "closing"; companionLive.blinkT = now;
+  }
+  let blinkAmt = 0;
+  if (companionLive.blinkState === "closing") {
+    blinkAmt = Math.min(1, (now - companionLive.blinkT) / 80);
+    if (blinkAmt >= 1) { companionLive.blinkState = "opening"; companionLive.blinkT = now; blinkAmt = 1; }
+  } else if (companionLive.blinkState === "opening") {
+    blinkAmt = 1 - Math.min(1, (now - companionLive.blinkT) / 130);
+    if (blinkAmt <= 0) { companionLive.blinkState = "open"; blinkAmt = 0; companionLive.blinkNext = now + 2000 + Math.random() * 3800; }
+  }
+  if (blinkAmt > 0.01 && f.le && f.re) {
+    const s = companionLive.skinRgb;
+    ctx.fillStyle = "rgb(" + s[0] + "," + s[1] + "," + s[2] + ")";
+    [f.le, f.re].forEach((e) => {
+      const ex = fx(e[0]), ey = fy(e[1]);
+      ctx.beginPath();
+      ctx.ellipse(ex, ey, eyeR * 1.4, eyeR * (0.4 + blinkAmt * 1.1), 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  if (companionLive.mouth > 0.03 && f.m) {
+    const mx = fx(f.m[0]), my = fy(f.m[1]);
+    const mw = eyeR * 1.55;
+    const open = companionLive.mouth;
+    const lr = companionLive.lipRgb;
+    const g = ctx.createRadialGradient(mx, my, 1, mx, my, mw);
+    g.addColorStop(0, "rgba(40,12,12," + (0.5 * open + 0.06) + ")");
+    g.addColorStop(0.55, "rgba(" + lr[0] + "," + lr[1] + "," + lr[2] + ",0.5)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.ellipse(mx, my + mw * 0.12 * open, mw * (0.55 + 0.28 * open), mw * (0.26 + 0.52 * open), 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "blush" && f.le && f.re) {
+    const cxb = fx((f.le[0] + f.re[0]) / 2), cyb = fy((f.le[1] + f.re[1]) / 2);
+    const off = eyeR * 2.0, rad = off * 0.95;
+    const cr = companionLive.cheekRgb;
+    [[-1, 1], [1, 1]].forEach(([sx2, sy2]) => {
+      const px2 = cxb + sx2 * off, py2 = cyb + sy2 * off * 0.82;
+      const g = ctx.createRadialGradient(px2, py2, 1, px2, py2, rad);
+      g.addColorStop(0, "rgba(" + cr[0] + "," + cr[1] + "," + cr[2] + ",0.30)");
+      g.addColorStop(1, "rgba(" + cr[0] + "," + cr[1] + "," + cr[2] + ",0)");
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(px2, py2, rad, 0, Math.PI * 2); ctx.fill();
+    });
+  }
+}
+
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words.
 
 You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move to their shallowest point while they say "stop", then to their deepest point while they say "stop" again, then gently back to the shallowest point (while moving you only listen, you don't talk). That is the "pos" flow. Or they can simply tell you the three numbers. Only use those fields when relevant — most of the time, just be yourself and talk.`;
@@ -6549,6 +6882,7 @@ async function compSend() {
     if (res.reply) {
       compAddMsg("assistant", escapeHtml(res.reply));
       if (aiSpeakEnabled()) aiSpeak(res.reply);
+      companionLiveExpress(res.reply);
     } else if (res.error) {
       compAddMsg("assistant", escapeHtml(res.error));
     }
@@ -6704,6 +7038,7 @@ function compLiveStart() {
     const dx = Math.max(-3.5, Math.min(3.5, ((e.clientX - (r.left + r.width / 2)) / (r.width / 2)) * 3.5));
     const dy = Math.max(-2.5, Math.min(2.5, ((e.clientY - (r.top + r.height / 2)) / (r.height / 2)) * 2.5));
     av.querySelectorAll(".comp-gaze").forEach(g => { g.style.transform = "translate(" + dx + "px," + dy + "px)"; });
+    companionLive.gazeX = dx / 3.5; companionLive.gazeY = dy / 2.5;
   });
   companionScheduleBlink();
 })();
@@ -6770,6 +7105,7 @@ async function aiSend(opts) {
     if (res.reply) {
       aiAddMsg("assistant", escapeHtml(res.reply));
       if (aiSpeakEnabled()) aiSpeak(res.reply);
+      companionLiveExpress(res.reply);
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && aiMemoryActive()) aiSetMemory(res.memory);
