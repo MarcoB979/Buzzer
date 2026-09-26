@@ -1214,6 +1214,8 @@ function monitor(msg, cls) {
   if (!monitorRenderQueued) { monitorRenderQueued = true; requestAnimationFrame(renderMonitor); }
 }
 const log = (msg) => monitor(msg);
+// Human-readable AI actions for the live monitor.
+function aiLog(msg) { monitor("AI " + msg, "ai"); }
 const monitorTx = (cmd) => monitor("→ " + cmd, "tx");
 const monitorRx = (msg) => monitor("← " + msg, "rx");
 const decode = (dv) => new TextDecoder().decode(dv);
@@ -6077,7 +6079,14 @@ function aiPosApplyEnvelope(P, canRun) {
   if (Array.isArray(P)) { for (const p of P) aiPosApplyEnvelope(p, canRun); return; }
   if (typeof P !== "object") return;
   const a = typeof P.action === "string" ? P.action : "";
-  monitor("AI pos: " + JSON.stringify(P), "ai");
+  const safeLog = (a === "safeWord" && P && typeof P.word === "string") ? Object.assign({}, P, { word: "•••" }) : P;
+  monitor("AI pos: " + JSON.stringify(safeLog), "ai");
+  if (a === "start") aiLog("initiated position setup");
+  else if (a === "safeWord") aiLog("saved a safe word");
+  else if (a === "stopMode") aiLog("stop word now = " + (P.mode === "gentle" ? "gentle stop" : "full emergency stop"));
+  else if (a === "record") aiLog("recorded position (" + (aiPos.phase === "min" ? "min" : aiPos.phase === "max" ? "max" : aiPos.phase) + ")");
+  else if (a === "done") aiLog("positions saved & limits applied");
+  else if (a === "ready") aiLog("position setup finished — returning to start");
   if ((a === "start" || a === "move" || a === "ready") && !connected) {
     aiAddMsg("system", "I can't move the OSSM — it isn't connected yet. Connect it and tell me to go again.");
     if (aiSpeakEnabled()) aiSpeak("Connect the OSSM first, then I'll move it.");
@@ -7175,6 +7184,7 @@ async function compSend() {
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && (memOn || inSetup) && aiIsKeyedProvider()) {
       aiSetMemory(res.memory);
+      aiLog("stored a preference (memory)");
       if (inSetup) { try { localStorage.setItem("ossm-ai-memory-enabled", "1"); } catch (e) {} }
     }
     if (res.face) companionApplyFace(res.face);
@@ -7204,14 +7214,17 @@ async function compSend() {
     }
     if (res.run && aiCanRunActive()) {
       if (res.run === "start") {
-        if (aiLimitsConfirmed()) aiStartMachine();
-        else compAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together.");
+        if (aiLimitsConfirmed()) { aiStartMachine(); aiLog("started the machine"); }
+        else { compAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); aiLog("wanted to start — blocked (no limits)"); }
       }
-      else if (res.run === "pause") aiPauseMachine();
-      else if (res.run === "home") aiHomeMachine();
+      else if (res.run === "pause") { aiPauseMachine(); aiLog("paused the machine"); }
+      else if (res.run === "home") { aiHomeMachine(); aiLog("homed the machine"); }
     }
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
-    if (res.ui) aiApplyUi(res.ui);
+    if (res.ui) {
+      aiApplyUi(res.ui);
+      aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
+    }
   } catch (e) {
     if (th) th.remove();
     compAddMsg("assistant", "Hmm, I lost the connection — try again?");
@@ -7395,7 +7408,7 @@ async function aiSend(opts) {
       companionLiveExpress(res.reply);
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
-    if (res.memory && aiMemoryActive()) aiSetMemory(res.memory);
+    if (res.memory && aiMemoryActive()) { aiSetMemory(res.memory); aiLog("stored a preference (memory)"); }
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiPendingLimits && aiIsYes(text)) {
@@ -7420,14 +7433,17 @@ async function aiSend(opts) {
     if (res.params) aiApplySet(res.params);
     if (res.run && aiCanRunActive()) {
       if (res.run === "start") {
-        if (aiLimitsConfirmed()) aiStartMachine();
-        else aiAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together.");
+        if (aiLimitsConfirmed()) { aiStartMachine(); aiLog("started the machine"); }
+        else { aiAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); aiLog("wanted to start — blocked (no limits)"); }
       }
-      else if (res.run === "pause") aiPauseMachine();
-      else if (res.run === "home") aiHomeMachine();
+      else if (res.run === "pause") { aiPauseMachine(); aiLog("paused the machine"); }
+      else if (res.run === "home") { aiHomeMachine(); aiLog("homed the machine"); }
     }
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
-    if (res.ui) aiApplyUi(res.ui);
+    if (res.ui) {
+      aiApplyUi(res.ui);
+      aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
+    }
     if (res.face) companionApplyFace(res.face);
     if (res.video) aiApplyVideo(res.video);
     if (res.search) aiApplySearch(res.search);
