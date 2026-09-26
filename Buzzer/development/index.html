@@ -850,9 +850,7 @@
       </div>
     </details>
 
-    <!-- Online videos is hidden for now: Funscripthub downloads are Cloudflare-blocked and
-         EroScripts requires a login. Remove the inline style below to re-enable it. -->
-    <details class="online-videos" id="onlineVideos" style="display:none;">
+    <details class="online-videos" id="onlineVideos">
       <summary>🌐 Online videos</summary>
       <div class="online-body">
         <div class="online-source">
@@ -5980,7 +5978,7 @@ function aiApplyVideo(v) {
 }
 function aiVideoContext() {
   const favs = getFavorites();
-  const searchNote = "\n\nSEARCH: you can't browse the web yourself, but you can search the built-in Funscripthub directory by category. Set \"search\":{\"query\":\"<a short tag or keyword like twink, blonde, brat>\"} to pull up matches, and add \"play\":true to load the first match. Funscripthub can be slow or blocked — if it fails, tell the user and ask for a direct link instead (when they give a link, the app adds it to favorites and plays it automatically).";
+  const searchNote = "\n\nSEARCH: you can't browse the web yourself, but you can search the built-in Funscripthub directory by category. Set \"search\":{\"query\":\"<a short tag or keyword like twink, blonde, brat>\"} to pull up matches, and add \"play\":true to load the first match. Funscripthub usually works, but its entries often only provide a funscript (not a direct video) — if the video can't load, tell the user and ask for a direct video link instead (when they give a link, the app adds it to favorites and plays it automatically).";
   if (!favs.length) return "\n\nFAVORITE VIDEOS: none saved yet. If the user asks you to play porn or put something on, either ask them for a direct video link (the app will favorite and play it), or use \"search\" to find something." + searchNote;
   const lines = favs.map((f, i) => (i + 1) + '. title: "' + (f.title || "untitled") + '", url: "' + f.url + '"').join("\n");
   return "\n\nFAVORITE VIDEOS (play these when the user asks to \"play porn\", \"put something on\", \"surprise me\", etc.):\n" + lines
