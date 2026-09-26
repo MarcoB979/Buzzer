@@ -4796,14 +4796,16 @@ HOW TO CONVERSE:
   - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm.
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
   - MEMORY: only store what the user VOLUNTARILY shares about themselves (their name, role, what they like to be called, pronouns, orientation, boundaries, preferences). NEVER ask for personal details — do not quiz them about their name, orientation, pronouns or preferences, as that would be offensive. When they share something lasting on their own, note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts, and never store anything they didn't choose to share.
+  - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): before any movement, ask them to choose a SAFE WORD (that word alone triggers a full emergency stop) and make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if they confirm it, send {"action":"rehomeDone"} and remember it. Then guide them: move the rail in steps of at most 10 at a time using {"action":"move","to":<0-100>}, and ask "a little more?" between steps. Their "stop"/"here"/"good" already stops the rail — then ask them to confirm that position. When they confirm the shallowest point, send {"action":"record"} (that saves Min), then repeat for the deepest point (saves Max), then agree the speed (a number, or "twice as fast" via {"action":"speedNote","speed":<n>}). Finish with {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}. Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
 - "run" (optional, ONLY when your context says you are allowed to start/pause): "start" or "pause". Otherwise leave it null.
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
+- "pos" (optional, ONLY during position setup — see POSITION SETUP rules): {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -4843,15 +4845,15 @@ function aiNormalizeParams(obj) {
 }
 
 function aiExtractJson(text) {
-  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "lang": ".."} or a flat params object.
-  if (!text) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null };
+  // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "pos": {...}, "lang": ".."} or a flat params object.
+  if (!text) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null };
   const s = text.indexOf("{");
   const e = text.lastIndexOf("}");
-  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null };
+  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null };
   let j = null;
   try { j = JSON.parse(text.slice(s, e + 1).replace(/```/g, "")); } catch (err) {}
-  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null };
-  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, run: null, memory: null, lang: null }; // rate-limit / error envelope
+  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null };
+  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null }; // rate-limit / error envelope
   const parseLimits = (L) => {
     if (!L || typeof L !== "object" || Array.isArray(L)) return null;
     const out = {};
@@ -4864,10 +4866,11 @@ function aiExtractJson(text) {
   const lang = (typeof j.lang === "string" && /^[a-z]{2}$/i.test(j.lang)) ? j.lang.toLowerCase() : null;
   const run = (typeof j.run === "string" && /^(start|pause)$/i.test(j.run)) ? j.run.trim().toLowerCase() : null;
   const memory = (typeof j.memory === "string" && j.memory.trim()) ? j.memory.trim().slice(0, 2000) : null;
-  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, lang };
+  const pos = (j.pos && typeof j.pos === "object" && !Array.isArray(j.pos) && typeof j.pos.action === "string") ? j.pos : null;
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -4965,6 +4968,14 @@ function aiConnContext() {
   if (demoMode) return "OSSM connected: no (demo mode).";
   return "OSSM connected: " + (connected ? "yes" : "no") + ". If it is NOT connected, never claim you started or will start the machine — you can still set values, but tell the user to connect the OSSM first.";
 }
+function aiPosContext() {
+  if (!aiPos.active) return "";
+  return "POSITION SETUP ACTIVE — guiding the user to set Min Pos, Max Pos and Speed by feel. Phase: " + aiPos.phase
+    + ". Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed
+    + ". Safe word set: " + (aiPos.safeWord ? "yes" : "no")
+    + ". \"Home between modes\" confirmed off: " + (aiPosRehomeConfirmed() ? "yes" : "no")
+    + ". Move the rail in steps of max " + AI_POS_STEP + ", then ask \"a little more?\". The user's \"stop\"/\"here\"/\"good\" already stops the rail — then you ask them to confirm this position. Only the safe word is a full emergency stop.";
+}
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
   if (appMode === "std") {
@@ -4975,6 +4986,7 @@ function aiModeContext(cur) {
       + aiLimitsText() + "\n"
       + aiRunContext(running) + "\n"
       + aiConnContext() + "\n"
+      + aiPosContext() + "\n"
       + "Current settings: " + JSON.stringify(cur);
   }
   return "CURRENT MODE: Advanced Penetration. In \"set\" you may use these keys:\n"
@@ -4984,6 +4996,7 @@ function aiModeContext(cur) {
     + aiLimitsText() + "\n"
     + aiRunContext(running) + "\n"
     + aiConnContext() + "\n"
+    + aiPosContext() + "\n"
     + "Current settings: " + JSON.stringify(cur);
 }
 function aiPatternIndex(raw) {
@@ -5322,7 +5335,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5334,7 +5347,7 @@ async function aiCallDeepSeek(messages, key) {
     }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, lang: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5349,12 +5362,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5434,12 +5447,142 @@ function aiLocalInterpret(text) {
   return p;
 }
 
+// ---------- AI-guided position setup (set Min/Max by feel) ----------
+const AI_POS_STEP = 10;   // max move per step
+let aiPos = {
+  active: false,
+  phase: "safeWord",      // safeWord | rehome | min | max | speed | done
+  moving: false,
+  current: 0,             // last commanded position 0-100
+  speed: 5,               // positioning speed
+  safeWord: "",
+  min: null,
+  max: null
+};
+function aiPosSpeed() {
+  try { const n = parseInt(localStorage.getItem("ossm-ai-pos-speed"), 10); return (isNaN(n) || n < 1) ? 5 : clamp(n, 1, 100); } catch (e) { return 5; }
+}
+function aiPosSetSpeed(n) {
+  try { localStorage.setItem("ossm-ai-pos-speed", String(clamp(Math.round(n), 1, 100))); } catch (e) {}
+}
+function aiPosRehomeConfirmed() {
+  try { return localStorage.getItem("ossm-ai-pos-rehome") === "1"; } catch (e) { return false; }
+}
+function aiPosSetRehomeConfirmed() {
+  try { localStorage.setItem("ossm-ai-pos-rehome", "1"); } catch (e) {}
+}
+function aiPosReset() {
+  aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:"", min:null, max:null };
+}
+function aiPosPointIndex() {
+  const p = stdPatterns.find(x => /go to point|point stroke|point/i.test((x.name || "").toLowerCase()));
+  return p ? p.idx : -1;
+}
+function aiPosMoveTo(pos) {
+  const p = Math.round(clamp(pos, 0, 100));
+  if (!connected || appMode !== "std") return;
+  const idx = aiPosPointIndex();
+  if (idx < 0) return;
+  stdWrite("set:min:0");
+  stdWrite("set:max:100");
+  stdWrite("set:pattern:" + idx);
+  stdWrite("set:sensation:" + p);
+  applySpeedInstant(aiPos.speed);
+  aiPos.current = p;
+  aiPos.moving = true;
+}
+function aiPosStop() {
+  if (aiPos.moving) {
+    applySpeedInstant(0);   // gentle stop — no re-home
+    aiPos.moving = false;
+  }
+}
+function aiPosIsGentleStop(t) {
+  return /\b(stop|halt|here|right there|that'?s it|this is it|good|perfect|wait|hold on|pauze|stoppen|hier|daar)\b/.test(t);
+}
+function aiPosHandleInput(text, inp) {
+  const t = (text || "").trim();
+  if (!t) return false;
+  const tl = t.toLowerCase();
+  const norm = tl.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  // 1) safe word → full emergency stop
+  if (aiPos.safeWord && norm === aiPos.safeWord) {
+    if (inp) inp.value = "";
+    aiAddMsg("user", escapeHtml(text));
+    aiPosReset();
+    emergencyStop();
+    aiStopLive();
+    aiAddMsg("assistant", "Safe word — full emergency stop.");
+    aiSpeak("Emergency stop.");
+    return true;
+  }
+  // 2) "stop"-like words while moving → gentle stop (instant, no emergency)
+  if (aiPos.moving && aiPosIsGentleStop(tl)) {
+    if (inp) inp.value = "";
+    aiPosStop();
+    aiAddMsg("user", escapeHtml(text));
+    aiAddMsg("system", "Rail stopped at " + aiPos.current + ". Confirm this position, or ask for a little more.");
+    aiSpeak("Stopped.");
+    return true;
+  }
+  // 3) cancel the whole setup
+  if (!aiPos.moving && /\b(cancel|abort|never mind|quit|stop the setup)\b/.test(tl)) {
+    if (inp) inp.value = "";
+    aiAddMsg("user", escapeHtml(text));
+    aiPosReset();
+    aiAddMsg("assistant", "Setup cancelled.");
+    return true;
+  }
+  return false;
+}
+function aiPosApplyEnvelope(P) {
+  if (!P || typeof P !== "object" || Array.isArray(P)) return;
+  const a = typeof P.action === "string" ? P.action : "";
+  if (a === "start") {
+    aiPosReset(); aiPos.active = true; aiPos.phase = "safeWord";
+  } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
+    aiPos.safeWord = String(P.word).trim().toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+    aiPos.phase = "rehome";
+  } else if (a === "rehomeDone") {
+    aiPosSetRehomeConfirmed();
+    aiPos.phase = (aiPos.min === null) ? "min" : "max";
+  } else if (a === "move" && typeof P.to === "number") {
+    aiPosMoveTo(P.to);
+  } else if (a === "stop") {
+    aiPosStop();
+  } else if (a === "record") {
+    if (aiPos.phase === "min" && aiPos.min === null) { aiPos.min = aiPos.current; aiPos.phase = "max"; }
+    else if (aiPos.phase === "max" && aiPos.max === null) { aiPos.max = aiPos.current; aiPos.phase = "speed"; }
+  } else if (a === "speedNote") {
+    if (typeof P.speed === "number") { aiPos.speed = clamp(Math.round(P.speed), 1, 100); aiPosSetSpeed(aiPos.speed); }
+  } else if (a === "done") {
+    const mn = clamp(Math.round(Number(P.min)), 0, 100);
+    const mx = clamp(Math.round(Number(P.max)), 0, 100);
+    const sp = clamp(Math.round(Number(P.speed)), 0, 100);
+    aiPosStop();
+    if (mn <= mx) {
+      aiApplyLimits({ minDepth: mn, maxDepth: mx, maxSpeed: sp });
+      stdValues.min = mn; stdValues.max = mx;
+      if (connected && stdCmd) {
+        stdWrite("set:min:" + mn);
+        stdWrite("set:max:" + mx);
+      }
+      stdLastSpeed = sp;
+      saveStdValues();
+      buildInterface();
+    }
+    aiPosSetSpeed(aiPos.speed);   // remember positioning speed preference
+    aiPosReset();
+  }
+}
+
 async function aiSend(opts) {
   const fromVoice = !!(opts && opts.fromVoice);
   const inp = $("aiInput");
   const text = (inp ? inp.value : "").trim();
   if (!text || aiBusy) return;
-  if (aiIsStop(text)) {
+  if (aiPos.active && aiPosHandleInput(text, inp)) return;
+  if (!aiPos.active && aiIsStop(text)) {
     if (inp) inp.value = "";
     aiAddMsg("user", escapeHtml(text));
     emergencyStop();
@@ -5466,7 +5609,7 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos) {
       if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
       aiMessages.pop();
@@ -5502,7 +5645,8 @@ async function aiSend(opts) {
       if (res.run === "start") aiStartMachine();
       else if (res.run === "pause") aiPauseMachine();
     }
-    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory) {
+    if (res.pos && aiCanRunActive()) aiPosApplyEnvelope(res.pos);
+    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
