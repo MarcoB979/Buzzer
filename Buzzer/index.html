@@ -5921,17 +5921,27 @@ function companionSyncEntry() {
 function companionFace() { return companionState.custom || COMPANION_PRESETS[((companionState.preset % COMPANION_PRESETS.length) + COMPANION_PRESETS.length) % COMPANION_PRESETS.length]; }
 function companionEye(cx, color) {
   return '<g transform="translate(' + cx + ',112)">'
-    + '<path d="M-22 -15 Q 0 -23 22 -15" stroke="#00000026" stroke-width="1.6" fill="none" stroke-linecap="round"/>'
+    // soft eye shadow above the lid
+    + '<ellipse cx="0" cy="-15" rx="19" ry="4.5" fill="#f472b6" opacity=".14"/>'
+    // eyelid crease
+    + '<path d="M-22 -14 Q 0 -23 22 -14" stroke="#00000026" stroke-width="1.5" fill="none" stroke-linecap="round"/>'
     + '<g class="comp-eye-open">'
+    // sclera
     +   '<path d="M-21 0 Q -5 -18 21 -2 Q 22 6 10 11 L -12 11 Q -22 6 -21 0 Z" fill="#ffffff" stroke="#111827" stroke-width="1.8" stroke-linejoin="round"/>'
+    // iris + pupil + highlights
     +   '<g class="comp-gaze">'
     +     '<ellipse cx="0" cy="2.5" rx="10.5" ry="13" fill="url(#compIris)"/>'
+    +     '<ellipse cx="0" cy="2.5" rx="10.5" ry="13" fill="none" stroke="#00000055" stroke-width="1"/>'
     +     '<ellipse cx="0" cy="2.5" rx="4.6" ry="6.6" fill="#0b1220"/>'
     +     '<circle cx="-3.8" cy="-2.6" r="3.6" fill="#ffffff" opacity=".95"/>'
     +     '<circle cx="3" cy="6.8" r="1.7" fill="#ffffff" opacity=".85"/>'
     +   '</g>'
-    +   '<path d="M-21 0 Q -5 -18 21 -2 L 21.6 0.6 Q 2 -9 -20.6 1.6 Z" fill="#111827"/>'
-    +   '<path d="M-14 10.5 Q 0 14.5 15 10.5" stroke="#111827" stroke-width="1.3" fill="none" stroke-linecap="round" opacity=".5"/>'
+    // thick upper lash with an outer flick
+    +   '<path d="M-22 0 Q -5 -18 21 -2 L 21.6 0.6 Q 2 -9 -21 1.6 Z" fill="#111827"/>'
+    +   '<path d="M-15.5 8.4 Q -13 12.6 -8.5 13.4" stroke="#111827" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".9"/>'
+    +   '<path d="M-11 11.2 Q -7.5 14.6 -2.5 14.9" stroke="#111827" stroke-width="1.4" fill="none" stroke-linecap="round" opacity=".7"/>'
+    // lower lid
+    +   '<path d="M-13 10.5 Q 0 14.5 14 10.5" stroke="#111827" stroke-width="1.2" fill="none" stroke-linecap="round" opacity=".45"/>'
     + '</g>'
     + '<g class="comp-eye-closed"><path d="M-20 1 Q 0 9 20 1" stroke="#111827" stroke-width="2.6" fill="none" stroke-linecap="round"/></g>'
     + '</g>';
@@ -5943,16 +5953,18 @@ function companionBrows(hair) {
 function companionHairBack(f) {
   const c = f.hair;
   const style = f.hairStyle || "spiky";
+  const spikeTop = 'M52 100 Q 42 62 68 46 L 80 28 L 90 50 L 100 24 L 110 48 L 120 22 L 130 50 L 142 30 L 152 50 Q 178 64 172 102 L 170 132 L 168 160 L 110 170 L 52 160 L 50 132 Z';
   if (style === "short") {
-    return '<path d="M52 92 L 44 62 L 34 50 L 48 40 L 62 48 L 72 28 L 88 46 L 100 20 L 112 44 L 126 22 L 136 46 L 152 28 L 162 48 L 176 40 L 188 50 L 178 62 L 168 92 L 166 116 L 162 138 L 110 148 L 58 138 L 54 116 Z" fill="' + c + '"/>'
-      + '<path d="M58 116 L 54 138 L 110 148 L 166 138 L 162 116 Z" fill="#0000001a"/>';
+    return '<path d="M56 98 Q 48 64 72 50 L 82 34 L 92 54 L 102 28 L 112 52 L 122 26 L 132 54 L 144 36 L 152 54 Q 174 66 170 100 L 168 118 L 166 138 L 110 148 L 54 138 L 52 118 Z" fill="' + c + '"/>'
+      + '<path d="M54 118 L 52 138 L 110 148 L 166 138 L 168 118 Z" fill="#0000001a"/>';
   }
   if (style === "long") {
-    return '<path d="M46 96 L 38 66 L 28 50 L 42 36 L 56 46 L 64 24 L 80 42 L 92 16 L 106 40 L 120 14 L 132 42 L 146 22 L 158 46 L 172 34 L 184 50 L 194 66 L 186 96 L 184 130 L 192 168 L 186 204 L 178 218 L 110 232 L 42 218 L 34 204 L 28 168 L 36 130 Z" fill="' + c + '"/>'
-      + '<path d="M46 130 L 36 168 L 34 204 L 42 218 L 110 232 L 178 218 L 186 204 L 184 168 L 174 130 Z" fill="#0000001c"/>';
+    return '<path d="' + spikeTop + '" fill="' + c + '"/>'
+      + '<path d="M52 132 L 50 160 L 110 170 L 168 160 L 170 132 Z" fill="#0000001f"/>'
+      + '<path d="M54 150 L 60 190 L 64 220 L 110 232 L 156 220 L 160 190 L 166 150 Z" fill="' + c + '"/>';
   }
-  return '<path d="M46 96 L 38 66 L 28 50 L 42 36 L 56 46 L 64 24 L 80 42 L 92 16 L 106 40 L 120 14 L 132 42 L 146 22 L 158 46 L 172 34 L 184 50 L 194 66 L 186 96 L 184 130 L 190 160 L 184 192 L 110 206 L 36 192 L 30 160 L 36 130 Z" fill="' + c + '"/>'
-    + '<path d="M46 130 L 36 160 L 36 192 L 110 206 L 184 192 L 184 160 L 174 130 Z" fill="#0000001c"/>';
+  return '<path d="' + spikeTop + '" fill="' + c + '"/>'
+    + '<path d="M52 132 L 50 160 L 110 170 L 168 160 L 170 132 Z" fill="#0000001f"/>';
 }
 function companionHairFront(f) {
   const c = f.hair;
@@ -5981,7 +5993,7 @@ function companionRender() {
     return;
   }
   const f = companionFace();
-  const blush = f.blush ? '<ellipse cx="66" cy="130" rx="11" ry="5.5" fill="#fca5a5" opacity=".5"/><ellipse cx="154" cy="130" rx="11" ry="5.5" fill="#fca5a5" opacity=".5"/>' : '';
+  const blush = f.blush ? '<ellipse cx="66" cy="130" rx="15" ry="9" fill="url(#compBlush)"/><ellipse cx="154" cy="130" rx="15" ry="9" fill="url(#compBlush)"/>' : '';
   const shirt = f.shirt || "#1f2937";
   box.innerHTML = '<svg class="comp-svg" viewBox="0 0 220 240" xmlns="http://www.w3.org/2000/svg">'
     + '<defs>'
@@ -5989,6 +6001,15 @@ function companionRender() {
     +     '<stop offset="0%" stop-color="#ffffff" stop-opacity=".6"/>'
     +     '<stop offset="32%" stop-color="' + f.eyes + '"/>'
     +     '<stop offset="100%" stop-color="' + f.eyes + '"/>'
+    +   '</radialGradient>'
+    +   '<radialGradient id="compSkin" cx="50%" cy="36%" r="80%">'
+    +     '<stop offset="0%" stop-color="#ffffff" stop-opacity=".22"/>'
+    +     '<stop offset="70%" stop-color="#ffffff" stop-opacity="0"/>'
+    +     '<stop offset="100%" stop-color="#000000" stop-opacity=".12"/>'
+    +   '</radialGradient>'
+    +   '<radialGradient id="compBlush" cx="50%" cy="50%" r="50%">'
+    +     '<stop offset="0%" stop-color="#fb7185" stop-opacity=".55"/>'
+    +     '<stop offset="100%" stop-color="#fb7185" stop-opacity="0"/>'
     +   '</radialGradient>'
     + '</defs>'
     // back hair (farthest layer)
@@ -6005,6 +6026,7 @@ function companionRender() {
     + '<path d="M180 106 Q 177 112 180 118" stroke="#00000022" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
     // face
     + '<path d="M48 98 Q 46 62 110 52 Q 174 62 172 98 Q 174 126 164 144 Q 152 170 110 172 Q 68 170 56 144 Q 46 126 48 98 Z" fill="' + f.skin + '"/>'
+    + '<path d="M48 98 Q 46 62 110 52 Q 174 62 172 98 Q 174 126 164 144 Q 152 170 110 172 Q 68 170 56 144 Q 46 126 48 98 Z" fill="url(#compSkin)"/>'
     // chin shadow
     + '<path d="M92 156 L 128 156 L 131 170 L 89 170 Z" fill="#00000014"/>'
     + blush
@@ -6015,10 +6037,14 @@ function companionRender() {
     // eyes
     + companionEye(78, f.eyes) + companionEye(142, f.eyes)
     // nose
-    + '<path d="M110 122 L 108 132 Q 110 135 112 132" stroke="#00000030" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M110 122 L 110 129" stroke="#0000001f" stroke-width="1.6" stroke-linecap="round"/>'
+    + '<path d="M109 128 Q 110 131 111 128" stroke="#0000002e" stroke-width="1.2" fill="none" stroke-linecap="round"/>'
     // mouth
-    + '<g class="comp-mouth-idle"><path d="M98 152 Q 110 160 122 152" stroke="#7f1d1d" stroke-width="3" fill="none" stroke-linecap="round"/></g>'
-    + '<g class="comp-mouth-talk"><ellipse cx="110" cy="155" rx="10" ry="5" fill="#7f1d1d"/></g>'
+    + '<g class="comp-mouth-idle">'
+    +   '<path d="M98 152 Q 110 160 122 152" stroke="#8c2f2f" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
+    +   '<path d="M104 157 Q 110 160 116 157" stroke="#8c2f2f" stroke-width="1.2" fill="none" stroke-linecap="round" opacity=".5"/>'
+    + '</g>'
+    + '<g class="comp-mouth-talk"><ellipse cx="110" cy="155" rx="10" ry="5" fill="#8c2f2f"/></g>'
     + '</svg>';
 }
 function companionScheduleBlink() {
