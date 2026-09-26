@@ -598,7 +598,7 @@
   }
 
   /* AI companion face */
-  .companion-view { position: fixed; inset: 0; z-index: 90; background: #05050a; display: flex; flex-direction: column; padding: 12px; }
+  .companion-view { position: fixed; top: 0; left: 0; right: 0; height: var(--app-vh, 100dvh); z-index: 90; background: #05050a; display: flex; flex-direction: column; padding: 12px; overflow: hidden; }
   .companion-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .companion-title { font-size: 1rem; font-weight: bold; color: #fff; }
   .companion-head-actions { display: flex; gap: 6px; align-items: center; }
@@ -630,7 +630,7 @@
     align-items: stretch;
   }
   .companion-view.split .comp-main { grid-column: 1; grid-row: 1; min-height: 0; overflow-y: auto; justify-content: flex-start; }
-  .companion-view.split .companion-avatar { width: min(100%, 170px); height: min(100%, 170px); }
+  .companion-view.split .companion-avatar { width: min(100%, 130px); height: min(100%, 130px); }
   .companion-view.split .comp-sliders { display: flex; }
   .companion-view.split .comp-side { grid-column: 2; grid-row: 1; min-height: 0; }
   @media (max-width: 699px) { #compLayout { display: none; } }
