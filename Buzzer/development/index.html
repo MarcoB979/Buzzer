@@ -6111,6 +6111,8 @@ async function compSend() {
     if (res.reply) {
       compAddMsg("assistant", escapeHtml(res.reply));
       if (aiSpeakEnabled()) aiSpeak(res.reply);
+    } else if (res.error) {
+      compAddMsg("assistant", escapeHtml(res.error));
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && aiMemoryActive()) aiSetMemory(res.memory);
