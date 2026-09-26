@@ -4891,15 +4891,17 @@ HOW TO CONVERSE:
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their shallowest and deepest points, then agree the speed — and ask if they want to begin.
 - SAFE WORD (global): the user's safe word triggers a FULL emergency stop at any time — during position setup AND during active play. The app catches the spoken/typed word itself instantly, so you never react to it and never treat it as a normal instruction. If the user says "change the safe word to …", extract the new word and send {"action":"safeWord","word":"<new word>"} — this works even outside position setup. The word "stop" during active play follows the user's stored preference (shown in your context): it either triggers a full emergency stop too, or it gently stops the machine (ramp down, like the Start/Stop button). The app handles "stop" itself — you never react to it.
 - GO TO MIN before play (numbers mode): right after the user has confirmed their numbers (and "limits" is applied), ask: "Should I send the OSSM to your Min position first so it starts from the shallow end?" If they say yes, use "set" to choose Pattern "Go to Point", Min Pos <their min>, Max Pos <their max>, Sensation 0 (Sensation 0 = Min, 100 = Max), and tell them to press Start to move there. When they say it has arrived, use "set" to restore Pattern "Simple Stroke", Sensation 50 and Speed 0, and tell them it's ready to play. Never start the machine yourself unless your context says you may.
+- APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: press Connect at the top of Settings (or you can send "ui":{"action":"connect"}). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
 - "run" (optional, ONLY when your context says you are allowed to start/pause): "start", "pause", or "home" (to force a full homing procedure). Otherwise leave it null.
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
 - "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
+- "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to try connecting to the OSSM. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -4972,10 +4974,13 @@ function aiExtractJson(text) {
   } else if (j.pos && typeof j.pos === "object" && !Array.isArray(j.pos) && typeof j.pos.action === "string") {
     pos = j.pos;
   }
-  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, lang };
+  let ui = null;
+  if (typeof j.ui === "string" && j.ui.trim()) ui = j.ui.trim().toLowerCase();
+  else if (j.ui && typeof j.ui === "object" && !Array.isArray(j.ui) && typeof j.ui.action === "string") ui = j.ui;
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -5475,7 +5480,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5487,7 +5492,7 @@ async function aiCallDeepSeek(messages, key) {
     }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5502,12 +5507,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5800,6 +5805,37 @@ function aiPosApplyEnvelope(P, canRun) {
   }
 }
 
+function aiApplyUi(ui) {
+  let action = "", arg = "";
+  if (typeof ui === "string") action = ui;
+  else if (ui && typeof ui === "object") { action = String(ui.action || ""); arg = String(ui.value || ui.mode || ui.target || ""); }
+  action = action.trim().toLowerCase();
+  arg = arg.trim().toLowerCase();
+  const reveal = (el) => {
+    if (!el) return;
+    if (el.tagName === "DETAILS") { el.style.display = ""; el.open = true; }
+    else el.style.display = "";
+    try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (e) {}
+  };
+  if (action === "mode" || action === "switch") {
+    if (/std|standard/.test(arg)) setModeFromDropdown("std");
+    else if (/ap|advanced/.test(arg)) setModeFromDropdown("ap");
+    else if (/fun|funscript|video/.test(arg)) setModeFromDropdown("fun");
+  } else if (action === "settings") {
+    const pc = document.querySelector(".phone-container");
+    if (pc) pc.classList.remove("hide-right");
+    reveal($("aiSettings"));
+  } else if (action === "video" || action === "cast" || action === "watch") {
+    reveal($("watch-panel"));
+  } else if (action === "binding" || action === "bind" || action === "mapping") {
+    reveal($("bind-panel"));
+  } else if (action === "connect") {
+    try { connect(); } catch (e) { aiAddMsg("system", "Connect needs a tap — press the Connect button."); }
+  } else if (action === "ai" || action === "panel" || action === "chat") {
+    gpAiOpenPanel();
+  }
+}
+
 async function aiSend(opts) {
   const fromVoice = !!(opts && opts.fromVoice);
   const inp = $("aiInput");
@@ -5847,7 +5883,7 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui) {
       if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
       aiMessages.pop();
@@ -5885,7 +5921,8 @@ async function aiSend(opts) {
       else if (res.run === "home") aiHomeMachine();
     }
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
-    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos) {
+    if (res.ui) aiApplyUi(res.ui);
+    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos && !res.ui) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
