@@ -71,6 +71,7 @@
   #aiSettings { order: 11; }
   .start-stop-row { order: 12; }
   #pad-debug { order: 13; }
+  #monitorPanel { order: 14; }
   #watch-panel { order: 10; }
   .ble-panel {
     display: flex; justify-content: space-between; align-items: center;
@@ -984,6 +985,13 @@
       <pre id="pad-debug-axes">Axes: —</pre>
       <pre id="pad-debug-buttons">Pressed: —</pre>
     </details>
+
+    <details class="pad-debug" id="monitorPanel" open>
+      <summary>🖥 Live Dashboard Monitor</summary>
+      <div class="cpp-logger" style="margin-top:8px; max-width:none;">
+        <div id="log" style="margin-top:0;">Open this in Chrome or Edge to control the OSSM over Bluetooth.</div>
+      </div>
+    </details>
   </div>
 
   <div class="wizard-overlay" id="helpOverlay" style="display:none;">
@@ -1015,11 +1023,6 @@
       </div>
     </div>
   </div>
-</div>
-
-<div class="cpp-logger">
-  <strong style="color:#fff;">OSSM Live Dashboard Monitor:</strong>
-  <div id="log" style="margin-top:6px;">Open this in Chrome or Edge to control the OSSM over Bluetooth.</div>
 </div>
 
 <script>
