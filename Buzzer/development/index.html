@@ -599,7 +599,7 @@
 
   /* AI companion face */
   .companion-view { position: fixed; top: 0; left: 0; right: 0; height: var(--app-vh, 100dvh); z-index: 90; background: #05050a; display: flex; flex-direction: column; padding: 12px; overflow: hidden; }
-  .companion-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .companion-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
   .companion-title { font-size: 1rem; font-weight: bold; color: #fff; }
   .companion-head-actions { display: flex; gap: 6px; align-items: center; }
   .companion-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
@@ -615,7 +615,8 @@
   .companion-controls { display: flex; gap: 6px; }
   .companion-history { flex: 1 1 auto; min-height: 0; width: 100%; max-height: none; overflow-y: auto; }
   .companion-view .ai-row { width: 100%; }
-  #compSpeak.muted { opacity: .55; }
+  #compSpeak.muted, #compSpeakTop.muted { opacity: .55; }
+  #compLive.on, #compLiveTop.on { background: #166534; }
   #compConnect.on { background: #166534; }
   #compConnect.pulse { animation: compPulse .8s ease 3; }
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
@@ -738,6 +739,10 @@
         <div class="companion-head-actions">
           <button class="ble-btn small" id="compConnect" type="button" title="Connect the OSSM">🔌 Connect</button>
           <button class="ble-btn small" id="compLocalBtn" type="button" title="Show me your videos (pick a folder)">📂</button>
+          <button class="ble-btn small" id="compMicTop" type="button" title="Speak once">🎤</button>
+          <button class="ble-btn small" id="compLiveTop" type="button" title="Keep listening — talk hands-free while playing">🎧</button>
+          <button class="ble-btn small" id="compSpeakTop" type="button" title="Toggle spoken replies">🔊</button>
+          <button class="ble-btn small" id="compNew" type="button" title="Start a new session (chat + limits) — keeps your avatar and memory">🆕</button>
           <button class="ble-btn small" id="compLayout" type="button" title="Switch layout (split / focused)">▦</button>
           <button class="ble-btn small" id="compSetupBtn" type="button" title="Set up your companion — persona &amp; look">✨ Setup</button>
           <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
@@ -750,6 +755,7 @@
           <div class="companion-controls">
             <button class="ble-btn small" id="compPrev" type="button" title="Previous face">◀</button>
             <button class="ble-btn small" id="compNext" type="button" title="Next face">▶</button>
+            <button class="ble-btn small" id="compRefresh" type="button" title="Generate a fresh look">🔄</button>
             <button class="ble-btn small" id="compUploadBtn" type="button" title="Use your own image">📁</button>
             <input type="file" id="compUpload" accept="image/*" style="display:none;">
           </div>
@@ -5134,6 +5140,9 @@ function aiSafetyCaps() {
 }
 function aiLimitsText() {
   const caps = aiSafetyCaps();
+  if (!aiLimitsConfirmed()) {
+    return "SAFETY LIMITS NOT YET CONFIRMED for this session. The stored values (depth " + caps.minDepth + " to " + caps.maxDepth + ", max speed " + caps.maxSpeed + ") are only last session's numbers — do NOT trust them and do NOT start the machine yet. Ask the user for their min depth, max depth and max speed (or offer to find the positions together by feel via \"pos\"). You may still adjust values and run position setup, but never send \"run\":\"start\" until they have confirmed their limits.";
+  }
   return "Current AI limits — depth: " + caps.minDepth + " (shallowest) to " + caps.maxDepth + " (deepest); max speed: " + caps.maxSpeed + ". "
     + "For MOVEMENT, \"deep\"/\"full\" means Max Pos = " + caps.maxDepth + " (never set movement above it), and \"shallow\"/\"out\" means Min Pos = " + caps.minDepth + " (never below it). "
     + "These are only the CURRENT limits — if the user asks for different limits (even higher), propose them via \"limits\" and ask to confirm; do not reject or talk them down.";
@@ -5209,6 +5218,7 @@ function aiCurrentState() {
 function aiRunContext(running) {
   if (!aiCanRunActive()) return "Machine running: " + (running ? "yes" : "no — the user must press Start; you cannot start it") + ".";
   const homeNote = " You may also home the machine when the user asks (send \"run\":\"home\") — that forces a full homing procedure regardless of the firmware \"Home between modes\" setting.";
+  if (!aiLimitsConfirmed()) return "Machine running: no. You MAY NOT start it yet — the user has not confirmed their safety limits this session. Ask for their min/max depth and max speed (or offer to find the positions together via \"pos\"), and do not send \"run\":\"start\" until they confirm. You may still adjust values and run position setup." + homeNote;
   if (running) return "Machine running: yes. You MAY pause it when the user asks (include \"run\":\"pause\" in your JSON). To resume after pausing, include \"run\":\"start\"." + homeNote;
   return "Machine running: no. You MAY start it when the user asks (include \"run\":\"start\" in your JSON). To pause it, include \"run\":\"pause\". This is the only run control you have — never use it unless asked." + homeNote;
 }
@@ -5488,6 +5498,7 @@ function aiNewSession() {
   aiStopLive();
   aiMessages = [];
   aiPendingLimits = null;
+  aiLimitsClearConfirmed();
   // Start every new session from the machine's safe standards.
   try {
     localStorage.setItem("ossm-ai-min-depth", String(STD_SAFE_MIN));
@@ -5610,6 +5621,15 @@ function aiSetMemory(text) {
 }
 function aiClearMemory() {
   try { localStorage.removeItem("ossm-ai-memory"); } catch (e) {}
+}
+function aiLimitsConfirmed() {
+  try { return sessionStorage.getItem("ossm-ai-limits-ok") === "1"; } catch (e) { return false; }
+}
+function aiLimitsSetConfirmed() {
+  try { sessionStorage.setItem("ossm-ai-limits-ok", "1"); } catch (e) {}
+}
+function aiLimitsClearConfirmed() {
+  try { sessionStorage.removeItem("ossm-ai-limits-ok"); } catch (e) {}
 }
 
 async function aiCallDeepSeek(messages, key) {
@@ -5988,6 +6008,7 @@ function aiPosApplyEnvelope(P, canRun) {
       saveStdValues();
       buildInterface();
     }
+    aiLimitsSetConfirmed();
     aiPosSetSpeed(aiPos.speed);   // remember positioning speed preference
     aiPosReset();
     aiPosRestoreMode();
@@ -6269,6 +6290,14 @@ function companionOpen() {
   buildCompSliders();
   syncCompVideo();
   if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) { compSetupGreeted = true; compStartSetup(); }
+  else if (compMessages.length === 0 && !aiLimitsConfirmed() && !compLimitsGreeted) {
+    compLimitsGreeted = true;
+    const lang = aiStoredLang();
+    const ask = AI_ASK_LIMITS[lang] || AI_ASK_LIMITS.en;
+    compMessages.push({ role: "assistant", content: ask });
+    compAddMsg("assistant", escapeHtml(ask));
+    if (aiSpeakEnabled()) aiSpeak(ask);
+  }
   companionSave();
 }
 function companionClose() {
@@ -6279,6 +6308,45 @@ function companionClose() {
   syncModeDropdown();
   companionSave();
   compLiveStop();
+}
+function companionRefresh() {
+  const styles = ["lorelei", "avataaars", "adventurer", "big-ears"];
+  const hairs = ["#f6d365", "#8b5a2b", "#1f2937", "#e2e8f0", "#38bdf8", "#ef4444", "#f9a8d4", "#f59e0b"];
+  const skins = ["#ffdfc4", "#ffd9b3", "#eab68f", "#c68a5b"];
+  const seeds = ["Rowan", "Jules", "Sky", "Ash", "Milo", "Ren", "Nico", "Ezra", "Finley", "Ari"];
+  const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+  companionState.custom = { style: pick(styles), seed: pick(seeds), hair: pick(hairs), skin: pick(skins) };
+  companionState.customImage = null;
+  companionState.source = "generated";
+  companionState.shown = true;
+  compSetupDone();
+  companionRender();
+  companionSave();
+}
+function compNewSession() {
+  compLiveStop();
+  compBusy = false;
+  compMessages = [];
+  compPendingLimits = null;
+  compLimitsGreeted = false;
+  aiLimitsClearConfirmed();
+  // New session always starts from the machine's safe standards — limits must be set again.
+  try {
+    localStorage.setItem("ossm-ai-min-depth", String(STD_SAFE_MIN));
+    localStorage.setItem("ossm-ai-max-depth", String(STD_SAFE_MAX));
+    localStorage.setItem("ossm-ai-max-speed", String(DEFAULT_RESUME_SPEED));
+  } catch (e) {}
+  aiSyncLimitInputs();
+  aiLimitsRowOpen(true);
+  const h = $("compHistory");
+  if (h) h.innerHTML = "";
+  const inp = $("compInput");
+  if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
+  const lang = aiStoredLang();
+  const ask = AI_ASK_LIMITS[lang] || AI_ASK_LIMITS.en;
+  compMessages.push({ role: "assistant", content: ask });
+  compAddMsg("assistant", escapeHtml(ask));
+  if (aiSpeakEnabled()) aiSpeak(ask);
 }
 function companionLayout() {
   try { return localStorage.getItem("ossm-companion-layout") === "split" ? "split" : "focused"; } catch (e) { return "focused"; }
@@ -6293,12 +6361,13 @@ function companionApplyLayout() {
   return actual;
 }
 function compSpeakSync() {
-  const b = $("compSpeak");
-  if (!b) return;
   const on = aiSpeakEnabled();
-  b.textContent = on ? "🔊" : "🔇";
-  b.title = on ? "Spoken replies on — tap to mute" : "Spoken replies off — tap to unmute";
-  b.classList.toggle("muted", !on);
+  [$("compSpeak"), $("compSpeakTop")].forEach((b) => {
+    if (!b) return;
+    b.textContent = on ? "🔊" : "🔇";
+    b.title = on ? "Spoken replies on — tap to mute" : "Spoken replies off — tap to unmute";
+    b.classList.toggle("muted", !on);
+  });
 }
 function syncCompVideo() {
   const sec = $("compVideo");
@@ -6375,7 +6444,7 @@ function companionApplyAvatar(a) {
 function companionApplyFace(f) { companionApplyAvatar(f); }
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. Only use those fields when relevant — most of the time, just be yourself and talk.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed) — if they haven't, ask for them in-character first, or offer the find-positions-together flow. Only use those fields when relevant — most of the time, just be yourself and talk.`;
 
 let compMessages = [];
 let compBusy = false;
@@ -6383,6 +6452,8 @@ let compListening = null;
 let compLive = false;
 let compLiveRec = null;
 let compSetupGreeted = false;
+let compLimitsGreeted = false;
+let compPendingLimits = null;
 
 function compAddMsg(role, html) {
   const h = $("compHistory");
@@ -6418,9 +6489,10 @@ async function compSend() {
     const mem = aiMemory();
     const memLine = ((memOn || inSetup) && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const setupLine = inSetup ? ("\n\nFIRST-TIME SETUP (this is their first time — they haven't configured you yet): warmly ask a couple of short questions at a time (never a questionnaire) about (1) what they'd like you to be called and your role/dynamic, (2) what they're into and interested in, and (3) how they want you to look — hair color, skin tone, and a style: anime, cartoon, fantasy, or animal (animal ears, the closest to furry). Once you have enough, propose a look, set it with \"avatar\" ({\"style\":...,\"seed\":...,\"hair\":...,\"skin\":...}), and save what they shared about themselves with \"memory\". After you set an avatar, drop the setup tone and just be yourself.") : "";
+    const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical): the user has NOT confirmed their safety limits this session yet. You must NEVER start the machine (\"run\":\"start\") until they confirm their min depth, max depth and max speed — or until you have finished finding the positions together by feel (\"pos\"). Bring it up naturally in-character: ask for the numbers, or offer to find them together.");
     compMessages.push({ role: "user", content: text });
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine + aiVideoContext() + localVideoContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -6446,9 +6518,31 @@ async function compSend() {
     if (res.video) aiApplyVideo(res.video);
     if (res.search) aiApplySearch(res.search);
     if (res.params) { aiApplySet(res.params); buildCompSliders(); }
-    if (res.limits) aiApplyLimits(res.limits);
+    if (res.limits) {
+      if (compPendingLimits && aiIsYes(text)) {
+        aiApplyLimits(res.limits);
+        aiLimitsSetConfirmed();
+        compPendingLimits = null;
+        buildCompSliders();
+      } else if (!compPendingLimits) {
+        compPendingLimits = res.limits;
+        const L = res.limits;
+        const parts = [];
+        if (typeof L.minDepth === "number") parts.push("min depth " + Math.round(L.minDepth));
+        if (typeof L.maxDepth === "number") parts.push("max depth " + Math.round(L.maxDepth));
+        if (typeof L.maxSpeed === "number") parts.push("max speed " + Math.round(L.maxSpeed));
+        if (parts.length) compAddMsg("system", "Confirm limits: " + parts.join(", ") + " — reply \"yes\" to apply.");
+      } else {
+        compPendingLimits = null; // not a clear confirmation → drop
+      }
+    } else if (compPendingLimits) {
+      compPendingLimits = null;
+    }
     if (res.run && aiCanRunActive()) {
-      if (res.run === "start") aiStartMachine();
+      if (res.run === "start") {
+        if (aiLimitsConfirmed()) aiStartMachine();
+        else compAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together.");
+      }
       else if (res.run === "pause") aiPauseMachine();
       else if (res.run === "home") aiHomeMachine();
     }
@@ -6490,6 +6584,9 @@ function compVoice() {
 
 function compLiveStop() {
   compLive = false;
+  const b = $("compLive"); const bt = $("compLiveTop");
+  if (b) b.classList.remove("on");
+  if (bt) bt.classList.remove("on");
   if (compLiveRec) { try { compLiveRec.stop(); } catch (e) {} compLiveRec = null; }
 }
 function compLiveToggle() {
@@ -6497,6 +6594,9 @@ function compLiveToggle() {
   if (!SR) { compAddMsg("system", "Voice input isn't supported in this browser."); return; }
   if (compLive) { compLiveStop(); compAddMsg("system", "Listening off."); return; }
   compLive = true;
+  const b = $("compLive"); const bt = $("compLiveTop");
+  if (b) b.classList.add("on");
+  if (bt) bt.classList.add("on");
   compAddMsg("system", "Listening — talk to me.");
   compLiveStart();
 }
@@ -6546,6 +6646,11 @@ function compLiveStart() {
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
+  const micTop = $("compMicTop"); if (micTop) micTop.onclick = compVoice;
+  const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
+  const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
+  const newBtn = $("compNew"); if (newBtn) newBtn.onclick = compNewSession;
+  const refreshBtn = $("compRefresh"); if (refreshBtn) refreshBtn.onclick = companionRefresh;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); compSend(); } });
   setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = !!(window.speechSynthesis && speechSynthesis.speaking); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); }, 180);
   document.addEventListener("pointermove", (e) => {
@@ -6628,6 +6733,7 @@ async function aiSend(opts) {
     if (res.limits) {
       if (aiPendingLimits && aiIsYes(text)) {
         aiApplyLimits(res.limits);
+        aiLimitsSetConfirmed();
         aiPendingLimits = null;
         aiLimitsRowOpen(false); // confirmed — tuck the limits away again
       } else if (!aiPendingLimits) {
@@ -6646,7 +6752,10 @@ async function aiSend(opts) {
     }
     if (res.params) aiApplySet(res.params);
     if (res.run && aiCanRunActive()) {
-      if (res.run === "start") aiStartMachine();
+      if (res.run === "start") {
+        if (aiLimitsConfirmed()) aiStartMachine();
+        else aiAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together.");
+      }
       else if (res.run === "pause") aiPauseMachine();
       else if (res.run === "home") aiHomeMachine();
     }
@@ -6891,12 +7000,29 @@ function aiProcessVoice(text) {
   const forgetBtn = $("aiForget");
   if (forgetBtn) {
     forgetBtn.onclick = () => {
-      if (!confirm("Erase everything the AI has learned about you (name, role, preferences)? This cannot be undone.")) return;
+      if (!confirm("Erase everything the AI has learned about you (name, role, preferences) and reset your companion? This cannot be undone.")) return;
       aiClearMemory();
       aiMessages = [];
       aiPendingLimits = null;
+      aiLimitsClearConfirmed();
+      compMessages = [];
+      compPendingLimits = null;
+      compLimitsGreeted = false;
+      compSetupGreeted = false;
+      try { localStorage.removeItem("ossm-companion"); } catch (e) {}
+      try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {}
+      companionState = { preset: 0, custom: null, customImage: null, shown: companionState.shown, source: "generated" };
+      if (companionState.shown) companionRender();
+      // Safety limits go back to safe standards and must be confirmed again.
+      try {
+        localStorage.setItem("ossm-ai-min-depth", String(STD_SAFE_MIN));
+        localStorage.setItem("ossm-ai-max-depth", String(STD_SAFE_MAX));
+        localStorage.setItem("ossm-ai-max-speed", String(DEFAULT_RESUME_SPEED));
+      } catch (e) {}
+      aiSyncLimitInputs();
       const h = $("aiHistory"); if (h) h.innerHTML = "";
-      aiAddMsg("system", "Forgotten — the AI no longer remembers anything about you.");
+      const ch = $("compHistory"); if (ch) ch.innerHTML = "";
+      aiAddMsg("system", "Forgotten — everything about you is reset. The AI and your companion start fresh.");
     };
   }
   if (btn) btn.onclick = aiToggle;
