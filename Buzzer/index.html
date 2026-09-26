@@ -5481,6 +5481,12 @@ const AI_ASK_LIMITS = {
   de: "Neue Sitzung — in welchem Tiefenbereich soll ich arbeiten? Sag mir deine minimale und maximale Tiefe und deine maximale Geschwindigkeit. Oder, wenn du möchtest, helfe ich dir, gemeinsam deine perfekten Positionen zu finden — ganz nach Gefühl.",
   fr: "Nouvelle session — dans quelle plage de profondeur dois-je travailler ? Dis-moi ta profondeur minimale et maximale et ta vitesse maximale. Ou, si tu préfères, je peux t'aider à trouver ensemble tes positions parfaites — au feeling."
 };
+const AI_COMP_WELCOME = {
+  en: "Hey you, fresh start — I'm all yours. What are you in the mood for?",
+  nl: "Hé jij, frisse start — ik ben helemaal van jou. Waar heb je zin in?",
+  de: "Hey du, frischer Start — ich bin ganz dein. Worauf hast du Lust?",
+  fr: "Hé toi, nouveau départ — je suis tout à toi. De quoi as-tu envie ?"
+};
 const AI_REMIND_SAFEWORD = {
   en: (w) => " Your safe word is still \"" + w + "\" — say \"change the safe word to …\" if you want a new one.",
   nl: (w) => " Je veiligheidswoord is nog steeds \"" + w + "\" — zeg \"verander het veiligheidswoord naar …\" als je een nieuwe wilt.",
@@ -6294,14 +6300,6 @@ function companionOpen() {
   buildCompSliders();
   syncCompVideo();
   if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) { compSetupGreeted = true; compStartSetup(); }
-  else if (compMessages.length === 0 && !aiLimitsConfirmed() && !compLimitsGreeted) {
-    compLimitsGreeted = true;
-    const lang = aiStoredLang();
-    const ask = AI_ASK_LIMITS[lang] || AI_ASK_LIMITS.en;
-    compMessages.push({ role: "assistant", content: ask });
-    compAddMsg("assistant", escapeHtml(ask));
-    if (aiSpeakEnabled()) aiSpeak(ask);
-  }
   companionSave();
 }
 function companionClose() {
@@ -6388,10 +6386,10 @@ function compNewSession() {
   const inp = $("compInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
   const lang = aiStoredLang();
-  const ask = AI_ASK_LIMITS[lang] || AI_ASK_LIMITS.en;
-  compMessages.push({ role: "assistant", content: ask });
-  compAddMsg("assistant", escapeHtml(ask));
-  if (aiSpeakEnabled()) aiSpeak(ask);
+  const greet = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
+  compMessages.push({ role: "assistant", content: greet });
+  compAddMsg("assistant", escapeHtml(greet));
+  if (aiSpeakEnabled()) aiSpeak(greet);
 }
 function companionLayout() {
   try { return localStorage.getItem("ossm-companion-layout") === "split" ? "split" : "focused"; } catch (e) { return "focused"; }
@@ -6490,7 +6488,7 @@ function companionApplyAvatar(a) {
 function companionApplyFace(f) { companionApplyAvatar(f); }
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed) — if they haven't, ask for them in-character first, or offer the find-positions-together flow. Only use those fields when relevant — most of the time, just be yourself and talk.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move to their shallowest point while they say "stop", then to their deepest point while they say "stop" again, then gently back to the shallowest point (while moving you only listen, you don't talk). That is the "pos" flow. Or they can simply tell you the three numbers. Only use those fields when relevant — most of the time, just be yourself and talk.`;
 
 let compMessages = [];
 let compBusy = false;
@@ -6535,7 +6533,7 @@ async function compSend() {
     const mem = aiMemory();
     const memLine = ((memOn || inSetup) && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const setupLine = inSetup ? ("\n\nFIRST-TIME SETUP (this is their first time — they haven't configured you yet): warmly ask a couple of short questions at a time (never a questionnaire) about (1) what they'd like you to be called and your role/dynamic, (2) what they're into and interested in, and (3) how they want you to look — hair color, skin tone, and a style: anime, cartoon, fantasy, or animal (animal ears, the closest to furry). Once you have enough, propose a look, set it with \"avatar\" ({\"style\":...,\"seed\":...,\"hair\":...,\"skin\":...}), and save what they shared about themselves with \"memory\". After you set an avatar, drop the setup tone and just be yourself.") : "";
-    const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical): the user has NOT confirmed their safety limits this session yet. You must NEVER start the machine (\"run\":\"start\") until they confirm their min depth, max depth and max speed — or until you have finished finding the positions together by feel (\"pos\"). Bring it up naturally in-character: ask for the numbers, or offer to find them together.");
+    const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical, in-character): the user has NOT confirmed their safety limits this session yet, so you must NEVER start the machine (\"run\":\"start\") until that is done. Only bring this up when they actually want to start playing — not at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move to their shallowest point, they say \"stop\", you move to their deepest point, they say \"stop\" again, then you gently move back to the shallowest point (while moving you only LISTEN, you don't talk). That flow is the \"pos\" (position setup) envelope. Alternatively they can just tell you the three numbers (min depth, max depth, max speed).");
     compMessages.push({ role: "user", content: text });
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() },
