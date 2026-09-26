@@ -410,6 +410,7 @@
   .mon-line.err { color: #f87171; }
   .mon-line.warn { color: #fbbf24; }
   .mon-line.ai { color: #f0abfc; }
+  .mon-ts { color: #64748b; margin-right: 6px; font-size: .7rem; }
   .mon-x { color: #64748b; font-size: .65rem; }
   @media (max-width: 480px) {
     body { padding: 0; }
@@ -942,6 +943,8 @@
           <div class="ai-set-hint">Whisper records with the mic you pick here (e.g. a Bluetooth headset) and transcribes in the cloud. Needs an OpenAI-compatible key. When off, plain voice input is used — it can't choose a mic.</div>
         </div>
         <div class="ai-set-hint">The Voice list shows whatever your browser exposes. On Android that’s usually one voice per language — the one you picked in your system Text-to-speech settings — and “Auto” uses that device default. On desktop you can pick a specific voice here.</div>
+        <button class="ble-btn small" id="aiExportInfo" type="button" style="margin-top:10px;">📄 Export developer info</button>
+        <div class="ai-set-hint">Downloads a text file with the AI conversation, the live monitor log and what the AI has learned about you — for reporting bugs to the developer. Your API key is never included.</div>
       </div>
     </details>
 
@@ -1188,9 +1191,10 @@ let monitorRenderQueued = false;
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function renderMonitor() {
   monitorRenderQueued = false;
-  const html = monitorLines.map(l =>
-    `<div class="mon-line${l.cls ? " " + l.cls : ""}">${escapeHtml(l.text)}${l.n > 1 ? ` <span class="mon-x">×${l.n}</span>` : ""}</div>`
-  ).join("");
+  const html = monitorLines.map(l => {
+    const t = l.ts ? new Date(l.ts).toLocaleTimeString([], { hour12: false }) : "";
+    return `<div class="mon-line${l.cls ? " " + l.cls : ""}">${t ? `<span class="mon-ts">${t}</span>` : ""}${escapeHtml(l.text)}${l.n > 1 ? ` <span class="mon-x">×${l.n}</span>` : ""}</div>`;
+  }).join("");
   const el = $("log");
   if (el) {
     el.innerHTML = html;
@@ -1209,7 +1213,7 @@ function monitor(msg, cls) {
   if (!text) return;
   const last = monitorLines[monitorLines.length - 1];
   if (last && last.text === text && last.cls === cls) last.n = (last.n || 1) + 1;
-  else monitorLines.push({ text, cls, n: 1 });
+  else monitorLines.push({ text, cls, n: 1, ts: Date.now() });
   if (monitorLines.length > MONITOR_MAX) monitorLines.splice(0, monitorLines.length - MONITOR_MAX);
   if (!monitorRenderQueued) { monitorRenderQueued = true; requestAnimationFrame(renderMonitor); }
 }
@@ -5598,7 +5602,7 @@ function aiNewSession() {
   const ask = AI_ASK_LIMITS[lang] || AI_ASK_LIMITS.en;
   const sw = aiPosSafeWord();
   const greet = sw ? (ask + (AI_REMIND_SAFEWORD[lang] || AI_REMIND_SAFEWORD.en)(sw)) : ask;
-  aiMessages.push({ role: "assistant", content: greet });
+  aiMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   aiAddMsg("assistant", escapeHtml(greet));
 }
 
@@ -6074,6 +6078,7 @@ function aiPosHandleInput(text, inp) {
   const sw = aiPos.safeWord || aiPosSafeWord();
   if (sw && norm === sw) {
     if (inp) inp.value = "";
+    monitor("local: safe word — emergency stop", "warn");
     aiAddMsg("user", escapeHtml(text));
     aiPosReset();
     emergencyStop();
@@ -6086,6 +6091,7 @@ function aiPosHandleInput(text, inp) {
   if (aiPos.moving && aiPosIsGentleStop(tl)) {
     if (inp) inp.value = "";
     aiPosStop();
+    monitor("local: gentle stop — " + text, "ai");
     aiAddMsg("user", escapeHtml(text));
     const q = aiPosConfirmText(aiPos.phase);
     aiAddMsg("assistant", q);
@@ -6095,6 +6101,7 @@ function aiPosHandleInput(text, inp) {
   // 3) cancel the whole setup
   if (!aiPos.moving && /\b(cancel|abort|never mind|quit|stop the setup)\b/.test(tl)) {
     if (inp) inp.value = "";
+    monitor("local: cancel setup — " + text, "ai");
     aiAddMsg("user", escapeHtml(text));
     aiPosReset();
     aiPosRestoreMode();
@@ -6552,7 +6559,7 @@ function compNewSession() {
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
   const lang = aiStoredLang();
   const greet = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
-  compMessages.push({ role: "assistant", content: greet });
+  compMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   compAddMsg("assistant", escapeHtml(greet));
   if (aiSpeakEnabled()) aiSpeak(greet);
 }
@@ -7192,7 +7199,7 @@ async function compSend() {
     const memLine = ((memOn || inSetup) && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const setupLine = inSetup ? ("\n\nFIRST-TIME SETUP (this is their first time — they haven't configured you yet): warmly ask a couple of short questions at a time (never a questionnaire) about (1) what they'd like you to be called and your role/dynamic, (2) what they're into and interested in, and (3) how they want you to look — hair color, skin tone, and a style: anime, cartoon, fantasy, or animal (animal ears, the closest to furry). Once you have enough, propose a look, set it with \"avatar\" ({\"style\":...,\"seed\":...,\"hair\":...,\"skin\":...}), and save what they shared about themselves with \"memory\". After you set an avatar, drop the setup tone and just be yourself.") : "";
     const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical, in-character): the user has NOT confirmed their safety limits this session yet, so you must NEVER start the machine (\"run\":\"start\") until that is done. Only bring this up when they actually want to start playing — not at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move deeper to their deepest point, they say \"stop\", then back out to their shallowest point, they say \"stop\" again (while moving, keep it to a few words — ok, a little more, is this the spot? — never full sentences). That flow is the \"pos\" (position setup) envelope. Alternatively they can just tell you the three numbers (min depth, max depth, max speed).");
-    compMessages.push({ role: "user", content: text });
+    compMessages.push({ role: "user", content: text, ts: Date.now() });
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() },
       ...compMessages
@@ -7200,7 +7207,7 @@ async function compSend() {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar || res.video || res.search) {
-      if (res.raw) compMessages.push({ role: "assistant", content: res.raw });
+      if (res.raw) compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() });
     } else {
       compMessages.pop();
     }
@@ -7415,7 +7422,7 @@ async function aiSend(opts) {
   const th = aiAddMsg("assistant", "<span class=\"ai-thinking\">Thinking…</span>");
   try {
     const cur = aiCurrentState();
-    aiMessages.push({ role: "user", content: text });
+    aiMessages.push({ role: "user", content: text, ts: Date.now() });
     const memOn = aiMemoryActive();
     const mem = memOn ? aiMemory() : "";
     const memLine = memOn
@@ -7428,7 +7435,7 @@ async function aiSend(opts) {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.video || res.search) {
-      if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
+      if (res.raw) aiMessages.push({ role: "assistant", content: res.raw, ts: Date.now() });
     } else {
       aiMessages.pop();
     }
@@ -7645,6 +7652,78 @@ function aiProcessVoice(text) {
   aiSend({ fromVoice: true });
 }
 
+function aiExportFmtMsg(content) {
+  if (typeof content !== "string") return String(content);
+  const t = content.trim();
+  if (t.indexOf("{") === 0 || t.indexOf("[") === 0) {
+    try { return JSON.stringify(JSON.parse(t), null, 2); } catch (e) { return t; }
+  }
+  return t;
+}
+function exportDeveloperInfo() {
+  const now = new Date();
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour12: false });
+  const stamp = (t) => new Date(t).toLocaleString();
+  const L = [];
+  const push = (s) => L.push(s);
+
+  push("Buzzer — Developer Export");
+  push("Generated: " + stamp(now));
+  push("Build: " + (BUILD_TIME.indexOf("__") === 0 ? "local" : BUILD_TIME));
+  push("Browser: " + (navigator.userAgent || "?"));
+  push("Language: " + aiStoredLang());
+  push("Device: firmware=" + (firmwareKind || "unknown") + ", connected=" + (connected ? "yes" : "no") + ", mode=" + appMode + ", AP available=" + (apAvailable() ? "yes" : "no") + ", stdState=" + (stdStateName || ""));
+  push("Patterns (" + stdPatterns.length + "): " + stdPatterns.map(p => p.idx + "=" + p.name).join(", "));
+  push("");
+
+  push("=== AI MEMORY (what it has learned about you) ===");
+  push(aiMemory() || "(empty)");
+  push("");
+
+  push("=== AI SETTINGS ===");
+  const s = aiProviderSettings();
+  push("provider: " + s.provider);
+  push("model: " + (s.model || "(default)"));
+  push("baseUrl: " + (s.baseUrl || "(default)"));
+  push("api key: (omitted)");
+  push("enabled: " + (aiEnabled() ? "yes" : "no"));
+  push("companion enabled: " + (companionEnabled() ? "yes" : "no"));
+  push("can run (start/pause): " + (aiCanRun() ? "yes" : "no"));
+  push("speak replies: " + (aiSpeakEnabled() ? "yes" : "no"));
+  push("memory enabled: " + (aiMemoryEnabled() ? "yes" : "no"));
+  push("limits confirmed this session: " + (aiLimitsConfirmed() ? "yes" : "no"));
+  const caps = aiSafetyCaps();
+  push("limits (min/max depth, max speed): " + caps.minDepth + " / " + caps.maxDepth + " / " + caps.maxSpeed);
+  push("safe word: " + (aiPosSafeWord() || "(none)"));
+  push("stop mode: " + aiStopMode());
+  push("positioning speed: " + aiPosSpeed());
+  push("rehome confirmed off: " + (aiPosRehomeConfirmed() ? "yes" : "no"));
+  push("");
+
+  push("=== AI CONVERSATION (Standard) ===");
+  if (!aiMessages.length) push("(empty)");
+  for (const m of aiMessages) push("[" + (m.ts ? clock(m.ts) : "?") + "] " + m.role + ": " + aiExportFmtMsg(m.content));
+  push("");
+
+  push("=== AI CONVERSATION (Companion) ===");
+  if (!compMessages.length) push("(empty)");
+  for (const m of compMessages) push("[" + (m.ts ? clock(m.ts) : "?") + "] " + m.role + ": " + aiExportFmtMsg(m.content));
+  push("");
+
+  push("=== LIVE MONITOR (" + monitorLines.length + " lines) ===");
+  for (const l of monitorLines) {
+    push((l.ts ? "[" + stamp(l.ts) + "] " : "") + (l.cls ? "(" + l.cls + ") " : "") + l.text + (l.n > 1 ? "  (×" + l.n + ")" : ""));
+  }
+
+  const blob = new Blob([L.join("\n")], { type: "text/plain;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "buzzer-dev-info-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".txt";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+
 (function wireAiAssistant() {
   const btn = $("aiBtn");
   const send = $("aiSend");
@@ -7712,6 +7791,8 @@ function aiProcessVoice(text) {
     memHelp.onclick = () => { memHelpText.style.display = (memHelpText.style.display === "none") ? "" : "none"; };
   }
   const forgetBtn = $("aiForget");
+  const exportBtn = $("aiExportInfo");
+  if (exportBtn) exportBtn.onclick = exportDeveloperInfo;
   if (forgetBtn) {
     forgetBtn.onclick = () => {
       if (!confirm("Erase everything the AI has learned about you (name, role, preferences) and reset your companion? This cannot be undone.")) return;
