@@ -1216,6 +1216,7 @@ function monitor(msg, cls) {
   else monitorLines.push({ text, cls, n: 1, ts: Date.now() });
   if (monitorLines.length > MONITOR_MAX) monitorLines.splice(0, monitorLines.length - MONITOR_MAX);
   if (!monitorRenderQueued) { monitorRenderQueued = true; requestAnimationFrame(renderMonitor); }
+  aiDebugPersistSoon();
 }
 const log = (msg) => monitor(msg);
 // Human-readable AI actions for the live monitor.
@@ -5111,7 +5112,7 @@ function aiToggle() {
   p.style.display = show ? "" : "none";
   if (show) {
     const i = $("aiInput"); if (i) i.focus();
-    if (aiFirstOpen) { aiFirstOpen = false; aiNewSession(); } // a fresh page load is a new session
+    if (aiFirstOpen) { aiFirstOpen = false; if (!aiMessages.length) aiNewSession(); } // a fresh page load is a new session
   }
   else aiStopLive();
   syncAiOpenClass();
@@ -5581,7 +5582,12 @@ function aiStoredLang() {
   const nav = ((navigator.language || "en").toLowerCase().split(/[-_]/)[0]);
   return AI_ASK_LIMITS[nav] ? nav : "en";
 }
-function aiNewSession() {
+function aiNewSession(confirmFirst) {
+  if (confirmFirst && (aiMessages.length || compMessages.length)) {
+    if (confirm("Starting a new session clears the current AI conversation. Save the developer info (conversation + monitor log) first?")) {
+      exportDeveloperInfo();
+    }
+  }
   aiStopLive();
   aiMessages = [];
   aiPendingLimits = null;
@@ -5604,6 +5610,7 @@ function aiNewSession() {
   const greet = sw ? (ask + (AI_REMIND_SAFEWORD[lang] || AI_REMIND_SAFEWORD.en)(sw)) : ask;
   aiMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   aiAddMsg("assistant", escapeHtml(greet));
+  aiDebugPersistSoon();
 }
 
 function aiApplyParams(p) {
@@ -6538,7 +6545,12 @@ function companionRefresh() {
   companionRender();
   companionSave();
 }
-function compNewSession() {
+function compNewSession(confirmFirst) {
+  if (confirmFirst && (compMessages.length || aiMessages.length)) {
+    if (confirm("Starting a new session clears the current AI conversation. Save the developer info (conversation + monitor log) first?")) {
+      exportDeveloperInfo();
+    }
+  }
   compLiveStop();
   compBusy = false;
   compMessages = [];
@@ -6562,6 +6574,7 @@ function compNewSession() {
   compMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   compAddMsg("assistant", escapeHtml(greet));
   if (aiSpeakEnabled()) aiSpeak(greet);
+  aiDebugPersistSoon();
 }
 function companionLayout() {
   try { return localStorage.getItem("ossm-companion-layout") === "split" ? "split" : "focused"; } catch (e) { return "focused"; }
@@ -7200,6 +7213,7 @@ async function compSend() {
     const setupLine = inSetup ? ("\n\nFIRST-TIME SETUP (this is their first time — they haven't configured you yet): warmly ask a couple of short questions at a time (never a questionnaire) about (1) what they'd like you to be called and your role/dynamic, (2) what they're into and interested in, and (3) how they want you to look — hair color, skin tone, and a style: anime, cartoon, fantasy, or animal (animal ears, the closest to furry). Once you have enough, propose a look, set it with \"avatar\" ({\"style\":...,\"seed\":...,\"hair\":...,\"skin\":...}), and save what they shared about themselves with \"memory\". After you set an avatar, drop the setup tone and just be yourself.") : "";
     const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical, in-character): the user has NOT confirmed their safety limits this session yet, so you must NEVER start the machine (\"run\":\"start\") until that is done. Only bring this up when they actually want to start playing — not at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move deeper to their deepest point, they say \"stop\", then back out to their shallowest point, they say \"stop\" again (while moving, keep it to a few words — ok, a little more, is this the spot? — never full sentences). That flow is the \"pos\" (position setup) envelope. Alternatively they can just tell you the three numbers (min depth, max depth, max speed).");
     compMessages.push({ role: "user", content: text, ts: Date.now() });
+    aiDebugPersistSoon();
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() },
       ...compMessages
@@ -7207,7 +7221,7 @@ async function compSend() {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar || res.video || res.search) {
-      if (res.raw) compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() });
+      if (res.raw) { compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
     }
@@ -7364,7 +7378,7 @@ function compLiveStart() {
   const micTop = $("compMicTop"); if (micTop) micTop.onclick = compVoice;
   const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
   const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
-  const newBtn = $("compNew"); if (newBtn) newBtn.onclick = compNewSession;
+  const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
   const refreshBtn = $("compRefresh"); if (refreshBtn) refreshBtn.onclick = companionRefresh;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); compSend(); } });
   setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = !!(window.speechSynthesis && speechSynthesis.speaking); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); }, 180);
@@ -7423,6 +7437,7 @@ async function aiSend(opts) {
   try {
     const cur = aiCurrentState();
     aiMessages.push({ role: "user", content: text, ts: Date.now() });
+    aiDebugPersistSoon();
     const memOn = aiMemoryActive();
     const mem = memOn ? aiMemory() : "";
     const memLine = memOn
@@ -7435,7 +7450,7 @@ async function aiSend(opts) {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.video || res.search) {
-      if (res.raw) aiMessages.push({ role: "assistant", content: res.raw, ts: Date.now() });
+      if (res.raw) { aiMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
     }
@@ -7724,6 +7739,50 @@ function exportDeveloperInfo() {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 
+// ---- Developer data persistence (survives a page reload via localStorage) ----
+let aiDebugPersistTimer = null;
+function aiDebugPersist() {
+  try { localStorage.setItem("ossm-dev-debug", JSON.stringify({ aiMessages, compMessages, monitorLines })); } catch (e) {}
+}
+function aiDebugPersistSoon() {
+  if (aiDebugPersistTimer) return;
+  aiDebugPersistTimer = setTimeout(() => { aiDebugPersistTimer = null; aiDebugPersist(); }, 400);
+}
+function aiDebugMsgText(m) {
+  const c = m && m.content;
+  if (typeof c !== "string") return String(c == null ? "" : c);
+  const t = c.trim();
+  if (t.indexOf("{") === 0) {
+    try { const j = JSON.parse(t); if (j && typeof j.reply === "string" && j.reply) return aiStripEmotionTags(j.reply); } catch (e) {}
+  }
+  return aiStripEmotionTags(t);
+}
+function aiDebugRenderHistory(arr, elId) {
+  const h = $(elId);
+  if (!h) return;
+  h.innerHTML = "";
+  for (const m of arr) {
+    const d = document.createElement("div");
+    d.className = "ai-msg ai-" + m.role;
+    d.textContent = aiDebugMsgText(m);
+    h.appendChild(d);
+  }
+  h.scrollTop = h.scrollHeight;
+}
+function aiDebugRestore() {
+  try {
+    const raw = localStorage.getItem("ossm-dev-debug");
+    if (!raw) return;
+    const d = JSON.parse(raw);
+    if (d && Array.isArray(d.monitorLines)) monitorLines = d.monitorLines;
+    if (d && Array.isArray(d.aiMessages)) aiMessages = d.aiMessages;
+    if (d && Array.isArray(d.compMessages)) compMessages = d.compMessages;
+  } catch (e) {}
+  renderMonitor();
+  aiDebugRenderHistory(aiMessages, "aiHistory");
+  aiDebugRenderHistory(compMessages, "compHistory");
+}
+
 (function wireAiAssistant() {
   const btn = $("aiBtn");
   const send = $("aiSend");
@@ -7818,6 +7877,7 @@ function exportDeveloperInfo() {
       const h = $("aiHistory"); if (h) h.innerHTML = "";
       const ch = $("compHistory"); if (ch) ch.innerHTML = "";
       aiAddMsg("system", "Forgotten — everything about you is reset. The AI and your companion start fresh.");
+      aiDebugPersistSoon();
     };
   }
   if (btn) btn.onclick = aiToggle;
@@ -7833,7 +7893,7 @@ function exportDeveloperInfo() {
     else liveBtn.style.display = "none";
   }
   const newBtn = $("aiNew");
-  if (newBtn) newBtn.onclick = aiNewSession;
+  if (newBtn) newBtn.onclick = () => aiNewSession(true);
   const limitsToggle = $("aiLimitsToggle");
   if (limitsToggle) {
     limitsToggle.onclick = () => {
@@ -9103,7 +9163,7 @@ function gpAiOpenPanel() {
   const p = $("aiPanel");
   if (!p) return;
   if (p.style.display === "none") {
-    if (aiFirstOpen) { aiFirstOpen = false; aiNewSession(); }
+    if (aiFirstOpen) { aiFirstOpen = false; if (!aiMessages.length) aiNewSession(); }
     p.style.display = "";
     const i = $("aiInput"); if (i) { try { i.focus(); } catch (e) {} }
   }
@@ -9465,6 +9525,7 @@ if (tcl) tcl.onclick = () => toggleColSide(1);
 const tcr = $("toggleColRight");
 if (tcr) tcr.onclick = () => toggleColSide(3);
 
+aiDebugRestore();
 buildInterface();
 window.addEventListener("resize", () => { if (appMode !== "fun") { resizeCanvas(); drawGraph(); } });
 // Keep the graph canvas in sync with its displayed size (mode changes, column
