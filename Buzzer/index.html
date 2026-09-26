@@ -618,6 +618,9 @@
   #compSpeak.muted { opacity: .55; }
   .comp-sliders { display: none; width: 100%; flex-direction: column; gap: 4px; }
   .comp-sliders .slider-group { margin: 0; }
+  .comp-video { width: 100%; padding: 8px; border: 1px solid #1e293b; border-radius: 8px; background: #0b1220; display: flex; flex-direction: column; gap: 6px; }
+  .comp-video-title { font-size: .72rem; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .comp-video-actions { display: flex; gap: 6px; }
   /* split layout (landscape / tablet) */
   .companion-view.split .companion-body {
     display: grid;
@@ -745,6 +748,12 @@
             <input type="file" id="compUpload" accept="image/*" style="display:none;">
           </div>
           <div class="comp-sliders" id="compSliders"></div>
+          <div class="comp-video" id="compVideo" style="display:none;">
+            <div class="comp-video-title"><span id="compVideoName">video</span></div>
+            <div class="comp-video-actions">
+              <button class="ble-btn small" id="compCastBtn" type="button" title="Cast to TV">🎦 Cast</button>
+            </div>
+          </div>
         </div>
         <div class="comp-side">
           <div class="ai-history companion-history" id="compHistory"></div>
@@ -6158,6 +6167,7 @@ function companionOpen() {
   companionRender();
   companionApplyLayout();
   buildCompSliders();
+  syncCompVideo();
   if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) { compSetupGreeted = true; compStartSetup(); }
   companionSave();
 }
@@ -6189,6 +6199,17 @@ function compSpeakSync() {
   b.textContent = on ? "🔊" : "🔇";
   b.title = on ? "Spoken replies on — tap to mute" : "Spoken replies off — tap to unmute";
   b.classList.toggle("muted", !on);
+}
+function syncCompVideo() {
+  const sec = $("compVideo");
+  if (!sec) return;
+  const hasVideo = !!(funState.videoUrl || funState.castUrl || funState.localFile);
+  sec.style.display = hasVideo ? "" : "none";
+  if (!hasVideo) return;
+  const name = $("compVideoName");
+  if (name) name.textContent = funState.videoName || "video";
+  const btn = $("compCastBtn");
+  if (btn) btn.textContent = castConnected ? "⏹ Stop cast" : "🎦 Cast to TV";
 }
 function buildCompSliders() {
   const wrap = $("compSliders");
@@ -6390,6 +6411,8 @@ function compLiveStart() {
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
+  const castBtn = $("compCastBtn");
+  if (castBtn) castBtn.onclick = () => { toggleCast(); };
   window.addEventListener("resize", () => { if (companionState.shown) companionApplyLayout(); });
   const prev = $("compPrev"); if (prev) prev.onclick = () => companionPreset(-1);
   const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
@@ -6399,7 +6422,7 @@ function compLiveStart() {
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); compSend(); } });
-  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = !!(window.speechSynthesis && speechSynthesis.speaking); av.classList.toggle("talking", sp); }, 180);
+  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = !!(window.speechSynthesis && speechSynthesis.speaking); av.classList.toggle("talking", sp); syncCompVideo(); }, 180);
   document.addEventListener("pointermove", (e) => {
     const av = $("companionAvatar"); if (!av || !companionState.shown) return;
     const r = av.getBoundingClientRect();
