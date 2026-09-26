@@ -4796,7 +4796,7 @@ HOW TO CONVERSE:
   - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm.
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
   - MEMORY: only store what the user VOLUNTARILY shares about themselves (their name, role, what they like to be called, pronouns, orientation, boundaries, preferences). NEVER ask for personal details — do not quiz them about their name, orientation, pronouns or preferences, as that would be offensive. When they share something lasting on their own, note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts, and never store anything they didn't choose to share.
-  - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): before any movement, ask them to choose a SAFE WORD (that word alone triggers a full emergency stop) and make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if they confirm it, send {"action":"rehomeDone"} and remember it. Then guide them: move the rail in steps of at most 10 at a time using {"action":"move","to":<0-100>}, and ask "a little more?" between steps. Their "stop"/"here"/"good" already stops the rail — then ask them to confirm that position. When they confirm the shallowest point, send {"action":"record"} (that saves Min), then repeat for the deepest point (saves Max), then agree the speed (a number, or "twice as fast" via {"action":"speedNote","speed":<n>}). Finish with {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}. Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
+  - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): before any movement, ask them to choose a SAFE WORD (that word alone triggers a full emergency stop). Also make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if your context says it is already confirmed OFF, do NOT ask again, just skip to moving; otherwise ask, and when they confirm send {"action":"rehomeDone"} (that is what saves it to memory). Then guide them: move the rail in steps of at most 10 at a time using {"action":"move","to":<0-100>}, and ask "a little more?" between steps. Their "stop"/"here"/"good" already stops the rail — then ask them to confirm that position. When they confirm the shallowest point, send {"action":"record"} (that saves Min), then repeat for the deepest point (saves Max), then agree the speed (a number, or "twice as fast" via {"action":"speedNote","speed":<n>}). Finish with {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}. If several actions are needed at once (e.g. safe word AND rehome confirmed), send "pos" as an ARRAY, e.g. [{"action":"safeWord","word":"..."},{"action":"rehomeDone"}]. Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their shallowest and deepest points, then agree the speed — and ask if they want to begin.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
@@ -4806,7 +4806,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
 - "run" (optional, ONLY when your context says you are allowed to start/pause): "start" or "pause". Otherwise leave it null.
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
-- "pos" (optional, ONLY during position setup — see POSITION SETUP rules): {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}. Otherwise null.
+- "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -4867,7 +4867,13 @@ function aiExtractJson(text) {
   const lang = (typeof j.lang === "string" && /^[a-z]{2}$/i.test(j.lang)) ? j.lang.toLowerCase() : null;
   const run = (typeof j.run === "string" && /^(start|pause)$/i.test(j.run)) ? j.run.trim().toLowerCase() : null;
   const memory = (typeof j.memory === "string" && j.memory.trim()) ? j.memory.trim().slice(0, 2000) : null;
-  const pos = (j.pos && typeof j.pos === "object" && !Array.isArray(j.pos) && typeof j.pos.action === "string") ? j.pos : null;
+  let pos = null;
+  if (Array.isArray(j.pos)) {
+    pos = j.pos.filter(p => p && typeof p === "object" && !Array.isArray(p) && typeof p.action === "string");
+    if (!pos.length) pos = null;
+  } else if (j.pos && typeof j.pos === "object" && !Array.isArray(j.pos) && typeof j.pos.action === "string") {
+    pos = j.pos;
+  }
   if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos) {
     return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, lang };
   }
@@ -4970,12 +4976,13 @@ function aiConnContext() {
   return "OSSM connected: " + (connected ? "yes" : "no") + ". If it is NOT connected, never claim you started or will start the machine — you can still set values, but tell the user to connect the OSSM first.";
 }
 function aiPosContext() {
-  if (!aiPos.active) return "";
+  const rehome = "\"Home between modes\" (firmware re-home on mode switch) confirmed OFF by the user: " + (aiPosRehomeConfirmed() ? "yes" : "no") + ".";
+  if (!aiPos.active) return rehome;
   return "POSITION SETUP ACTIVE — guiding the user to set Min Pos, Max Pos and Speed by feel. Phase: " + aiPos.phase
     + ". Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed
     + ". Safe word set: " + (aiPos.safeWord ? "yes" : "no")
-    + ". \"Home between modes\" confirmed off: " + (aiPosRehomeConfirmed() ? "yes" : "no")
-    + ". Move the rail in steps of max " + AI_POS_STEP + ", then ask \"a little more?\". The user's \"stop\"/\"here\"/\"good\" already stops the rail — then you ask them to confirm this position. Only the safe word is a full emergency stop.";
+    + ". " + rehome
+    + " Move the rail in steps of max " + AI_POS_STEP + ", then ask \"a little more?\". The user's \"stop\"/\"here\"/\"good\" already stops the rail — then you ask them to confirm this position. Only the safe word is a full emergency stop.";
 }
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
@@ -5501,7 +5508,7 @@ function aiPosStop() {
   }
 }
 function aiPosIsGentleStop(t) {
-  return /\b(stop|halt|here|right there|that'?s it|this is it|good|perfect|wait|hold on|pauze|stoppen|hier|daar)\b/.test(t);
+  return /\b(stop|halt|stopp|here|right there|that'?s it|this is it|good|perfect|wait|hold on|pauze|stoppen|hier|daar|genau|passt|voila|ici|arrete|c'?est bon|ca va)\b/.test(t);
 }
 function aiPosHandleInput(text, inp) {
   const t = (text || "").trim();
@@ -5539,7 +5546,9 @@ function aiPosHandleInput(text, inp) {
   return false;
 }
 function aiPosApplyEnvelope(P) {
-  if (!P || typeof P !== "object" || Array.isArray(P)) return;
+  if (!P) return;
+  if (Array.isArray(P)) { for (const p of P) aiPosApplyEnvelope(p); return; }
+  if (typeof P !== "object") return;
   const a = typeof P.action === "string" ? P.action : "";
   if (a === "start") {
     aiPosReset(); aiPos.active = true; aiPos.phase = "safeWord";
@@ -5548,7 +5557,7 @@ function aiPosApplyEnvelope(P) {
     aiPos.phase = "rehome";
   } else if (a === "rehomeDone") {
     aiPosSetRehomeConfirmed();
-    aiPos.phase = (aiPos.min === null) ? "min" : "max";
+    aiPos.phase = aiPos.safeWord ? ((aiPos.min === null) ? "min" : "max") : "safeWord";
   } else if (a === "move" && typeof P.to === "number") {
     aiPosMoveTo(P.to);
   } else if (a === "stop") {
