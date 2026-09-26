@@ -2839,11 +2839,19 @@ try { const s = parseFloat(localStorage.getItem("ossm-fun-sensation")); if (isFi
 function getFavorites() {
   try {
     const a = JSON.parse(localStorage.getItem("ossm-fun-favorites") || "[]");
-    return Array.isArray(a) ? a.filter(x => typeof x === "string" && x.trim()).slice(0, 25) : [];
+    if (!Array.isArray(a)) return [];
+    return a.map(x => {
+      if (typeof x === "string") return { url: x.trim(), title: "" };
+      if (x && typeof x === "object" && typeof x.url === "string") return { url: x.url.trim(), title: (typeof x.title === "string" ? x.title : "") };
+      return null;
+    }).filter(Boolean).slice(0, 25);
   } catch (e) { return []; }
 }
 function saveFavorites(list) {
   try { localStorage.setItem("ossm-fun-favorites", JSON.stringify((list || []).slice(0, 25))); } catch (e) {}
+}
+function isFavUrl(url) {
+  return getFavorites().some(f => f.url === url);
 }
 function makeFavoriteRows(onLoad) {
   const favs = getFavorites();
@@ -2856,7 +2864,8 @@ function makeFavoriteRows(onLoad) {
     frag.appendChild(h);
     return frag;
   }
-  for (const url of favs) {
+  for (const fav of favs) {
+    const url = fav.url;
     const row = document.createElement("div");
     row.className = "fun-row";
     row.style.cssText = "gap:4px;margin-bottom:4px;";
@@ -2864,7 +2873,7 @@ function makeFavoriteRows(onLoad) {
     link.type = "button";
     link.className = "fun-btn";
     link.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:#1e293b;color:#7dd3fc;";
-    link.textContent = url;
+    link.textContent = fav.title || url;
     link.title = "Load " + url;
     link.onclick = () => onLoad(url);
     const del = document.createElement("button");
@@ -2874,7 +2883,7 @@ function makeFavoriteRows(onLoad) {
     del.textContent = "🗑";
     del.title = "Remove from favorites";
     del.onclick = () => {
-      saveFavorites(getFavorites().filter(u => u !== url));
+      saveFavorites(getFavorites().filter(f => f.url !== url));
       renderFavorites();
       renderWatchFavorites();
       updateFunFavStar();
@@ -2910,7 +2919,7 @@ function updateFunFavStar() {
   const star = $("funFavBtn");
   const ph = $("funPhId");
   if (!star || !ph) return;
-  const inFav = getFavorites().includes(ph.value.trim());
+  const inFav = isFavUrl(ph.value.trim());
   star.textContent = inFav ? "★" : "☆";
   star.style.color = inFav ? "#facc15" : "";
 }
@@ -2918,7 +2927,7 @@ function updateWatchFavStar() {
   const star = $("watchFavBtn");
   const inp = $("watchUrlInput");
   if (!star || !inp) return;
-  const inFav = getFavorites().includes(inp.value.trim());
+  const inFav = isFavUrl(inp.value.trim());
   star.textContent = inFav ? "★" : "☆";
   star.style.color = inFav ? "#facc15" : "";
 }
@@ -2991,22 +3000,22 @@ function buildFunControls() {
   favBtn.title = "Add / remove current URL from favorites";
   const updateFavStar = () => {
     const cur = phInput.value.trim();
-    const favs = getFavorites();
-    favBtn.textContent = favs.includes(cur) ? "★" : "☆";
-    favBtn.style.color = favs.includes(cur) ? "#facc15" : "";
+    const on = isFavUrl(cur);
+    favBtn.textContent = on ? "★" : "☆";
+    favBtn.style.color = on ? "#facc15" : "";
   };
   phInput.addEventListener("input", updateFavStar);
   favBtn.onclick = () => {
     const cur = phInput.value.trim();
     if (!cur) { funLog("Enter a video URL first, then press ⭐."); return; }
     let favs = getFavorites();
-    if (favs.includes(cur)) {
-      favs = favs.filter(u => u !== cur);
+    if (favs.some(f => f.url === cur)) {
+      favs = favs.filter(f => f.url !== cur);
       saveFavorites(favs);
       funLog("Removed from favorites.");
     } else {
       if (favs.length >= 25) { funLog("Favorites list is full (25 max)."); return; }
-      favs.unshift(cur);
+      favs.unshift({ url: cur, title: funState.videoName || "" });
       saveFavorites(favs);
       funLog("Added to favorites ⭐");
     }
@@ -4953,7 +4962,7 @@ HOW TO CONVERSE:
 - APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: press Connect at the top of Settings (or you can send "ui":{"action":"connect"}). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"face":null,"video":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
@@ -4962,6 +4971,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to try connecting to the OSSM. Otherwise null.
 - "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
+- "video" (optional): play one of the user's favorite videos — {"url":"<the exact url from your FAVORITE VIDEOS context>"}. Use it when the user asks to watch porn or put something on: pick one at random for a surprise or ask which they want (translating the title into the language you're replying in). The user picks the cast device themselves. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -5041,10 +5051,13 @@ function aiExtractJson(text) {
   if (j.face && typeof j.face === "object" && !Array.isArray(j.face)) face = j.face;
   let avatar = null;
   if (j.avatar && typeof j.avatar === "object" && !Array.isArray(j.avatar)) avatar = j.avatar;
-  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, lang };
+  let video = null;
+  if (typeof j.video === "string" && j.video.trim()) video = { url: j.video.trim() };
+  else if (j.video && typeof j.video === "object" && !Array.isArray(j.video) && typeof j.video.url === "string" && j.video.url.trim()) video = { url: j.video.url.trim() };
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -5556,7 +5569,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5585,7 +5598,7 @@ async function aiCallOpenAI(messages) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, lang: parsed.lang, error: null };
         lastErr = "the model replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5595,7 +5608,7 @@ async function aiCallOpenAI(messages) {
     } catch (e) { lastErr = "could not reach the API (network/CORS)"; }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, video: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5614,12 +5627,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5954,6 +5967,21 @@ function aiApplyUi(ui) {
   }
 }
 
+function aiApplyVideo(v) {
+  if (!v) return;
+  const url = (typeof v === "string") ? v.trim() : ((v && typeof v.url === "string") ? v.url.trim() : "");
+  if (!url) return;
+  setModeFromDropdown("fun");
+  loadVideoUrl(url);
+}
+function aiVideoContext() {
+  const favs = getFavorites();
+  if (!favs.length) return "\n\nFAVORITE VIDEOS: none saved yet. If the user asks you to play porn or put something on, say you don't have any favorites yet and that they can add one in Funscript mode (load a video URL and press ⭐).";
+  const lines = favs.map((f, i) => (i + 1) + '. title: "' + (f.title || "untitled") + '", url: "' + f.url + '"').join("\n");
+  return "\n\nFAVORITE VIDEOS (play these when the user asks to \"play porn\", \"put something on\", \"surprise me\", etc.):\n" + lines
+    + "\nHOW TO PLAY: for a surprise pick one at random; if they want to choose, list a few titles and ask which (translate any English title into the language you're replying in — e.g. \"Ethan fucks a little brat deep and hard\" becomes \"Ethan neukt een kleine brat hard\" in Dutch). To play one, set \"video\":{\"url\":\"<that exact url>\"}. The user picks the cast device themselves — tell them to press Cast to TV and choose their device.";
+}
+
 // ---------- AI Companion face ----------
 const COMPANION_PRESETS = [
   { name:"Noah", seed:"Noah",  style:"lorelei",   hair:"#f6d365", skin:"#ffd9b3" },
@@ -6061,7 +6089,7 @@ function companionApplyAvatar(a) {
 function companionApplyFace(f) { companionApplyAvatar(f); }
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). "face" is a simpler hair/skin-only shorthand for the same thing. Only use those fields when relevant — most of the time, just be yourself and talk.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's favorite videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"}; they pick the cast device themselves. Only use those fields when relevant — most of the time, just be yourself and talk.`;
 
 let compMessages = [];
 let compBusy = false;
@@ -6098,12 +6126,12 @@ async function compSend() {
     const setupLine = compSetupState() ? "" : ("\n\nFIRST-TIME SETUP (this is their first time — they haven't configured you yet): warmly ask a couple of short questions at a time (never a questionnaire) about (1) what they'd like you to be called and your role/dynamic, (2) what they're into and interested in, and (3) how they want you to look — hair color, skin tone, and a style: anime, cartoon, fantasy, or animal (animal ears, the closest to furry). Once you have enough, propose a look, set it with \"avatar\" ({\"style\":...,\"seed\":...,\"hair\":...,\"skin\":...}), and save what they shared about themselves with \"memory\". After you set an avatar, drop the setup tone and just be yourself.");
     compMessages.push({ role: "user", content: text });
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine + aiVideoContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar || res.video) {
       if (res.raw) compMessages.push({ role: "assistant", content: res.raw });
     } else {
       compMessages.pop();
@@ -6118,6 +6146,7 @@ async function compSend() {
     if (res.memory && aiMemoryActive()) aiSetMemory(res.memory);
     if (res.face) companionApplyFace(res.face);
     if (res.avatar) { companionApplyAvatar(res.avatar); compSetupDone(); }
+    if (res.video) aiApplyVideo(res.video);
     if (res.params) aiApplySet(res.params);
     if (res.limits) aiApplyLimits(res.limits);
     if (res.run && aiCanRunActive()) {
@@ -6247,12 +6276,12 @@ async function aiSend(opts) {
       ? (mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "")
       : "\n\nMEMORY IS DISABLED by the user — do not output the \"memory\" field.";
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + memLine },
+      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + aiVideoContext() },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.video) {
       if (res.raw) aiMessages.push({ role: "assistant", content: res.raw });
     } else {
       aiMessages.pop();
@@ -6292,6 +6321,7 @@ async function aiSend(opts) {
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
     if (res.ui) aiApplyUi(res.ui);
     if (res.face) companionApplyFace(res.face);
+    if (res.video) aiApplyVideo(res.video);
     if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos && !res.ui && !res.face) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
@@ -7084,13 +7114,13 @@ if (wfav) wfav.onclick = () => {
   const cur = (wui ? wui.value : "").trim();
   if (!cur) { log("Enter a video URL first, then press ⭐."); return; }
   let favs = getFavorites();
-  if (favs.includes(cur)) {
-    favs = favs.filter(u => u !== cur);
+  if (favs.some(f => f.url === cur)) {
+    favs = favs.filter(f => f.url !== cur);
     saveFavorites(favs);
     log("Removed from favorites.");
   } else {
     if (favs.length >= 25) { log("Favorites list is full (25 max)."); return; }
-    favs.unshift(cur);
+    favs.unshift({ url: cur, title: funState.videoName || "" });
     saveFavorites(favs);
     log("Added to favorites ⭐");
   }
