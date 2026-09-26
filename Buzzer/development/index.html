@@ -6294,7 +6294,7 @@ function companionRender() {
     if (companionLive.img) companionLiveStart();
     else {
       const img = new Image();
-      img.onload = () => { companionLive.img = img; companionLive.face = companionLiveComputeFace(img, companionState.landmarks || null); companionLiveSampleColors(img); companionLiveStart(); };
+      img.onload = () => { companionLive.img = img; companionLive.face = companionLiveComputeFace(img, companionState.landmarks || null); companionLiveSampleColors(img); companionLiveFindEyes(img); companionLiveStart(); };
       img.src = companionState.customImage;
     }
     return;
@@ -6542,7 +6542,7 @@ const companionLive = {
   skinRgb: [232, 195, 158], lipRgb: [122, 59, 59], cheekRgb: [231, 121, 111],
   blinkState: "open", blinkNext: 0, blinkT: 0,
   mouth: 0, expression: null, exprUntil: 0,
-  raf: 0, cv: null, gazeX: 0, gazeY: 0
+  raf: 0, cv: null, gazeX: 0, gazeY: 0, mcv: null, mcvCtx: null, eyes: null
 };
 function companionLiveStop() {
   if (companionLive.raf) { cancelAnimationFrame(companionLive.raf); companionLive.raf = 0; }
@@ -6647,18 +6647,21 @@ function companionLiveCalibrate(img, dataUrl) {
   update();
 }
 function companionLiveComputeFace(img, pts) {
+  const iw = img.naturalWidth, ih = img.naturalHeight;
   let le, re, m;
   if (pts && pts.le && pts.re && pts.m) { le = pts.le; re = pts.re; m = pts.m; }
   else { le = [0.4, 0.36]; re = [0.6, 0.36]; m = [0.5, 0.6]; }
-  const eyeMid = [(le[0] + re[0]) / 2, (le[1] + re[1]) / 2];
-  const eyeDist = Math.max(0.04, Math.hypot(re[0] - le[0], re[1] - le[1]));
-  const headW = Math.min(1.25, eyeDist * 3.6);
-  const headH = Math.min(1.25, eyeDist * 4.6);
-  const cx = eyeMid[0];
-  const cy = (eyeMid[1] + m[1]) / 2 - eyeDist * 0.18;
-  const x = Math.max(0, Math.min(1 - headW, cx - headW / 2));
-  const y = Math.max(0, Math.min(1 - headH, cy - headH / 2));
-  return { x: x, y: y, w: headW, h: headH, le: le, re: re, m: m, eyeDist: eyeDist };
+  const eyeMidX = (le[0] + re[0]) / 2;
+  const eyeMidY = (le[1] + re[1]) / 2;
+  const eyeDistN = Math.max(0.04, Math.hypot(re[0] - le[0], re[1] - le[1]));
+  const eyeDistPx = eyeDistN * iw;
+  // Square crop in PIXELS so the round avatar never stretches the photo.
+  const side = Math.max(16, Math.min(iw, ih, eyeDistPx * 2.7));
+  const cx = eyeMidX * iw;
+  const cy = eyeMidY * ih;
+  const x = Math.max(0, Math.min(iw - side, cx - side / 2));
+  const y = Math.max(0, Math.min(ih - side, cy - side * 0.38));
+  return { x: x, y: y, w: side, h: side, le: le, re: re, m: m, eyeDist: eyeDistN };
 }
 function companionLiveSampleColors(img) {
   try {
@@ -6683,11 +6686,49 @@ function companionLiveSampleColors(img) {
     companionLive.cheekRgb = [Math.min(255, ck[0] + 55), Math.max(0, ck[1] - 15), Math.max(0, ck[2] - 15)];
   } catch (e) {}
 }
+function companionLiveFindEyes(img) {
+  companionLive.eyes = null;
+  const f = companionLive.face;
+  if (!f || !f.le || !f.re) return;
+  try {
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const cropX = f.x, cropY = f.y, cropW = f.w, cropH = f.h;
+    const SIZE = 200;
+    const c = document.createElement("canvas");
+    c.width = SIZE; c.height = SIZE;
+    const cctx = c.getContext("2d", { willReadFrequently: true });
+    cctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, SIZE, SIZE);
+    const sc = SIZE / cropW;
+    const skin = companionLive.skinRgb;
+    const dev = (p) => Math.abs(p[0] - skin[0]) + Math.abs(p[1] - skin[1]) + Math.abs(p[2] - skin[2]);
+    const scan = (e) => {
+      const ix = (e[0] * iw - cropX) * sc;
+      const iy = (e[1] * ih - cropY) * sc;
+      const ed = f.eyeDist * cropW * sc;
+      const x0 = Math.max(1, Math.min(SIZE - 2, Math.round(ix)));
+      const yTop = Math.max(0, Math.round(iy - ed * 0.5));
+      const yBot = Math.min(SIZE - 1, Math.round(iy + ed * 0.5));
+      let top = -1, bottom = -1;
+      for (let y = yTop; y <= yBot; y++) {
+        let d = 0;
+        for (let x = x0 - 2; x <= x0 + 2; x++) {
+          const p = cctx.getImageData(x, y, 1, 1).data;
+          d = Math.max(d, dev(p));
+        }
+        if (d > 42) { if (top < 0) top = y; bottom = y; }
+      }
+      if (top < 0 || bottom < 0) return null;
+      return { top: cropY + top / sc, bottom: cropY + bottom / sc };
+    };
+    companionLive.eyes = [scan(f.le), scan(f.re)];
+  } catch (e) { companionLive.eyes = null; }
+}
 function companionLiveSetImage(img, dataUrl, pts) {
   companionLiveStop();
   companionLive.img = img;
   companionLive.face = companionLiveComputeFace(img, pts);
   companionLiveSampleColors(img);
+  companionLiveFindEyes(img);
   companionLive.expression = null;
   companionState.customImage = dataUrl;
   companionState.custom = null;
@@ -6736,87 +6777,137 @@ function companionLiveFrame(now) {
   ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
 
   const f = companionLive.face, img = companionLive.img;
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const s = w / f.w;                          // uniform scale (square crop -> square canvas)
+  const tx = (ix) => (ix - f.x) * s;
+  const ty = (iy) => (iy - f.y) * s;
+
   const t = now / 1000;
   const speaking = !!(window.speechSynthesis && speechSynthesis.speaking);
 
-  const breathe = 1 + 0.015 * Math.sin(t * 1.5);
-  const sway = 0.5 * Math.sin(t * 0.45);
-  const bob = speaking ? 0.9 * Math.sin(t * 10.5) : 0;
-  const tilt = (sway + companionLive.gazeX * 1.4) * Math.PI / 180;
-  const lean = (bob + companionLive.gazeY * 0.9) * (h * 0.01);
-
+  // --- mouth openness ---
   let target = speaking ? 1 : 0;
-  if (companionLive.expression && now < companionLive.exprUntil) {
-    if (companionLive.expression.kind === "smile") target = Math.max(target, 0.28);
-  }
-  companionLive.mouth += (target - companionLive.mouth) * 0.32;
-  if (speaking) companionLive.mouth += Math.sin(t * 23) * 0.06;
+  if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "smile") target = Math.max(target, 0.3);
+  companionLive.mouth += (target - companionLive.mouth) * 0.35;
+  if (speaking) companionLive.mouth += Math.sin(t * 21) * 0.05;
   companionLive.mouth = Math.max(0, Math.min(1, companionLive.mouth));
+  const open = companionLive.mouth;
 
-  const sx = f.x * img.naturalWidth, sy = f.y * img.naturalHeight;
-  const sw = f.w * img.naturalWidth, sh = f.h * img.naturalHeight;
+  // --- blink state machine ---
+  if (now > companionLive.blinkNext && companionLive.blinkState === "open") { companionLive.blinkState = "closing"; companionLive.blinkT = now; }
+  let blink = 0;
+  if (companionLive.blinkState === "closing") {
+    blink = Math.min(1, (now - companionLive.blinkT) / 85);
+    if (blink >= 1) { companionLive.blinkState = "opening"; companionLive.blinkT = now; blink = 1; }
+  } else if (companionLive.blinkState === "opening") {
+    blink = 1 - Math.min(1, (now - companionLive.blinkT) / 140);
+    if (blink <= 0) { companionLive.blinkState = "open"; blink = 0; companionLive.blinkNext = now + 2200 + Math.random() * 3800; }
+  }
+
+  // --- head motion ---
+  const breathe = 1 + 0.016 * Math.sin(t * 1.5);
+  const sway = 0.6 * Math.sin(t * 0.45);
+  const bob = speaking ? 1.0 * Math.sin(t * 10) : 0;
+  const tilt = (sway + companionLive.gazeX * 1.5) * Math.PI / 180;
+  const leanX = companionLive.gazeX * 0.9 * w * 0.01;
+  const leanY = (bob + companionLive.gazeY * 0.9) * h * 0.01;
+
+  const eyeH = Math.max(4, f.eyeDist * iw * 0.30 * s);
+  const eyeW = f.eyeDist * iw * 0.85 * s;
+
   ctx.save();
   ctx.translate(w / 2, h / 2);
   ctx.rotate(tilt);
   ctx.scale(breathe, breathe);
-  ctx.translate(-w / 2 + lean * 0.4, -h / 2 + lean);
-  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
-  ctx.restore();
+  ctx.translate(-w / 2 + leanX, -h / 2 + leanY);
 
-  const fx = (nx) => (nx - f.x) / f.w * w;
-  const fy = (ny) => (ny - f.y) / f.h * h;
-  const eyeR = Math.max(6, (f.eyeDist / f.w) * w * 0.16);
+  // base face (square crop, no distortion)
+  ctx.drawImage(img, f.x, f.y, f.w, f.h, 0, 0, w, h);
 
-  if (now > companionLive.blinkNext && companionLive.blinkState === "open") {
-    companionLive.blinkState = "closing"; companionLive.blinkT = now;
+  // --- mouth: drop the real lower lip/jaw with a soft-blended warp ---
+  if (open > 0.03 && f.m) {
+    if (!companionLive.mcv) { companionLive.mcv = document.createElement("canvas"); companionLive.mcvCtx = companionLive.mcv.getContext("2d"); }
+    const mcv = companionLive.mcv, mctx = companionLive.mcvCtx;
+    if (mcv && mctx) {
+      const mIx = f.m[0] * iw, mIy = f.m[1] * ih;
+      const mouthW = f.eyeDist * iw * s * 1.5;
+      const mouthH = f.eyeDist * iw * s * 0.5;
+      const stripW = Math.min(w, mouthW * 2.2);
+      const stripH = mouthH * 2.6;
+      const W2 = Math.ceil(stripW), H2 = Math.ceil(stripH);
+      if (mcv.width !== W2 || mcv.height !== H2) { mcv.width = W2; mcv.height = H2; }
+      const srcW = stripW / s, srcH = stripH / s;
+      const srcX = mIx - srcW / 2;
+      const srcY = mIy - srcH * 0.40;
+      const split = 0.40;
+      const drop = open * mouthH * 0.95;
+      mctx.clearRect(0, 0, W2, H2);
+      mctx.drawImage(img, srcX, srcY, srcW, srcH * split, 0, 0, W2, H2 * split);
+      // the opening between the lips
+      const ig = mctx.createRadialGradient(W2 / 2, H2 * split + drop / 2, 1, W2 / 2, H2 * split + drop / 2, W2 * 0.30);
+      ig.addColorStop(0, "rgba(35,11,12,0.95)");
+      ig.addColorStop(0.7, "rgba(" + companionLive.lipRgb[0] + "," + companionLive.lipRgb[1] + "," + companionLive.lipRgb[2] + ",0.75)");
+      ig.addColorStop(1, "rgba(0,0,0,0)");
+      mctx.fillStyle = ig;
+      mctx.beginPath();
+      mctx.ellipse(W2 / 2, H2 * split + drop / 2, W2 * 0.26, Math.max(1.5, drop * 0.7), 0, 0, Math.PI * 2);
+      mctx.fill();
+      mctx.drawImage(img, srcX, srcY + srcH * split, srcW, srcH * (1 - split), 0, H2 * split + drop, W2, H2 * (1 - split));
+      // soft radial mask so it blends into the cheeks
+      mctx.globalCompositeOperation = "destination-in";
+      const mg = mctx.createRadialGradient(W2 / 2, H2 * split, 1, W2 / 2, H2 * split, W2 * 0.62);
+      mg.addColorStop(0, "rgba(0,0,0,1)");
+      mg.addColorStop(0.7, "rgba(0,0,0,0.8)");
+      mg.addColorStop(1, "rgba(0,0,0,0)");
+      mctx.fillStyle = mg;
+      mctx.fillRect(0, 0, W2, H2);
+      mctx.globalCompositeOperation = "source-over";
+      ctx.drawImage(mcv, tx(mIx) - W2 / 2, ty(mIy) - H2 * split);
+    }
   }
-  let blinkAmt = 0;
-  if (companionLive.blinkState === "closing") {
-    blinkAmt = Math.min(1, (now - companionLive.blinkT) / 80);
-    if (blinkAmt >= 1) { companionLive.blinkState = "opening"; companionLive.blinkT = now; blinkAmt = 1; }
-  } else if (companionLive.blinkState === "opening") {
-    blinkAmt = 1 - Math.min(1, (now - companionLive.blinkT) / 130);
-    if (blinkAmt <= 0) { companionLive.blinkState = "open"; blinkAmt = 0; companionLive.blinkNext = now + 2000 + Math.random() * 3800; }
-  }
-  if (blinkAmt > 0.01 && f.le && f.re) {
-    const s = companionLive.skinRgb;
-    ctx.fillStyle = "rgb(" + s[0] + "," + s[1] + "," + s[2] + ")";
-    [f.le, f.re].forEach((e) => {
-      const ex = fx(e[0]), ey = fy(e[1]);
-      ctx.beginPath();
-      ctx.ellipse(ex, ey, eyeR * 1.4, eyeR * (0.4 + blinkAmt * 1.1), 0, 0, Math.PI * 2);
-      ctx.fill();
+
+  // --- blink: slide the person's own eyelid skin down over each eye ---
+  if (blink > 0.01 && f.le && f.re) {
+    [f.le, f.re].forEach((e, i) => {
+      const eix = e[0] * iw, eiy = e[1] * ih;
+      let top, eyeHpx, eyeWpx;
+      const box = companionLive.eyes && companionLive.eyes[i];
+      if (box) { top = box.top; eyeHpx = box.bottom - box.top; eyeWpx = eyeHpx * 2.0; }
+      else { eyeHpx = f.eyeDist * iw * 0.20; top = eiy - eyeHpx * 0.5; eyeWpx = f.eyeDist * iw * 0.85; }
+      const lidSrcH = eyeHpx * 0.7;                 // pure skin strip just above the eye
+      const lidW = eyeWpx * 1.5;
+      const srcX2 = eix - lidW / 2;
+      const srcY2 = top - lidSrcH;
+      const coverH = (lidSrcH + eyeHpx * 1.15) * blink * s;  // reach past the eye bottom
+      ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2), lidW * s, coverH);
+      if (blink > 0.2) {
+        ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
+        ctx.lineWidth = Math.max(1, eyeHpx * 0.12 * s);
+        const ly = ty(srcY2) + coverH;
+        ctx.beginPath();
+        ctx.moveTo(tx(eix) - eyeWpx * 0.7 * s, ly);
+        ctx.quadraticCurveTo(tx(eix), ly + eyeHpx * 0.28 * s, tx(eix) + eyeWpx * 0.7 * s, ly);
+        ctx.stroke();
+      }
     });
   }
 
-  if (companionLive.mouth > 0.03 && f.m) {
-    const mx = fx(f.m[0]), my = fy(f.m[1]);
-    const mw = eyeR * 1.55;
-    const open = companionLive.mouth;
-    const lr = companionLive.lipRgb;
-    const g = ctx.createRadialGradient(mx, my, 1, mx, my, mw);
-    g.addColorStop(0, "rgba(40,12,12," + (0.5 * open + 0.06) + ")");
-    g.addColorStop(0.55, "rgba(" + lr[0] + "," + lr[1] + "," + lr[2] + ",0.5)");
-    g.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.ellipse(mx, my + mw * 0.12 * open, mw * (0.55 + 0.28 * open), mw * (0.26 + 0.52 * open), 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
+  // --- blush ---
   if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "blush" && f.le && f.re) {
-    const cxb = fx((f.le[0] + f.re[0]) / 2), cyb = fy((f.le[1] + f.re[1]) / 2);
-    const off = eyeR * 2.0, rad = off * 0.95;
+    const cxb = tx(((f.le[0] + f.re[0]) / 2) * iw), cyb = ty(((f.le[1] + f.re[1]) / 2) * ih);
+    const off = eyeH * 3.0, rad = off * 1.0;
     const cr = companionLive.cheekRgb;
     [[-1, 1], [1, 1]].forEach(([sx2, sy2]) => {
-      const px2 = cxb + sx2 * off, py2 = cyb + sy2 * off * 0.82;
+      const px2 = cxb + sx2 * off, py2 = cyb + sy2 * off * 0.85;
       const g = ctx.createRadialGradient(px2, py2, 1, px2, py2, rad);
-      g.addColorStop(0, "rgba(" + cr[0] + "," + cr[1] + "," + cr[2] + ",0.30)");
+      g.addColorStop(0, "rgba(" + cr[0] + "," + cr[1] + "," + cr[2] + ",0.32)");
       g.addColorStop(1, "rgba(" + cr[0] + "," + cr[1] + "," + cr[2] + ",0)");
       ctx.fillStyle = g;
       ctx.beginPath(); ctx.arc(px2, py2, rad, 0, Math.PI * 2); ctx.fill();
     });
   }
+
+  ctx.restore();
 }
 
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words.
@@ -7020,7 +7111,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => companionPreset(-1);
   const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
   const up = $("compUploadBtn"); const upi = $("compUpload");
-  if (up && upi) { up.onclick = () => upi.click(); upi.onchange = () => companionUpload(upi.files && upi.files[0]); }
+  if (up && upi) { up.onclick = () => upi.click(); upi.onchange = () => { const f = upi.files && upi.files[0]; upi.value = ""; companionUpload(f); }; }
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
