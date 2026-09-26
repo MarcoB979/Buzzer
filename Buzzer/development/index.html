@@ -826,11 +826,19 @@
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
           <option value="deepseek">DeepSeek (your key)</option>
+          <option value="openai">OpenAI (compatible)</option>
         </select>
         <div id="aiKeyRow" style="display:none;">
-          <label class="ai-set-label" for="aiKey">DeepSeek API key</label>
+          <label class="ai-set-label" for="aiKey" id="aiKeyLabel">DeepSeek API key</label>
           <input type="password" id="aiKey" placeholder="sk-…" autocomplete="off">
-          <div class="ai-set-hint">Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.</div>
+          <div class="ai-set-hint" id="aiKeyHint">Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.</div>
+        </div>
+        <div id="aiOpenAiRow" style="display:none;">
+          <label class="ai-set-label" for="aiBaseUrl">API base URL</label>
+          <input type="text" id="aiBaseUrl" placeholder="https://api.openai.com/v1" autocomplete="off">
+          <label class="ai-set-label" for="aiModel">Model</label>
+          <input type="text" id="aiModel" placeholder="gpt-4o-mini" autocomplete="off">
+          <div class="ai-set-hint">Works with any OpenAI-compatible server: OpenAI, Groq, Together, OpenRouter, or a local model. For Ollama use base URL http://localhost:11434/v1 and the model name you have pulled. For LM Studio use http://localhost:1234/v1.</div>
         </div>
         <label class="ai-set-label" for="aiTtsVoice">Voice</label>
         <select id="aiTtsVoice"><option value="">Auto (best match)</option></select>
@@ -5097,6 +5105,8 @@ function aiFallbackError(res) {
   if (res && res.error) {
     let hint;
     if (s.provider === "deepseek" && !s.key) hint = " You selected DeepSeek but no key is saved on this device — add it under 🤖 AI assistant.";
+    else if (s.provider === "openai" && !s.key) hint = " You selected OpenAI (compatible) but no key is saved — add it under 🤖 AI assistant.";
+    else if (s.provider === "openai") hint = " Check your key, base URL and model under 🤖 AI assistant. If it's a local model, make sure it's running.";
     else if (s.provider !== "deepseek") hint = " The free service is unreliable — switch to DeepSeek under 🤖 AI assistant and add your key.";
     else hint = " Check your key and balance under 🤖 AI assistant.";
     return escapeHtml("The AI couldn't reply (" + res.error + ")." + hint);
@@ -5485,10 +5495,16 @@ function aiAddMsg(role, html) {
 }
 
 function aiProviderSettings() {
-  let provider = "free", key = "";
+  let provider = "free", key = "", baseUrl = "", model = "";
   try { provider = localStorage.getItem("ossm-ai-provider") || "free"; } catch (e) {}
   try { key = (localStorage.getItem("ossm-ai-key") || "").trim(); } catch (e) {}
-  return { provider, key };
+  try { baseUrl = (localStorage.getItem("ossm-ai-base-url") || "").trim(); } catch (e) {}
+  try { model = (localStorage.getItem("ossm-ai-model") || "").trim(); } catch (e) {}
+  if (provider === "openai") {
+    if (!baseUrl) baseUrl = "https://api.openai.com/v1";
+    if (!model) model = "gpt-4o-mini";
+  }
+  return { provider, key, baseUrl, model };
 }
 function aiEnabled() {
   try { return localStorage.getItem("ossm-ai-enabled") !== "0"; } catch (e) { return true; }
@@ -5505,11 +5521,15 @@ function aiMemoryEnabled() {
 function aiIsDeepSeek() {
   return aiProviderSettings().provider === "deepseek";
 }
+function aiIsKeyedProvider() {
+  const p = aiProviderSettings().provider;
+  return p === "deepseek" || p === "openai";
+}
 function aiCanRunActive() {
-  return aiCanRun() && aiIsDeepSeek();
+  return aiCanRun() && aiIsKeyedProvider();
 }
 function aiMemoryActive() {
-  return aiMemoryEnabled() && aiIsDeepSeek();
+  return aiMemoryEnabled() && aiIsKeyedProvider();
 }
 function aiMemory() {
   try { return (localStorage.getItem("ossm-ai-memory") || "").trim(); } catch (e) { return ""; }
@@ -5551,10 +5571,41 @@ async function aiCallDeepSeek(messages, key) {
   return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: lastErr };
 }
 
+async function aiCallOpenAI(messages) {
+  const s = aiProviderSettings();
+  const url = s.baseUrl.replace(/\/+$/, "") + "/chat/completions";
+  let lastErr = "OpenAI request failed";
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const body = { model: s.model, messages };
+      if (attempt === 0) body.response_format = { type: "json_object" }; // retry without it for local servers that reject it
+      const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + s.key }, body: JSON.stringify(body) });
+      const raw = await r.text();
+      if (r.ok) {
+        let content = raw;
+        try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
+        const parsed = aiExtractJson(content);
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, lang: parsed.lang, error: null };
+        lastErr = "the model replied but I couldn't parse it";
+      } else {
+        let msg = "";
+        try { msg = (JSON.parse(raw).error && JSON.parse(raw).error.message) || ""; } catch (e) {}
+        lastErr = "OpenAI-compatible HTTP " + r.status + (msg ? " — " + msg : "");
+      }
+    } catch (e) { lastErr = "could not reach the API (network/CORS)"; }
+    if (attempt === 0) await sleepMs(1000);
+  }
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: lastErr };
+}
+
 async function aiCall(messages) {
   const { provider, key } = aiProviderSettings();
   if (provider === "deepseek" && key) {
     return aiCallDeepSeek(messages, key);
+  }
+  if (provider === "openai") {
+    if (key) return aiCallOpenAI(messages);
+    return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: "No API key saved — add it under 🤖 AI assistant." };
   }
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
@@ -6403,6 +6454,11 @@ function aiProcessVoice(text) {
   const keyRow = $("aiKeyRow");
   const provLabel = $("aiProviderLabel");
   const extrasRow = $("aiExtrasRow");
+  const keyLabel = $("aiKeyLabel");
+  const keyHint = $("aiKeyHint");
+  const oaRow = $("aiOpenAiRow");
+  const baseInp = $("aiBaseUrl");
+  const modelInp = $("aiModel");
   const enabledBox = $("aiEnabled");
   if (enabledBox) {
     enabledBox.checked = aiEnabled();
@@ -6508,14 +6564,23 @@ function aiProcessVoice(text) {
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) aiLoadVoices(); });
   const syncAiSettingsUI = () => {
     const s = aiProviderSettings();
+    const isDs = s.provider === "deepseek";
+    const isOa = s.provider === "openai";
     if (prov) prov.value = s.provider;
     if (keyInp) keyInp.value = s.key;
-    if (keyRow) keyRow.style.display = (s.provider === "deepseek") ? "" : "none";
-    if (extrasRow) extrasRow.style.display = (s.provider === "deepseek") ? "" : "none";
-    if (provLabel) provLabel.textContent = (s.provider === "deepseek") ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : "Free";
+    if (keyRow) keyRow.style.display = (isDs || isOa) ? "" : "none";
+    if (keyLabel) keyLabel.textContent = isOa ? "OpenAI API key" : "DeepSeek API key";
+    if (keyHint) keyHint.textContent = isOa ? "Sent to your OpenAI-compatible endpoint with your key." : "Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.";
+    if (oaRow) oaRow.style.display = isOa ? "" : "none";
+    if (baseInp) baseInp.value = s.baseUrl;
+    if (modelInp) modelInp.value = s.model;
+    if (extrasRow) extrasRow.style.display = (isDs || isOa) ? "" : "none";
+    if (provLabel) provLabel.textContent = isDs ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : isOa ? (s.key ? "OpenAI ✓" : "OpenAI (add key)") : "Free";
   };
   if (prov) prov.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {} syncAiSettingsUI(); });
   if (keyInp) keyInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-key", keyInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
+  if (baseInp) baseInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-base-url", baseInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
+  if (modelInp) modelInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-model", modelInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
   syncAiSettingsUI();
 })();
 
