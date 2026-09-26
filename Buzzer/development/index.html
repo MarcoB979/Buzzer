@@ -493,7 +493,7 @@
     .phone-container:not(.hide-left.hide-right) .visualizer-area .meter-bar { height: auto; flex: 1 1 0; }
     #btnStart { padding: 10px; font-size: .9rem; }
     .wizard-box { max-height: calc(var(--app-vh) * 0.94); overflow-y: auto; }
-    .cpp-logger { display: none; }
+    .cpp-logger { max-height: 160px; }
 
     /* Focused mode (both sidebars hidden): graph fills width, Start beside it */
     .phone-container.hide-left.hide-right .col-center {
@@ -5909,16 +5909,7 @@ function aiPosWaitStd(timeoutMs = 5000) {
 }
 async function aiPosMoveTo(pos) {
   const p = Math.round(clamp(pos, 0, 100));
-  if (!connected || !stdCmd) { aiAddMsg("system", "The OSSM isn't connected — connect it first, then I can move it."); return; }
-  const idx = aiPosPointIndex();
-  if (idx < 0) { aiAddMsg("system", "This device doesn't have the 'Go to Point' pattern, so I can't position by feel."); return; }
-  if (appMode !== "std") {
-    aiPosReturnAp = (appMode === "ap");
-    setModeFromDropdown("std");
-  }
-  // The device switch is asynchronous — wait until it's actually in strokeEngine
-  // before sending the positioning commands, or they get dropped.
-  if (!(await aiPosWaitStd())) { aiAddMsg("system", "The OSSM didn't switch to Standard mode in time — try again."); return; }
+  if (!connected) { aiAddMsg("system", "The OSSM isn't connected — connect it first, then I can move it."); return; }
   // Even if the AI forgot to send "start", make sure the client knows we are positioning
   // so "stop"/"here" stay gentle and only the safe word is a full emergency stop.
   if (!aiPos.active) {
@@ -5926,8 +5917,24 @@ async function aiPosMoveTo(pos) {
     if (!aiPos.safeWord) aiPos.safeWord = aiPosSafeWord();
     aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
   }
-  // PointStroke: sensation = position between Min Pos and Max Pos.
-  // Fix Min=0, Max=100 so sensation equals the absolute rail position (0-100).
+  if (appMode === "ap" && apAvailable()) {
+    // Advanced Penetration: collapse the stroke range onto the target point so
+    // the rail moves there and holds. No mode switch — this is the companion/AP
+    // path that previously failed on the fragile std-mode handoff.
+    setBase(0, p);   // Max Pos
+    setBase(1, p);   // Min Pos
+    setSpeed(aiPos.speed);
+    aiPos.current = p;
+    aiPos.moving = true;
+    return;
+  }
+  // Standard mode: PointStroke pattern (sensation = position).
+  const idx = aiPosPointIndex();
+  if (idx < 0) { aiAddMsg("system", "This device doesn't have the 'Go to Point' pattern, so I can't position by feel."); return; }
+  if (appMode !== "std") setModeFromDropdown("std");
+  // The device switch is asynchronous — wait until it's actually in strokeEngine
+  // before sending the positioning commands, or they get dropped.
+  if (!(await aiPosWaitStd())) { aiAddMsg("system", "The OSSM didn't switch to Standard mode in time — try again."); return; }
   await stdWriteReliable("set:min:0");
   await stdWriteReliable("set:max:100");
   await stdWriteReliable("set:pattern:" + idx);
@@ -5945,6 +5952,23 @@ function aiPosStop() {
 function aiPosFinishReturn() {
   const caps = aiSafetyCaps();
   const mn = caps.minDepth, mx = caps.maxDepth;
+  if (appMode === "ap" && apAvailable()) {
+    if (!connected) { aiPosReset(); aiAddMsg("assistant", "Ready to play — your positions are saved."); return; }
+    aiPos.active = true; aiPos.phase = "return"; aiPos.current = mn; aiPos.moving = true;
+    setBase(0, mn); setBase(1, mn); setSpeed(aiPos.speed);   // go to Min and hold
+    const range = Math.max(0, mx - mn);
+    const delay = Math.min(15000, 1500 + range * 120);
+    if (aiPosSettleTimer) clearTimeout(aiPosSettleTimer);
+    aiPosSettleTimer = setTimeout(() => {
+      aiPosSettleTimer = null;
+      setBase(0, mx); setBase(1, mn); setSpeed(0);           // restore full range, stopped
+      buildInterface();
+      aiPosReset(); aiPosRestoreMode();
+      aiAddMsg("assistant", "We are ready to play — the rail is back at your starting position. What would you like?");
+      aiSpeak("We are ready to play. What would you like?");
+    }, delay);
+    return;
+  }
   const pointIdx = aiPosPointIndex();
   const simpleIdx = aiPosSimplePatternIndex();
   if (!connected || appMode !== "std" || pointIdx < 0) {
@@ -6039,8 +6063,8 @@ function aiPosApplyEnvelope(P, canRun) {
     return;
   }
   if (a === "start") {
-    aiPosReturnAp = (appMode === "ap");
-    if (aiPosReturnAp) setModeFromDropdown("std");
+    aiPosReturnAp = false;   // we move in-place per mode — no mode restore needed
+    if (appMode === "fun") setModeFromDropdown(apAvailable() ? "ap" : "std");
     aiPosReset(); aiPos.active = true;
     aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
   } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
@@ -6070,13 +6094,18 @@ function aiPosApplyEnvelope(P, canRun) {
     aiPosStop();
     if (mn <= mx) {
       aiApplyLimits({ minDepth: mn, maxDepth: mx, maxSpeed: sp });
-      stdValues.min = mn; stdValues.max = mx;
-      if (connected && stdCmd) {
-        stdWrite("set:min:" + mn);
-        stdWrite("set:max:" + mx);
+      if (appMode === "ap" && apAvailable()) {
+        setBase(0, mx);   // Max Pos
+        setBase(1, mn);   // Min Pos
+      } else {
+        stdValues.min = mn; stdValues.max = mx;
+        if (connected && stdCmd) {
+          stdWrite("set:min:" + mn);
+          stdWrite("set:max:" + mx);
+        }
+        saveStdValues();
       }
       stdLastSpeed = sp;
-      saveStdValues();
       buildInterface();
     }
     aiLimitsSetConfirmed();
