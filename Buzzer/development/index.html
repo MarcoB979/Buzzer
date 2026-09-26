@@ -602,22 +602,18 @@
   .companion-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .companion-title { font-size: 1rem; font-weight: bold; color: #fff; }
   .companion-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
-  .companion-avatar { position: relative; width: min(52vw, 280px); height: min(52vw, 280px); flex: 0 0 auto; }
-  .companion-avatar .comp-svg, .companion-avatar .companion-img { width: 100%; height: 100%; display: block; }
-  .companion-img { overflow: hidden; border-radius: 50%; }
-  .companion-img img { width: 100%; height: 100%; object-fit: cover; animation: compBreathe 4s ease-in-out infinite; }
+  .companion-avatar { position: relative; width: min(64vw, 300px); height: min(64vw, 300px); flex: 0 0 auto; }
+  .companion-avatar .companion-img { width: 100%; height: 100%; display: block; position: relative; }
+  .companion-img { overflow: hidden; border-radius: 50%; background: #0b1220; transition: transform .11s ease; transform-origin: 50% 42%; }
+  .companion-img.upload { border-radius: 22px; }
+  .companion-img img { width: 100%; height: 100%; object-fit: cover; display: block; animation: compBreathe 4s ease-in-out infinite; }
+  #companionAvatar.blinking .companion-img { transform: scaleY(.94); }
+  #companionAvatar.talking .companion-img img { animation: compImgTalk .3s ease-in-out infinite; }
   .companion-controls { display: flex; gap: 6px; }
   .companion-history { flex: 1 1 auto; min-height: 0; width: 100%; max-height: none; overflow-y: auto; }
   .companion-view .ai-row { width: 100%; }
-  .comp-eye-closed { opacity: 0; }
-  #companionAvatar.blinking .comp-eye-open { opacity: 0; }
-  #companionAvatar.blinking .comp-eye-closed { opacity: 1; }
-  .comp-mouth-talk { opacity: 0; }
-  #companionAvatar.talking .comp-mouth-idle { opacity: 0; }
-  #companionAvatar.talking .comp-mouth-talk { opacity: 1; animation: compTalk .16s ease-in-out infinite alternate; }
-  .comp-gaze { transition: transform .25s ease; }
-  @keyframes compTalk { from { transform: scaleY(.35); } to { transform: scaleY(1.2); } }
-  @keyframes compBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+  @keyframes compBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015); } }
+  @keyframes compImgTalk { 0%, 100% { transform: translateY(0) scale(1); } 40% { transform: translateY(-2px) scale(1.012); } }
 </style>
 <script>
   // Keep --app-vh in sync with the real visible viewport so the layout never
@@ -4953,7 +4949,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
 - "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; {"action":"move","to":<0-100>}; {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to try connecting to the OSSM. Otherwise null.
-- "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","hairStyle":"short|long|spiky","eyes":"blue|green|brown|grey|violet|amber","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
+- "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -5903,13 +5899,13 @@ function aiApplyUi(ui) {
 
 // ---------- AI Companion face ----------
 const COMPANION_PRESETS = [
-  { name:"Kai", hair:"#f6d365", hairStyle:"short", eyes:"#3b82f6", skin:"#ffe0bd", blush:true },
-  { name:"Ren", hair:"#4b5563", hairStyle:"spiky", eyes:"#84cc16", skin:"#ffd9b3", blush:true },
-  { name:"Yuki", hair:"#e2e8f0", hairStyle:"long", eyes:"#a855f7", skin:"#fff0e0", blush:true },
-  { name:"Haru", hair:"#a16207", hairStyle:"short", eyes:"#10b981", skin:"#ffccaa", blush:false },
-  { name:"Sora", hair:"#38bdf8", hairStyle:"spiky", eyes:"#f59e0b", skin:"#ffd9b3", blush:true }
+  { name:"Noah", seed:"Noah",  hair:"#f6d365", skin:"#ffd9b3" },
+  { name:"Leo",  seed:"Leo",   hair:"#38bdf8", skin:"#ffd9b3" },
+  { name:"Felix",seed:"Felix", hair:"#4b5563", skin:"#ffe0bd" },
+  { name:"Kai",  seed:"Kai",   hair:"#f6d365", skin:"#ffe0bd" },
+  { name:"Luca", seed:"Luca",  hair:"#a16207", skin:"#f3c39c" }
 ];
-let companionState = { preset:0, custom:null, customImage:null, shown:false };
+let companionState = { preset:0, custom:null, customImage:null, shown:false, source:"generated" };
 let companionBlinkTimer = null;
 try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
 function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
@@ -5918,134 +5914,25 @@ function companionSyncEntry() {
   const b = $("aiFaceBtn");
   if (b) b.style.display = companionEnabled() ? "" : "none";
 }
-function companionFace() { return companionState.custom || COMPANION_PRESETS[((companionState.preset % COMPANION_PRESETS.length) + COMPANION_PRESETS.length) % COMPANION_PRESETS.length]; }
-function companionEye(cx, color) {
-  return '<g transform="translate(' + cx + ',112)">'
-    // soft eye shadow above the lid
-    + '<ellipse cx="0" cy="-15" rx="19" ry="4.5" fill="#f472b6" opacity=".14"/>'
-    // eyelid crease
-    + '<path d="M-22 -14 Q 0 -23 22 -14" stroke="#00000026" stroke-width="1.5" fill="none" stroke-linecap="round"/>'
-    + '<g class="comp-eye-open">'
-    // sclera
-    +   '<path d="M-21 0 Q -5 -18 21 -2 Q 22 6 10 11 L -12 11 Q -22 6 -21 0 Z" fill="#ffffff" stroke="#111827" stroke-width="1.8" stroke-linejoin="round"/>'
-    // iris + pupil + highlights
-    +   '<g class="comp-gaze">'
-    +     '<ellipse cx="0" cy="2.5" rx="10.5" ry="13" fill="url(#compIris)"/>'
-    +     '<ellipse cx="0" cy="2.5" rx="10.5" ry="13" fill="none" stroke="#00000055" stroke-width="1"/>'
-    +     '<ellipse cx="0" cy="2.5" rx="4.6" ry="6.6" fill="#0b1220"/>'
-    +     '<circle cx="-3.8" cy="-2.6" r="3.6" fill="#ffffff" opacity=".95"/>'
-    +     '<circle cx="3" cy="6.8" r="1.7" fill="#ffffff" opacity=".85"/>'
-    +   '</g>'
-    // thick upper lash with an outer flick
-    +   '<path d="M-22 0 Q -5 -18 21 -2 L 21.6 0.6 Q 2 -9 -21 1.6 Z" fill="#111827"/>'
-    +   '<path d="M-15.5 8.4 Q -13 12.6 -8.5 13.4" stroke="#111827" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".9"/>'
-    +   '<path d="M-11 11.2 Q -7.5 14.6 -2.5 14.9" stroke="#111827" stroke-width="1.4" fill="none" stroke-linecap="round" opacity=".7"/>'
-    // lower lid
-    +   '<path d="M-13 10.5 Q 0 14.5 14 10.5" stroke="#111827" stroke-width="1.2" fill="none" stroke-linecap="round" opacity=".45"/>'
-    + '</g>'
-    + '<g class="comp-eye-closed"><path d="M-20 1 Q 0 9 20 1" stroke="#111827" stroke-width="2.6" fill="none" stroke-linecap="round"/></g>'
-    + '</g>';
-}
-function companionBrows(hair) {
-  return '<path d="M56 100 Q 74 94 90 100" stroke="' + hair + '" stroke-width="3.2" fill="none" stroke-linecap="round"/>'
-    + '<path d="M130 100 Q 146 94 164 100" stroke="' + hair + '" stroke-width="3.2" fill="none" stroke-linecap="round"/>';
-}
-function companionHairBack(f) {
-  const c = f.hair;
-  const style = f.hairStyle || "spiky";
-  const spikeTop = 'M52 100 Q 42 62 68 46 L 80 28 L 90 50 L 100 24 L 110 48 L 120 22 L 130 50 L 142 30 L 152 50 Q 178 64 172 102 L 170 132 L 168 160 L 110 170 L 52 160 L 50 132 Z';
-  if (style === "short") {
-    return '<path d="M56 98 Q 48 64 72 50 L 82 34 L 92 54 L 102 28 L 112 52 L 122 26 L 132 54 L 144 36 L 152 54 Q 174 66 170 100 L 168 118 L 166 138 L 110 148 L 54 138 L 52 118 Z" fill="' + c + '"/>'
-      + '<path d="M54 118 L 52 138 L 110 148 L 166 138 L 168 118 Z" fill="#0000001a"/>';
-  }
-  if (style === "long") {
-    return '<path d="' + spikeTop + '" fill="' + c + '"/>'
-      + '<path d="M52 132 L 50 160 L 110 170 L 168 160 L 170 132 Z" fill="#0000001f"/>'
-      + '<path d="M54 150 L 60 190 L 64 220 L 110 232 L 156 220 L 160 190 L 166 150 Z" fill="' + c + '"/>';
-  }
-  return '<path d="' + spikeTop + '" fill="' + c + '"/>'
-    + '<path d="M52 132 L 50 160 L 110 170 L 168 160 L 170 132 Z" fill="#0000001f"/>';
-}
-function companionHairFront(f) {
-  const c = f.hair;
-  const style = f.hairStyle || "spiky";
-  let sides = '';
-  if (style === "long") {
-    sides = '<path d="M50 98 Q 38 116 38 142 Q 38 168 44 194 L 58 190 Q 52 168 52 144 Q 52 116 60 98 Z" fill="' + c + '"/>'
-      + '<path d="M170 98 Q 182 116 182 142 Q 182 168 176 194 L 162 190 Q 168 168 168 144 Q 168 116 160 98 Z" fill="' + c + '"/>';
-  } else if (style === "short") {
-    sides = '<path d="M50 98 Q 42 110 44 126 L 56 124 Q 54 110 60 98 Z" fill="' + c + '"/>'
-      + '<path d="M170 98 Q 178 110 176 126 L 164 124 Q 166 110 160 98 Z" fill="' + c + '"/>';
-  } else {
-    sides = '<path d="M50 98 Q 40 116 40 140 Q 40 158 46 170 L 58 166 Q 52 152 52 138 Q 52 114 60 98 Z" fill="' + c + '"/>'
-      + '<path d="M170 98 Q 180 116 180 140 Q 180 158 174 170 L 162 166 Q 168 152 168 138 Q 168 114 160 98 Z" fill="' + c + '"/>';
-  }
-  const bangs = '<path d="M46 100 Q 42 52 110 44 Q 178 52 174 100 L 165 74 L 153 96 L 141 68 L 129 94 L 117 62 L 105 92 L 93 60 L 81 92 L 69 64 L 57 90 Z" fill="' + c + '"/>';
-  const shine = '<path d="M64 54 Q 86 46 112 52 Q 86 58 64 54 Z" fill="#ffffff" opacity=".28"/>'
-    + '<path d="M120 54 Q 140 48 162 54 Q 140 60 120 54 Z" fill="#ffffff" opacity=".2"/>';
-  return sides + bangs + shine;
+function companionGen() {
+  const p = COMPANION_PRESETS[((companionState.preset % COMPANION_PRESETS.length) + COMPANION_PRESETS.length) % COMPANION_PRESETS.length];
+  return Object.assign({}, p, companionState.custom || {});
 }
 function companionRender() {
   const box = $("companionAvatar");
   if (!box) return;
-  if (companionState.customImage) {
-    box.innerHTML = '<div class="companion-img"><img src="' + companionState.customImage + '" alt="Companion"></div>';
+  if (companionState.source === "upload" && companionState.customImage) {
+    box.innerHTML = '<div class="companion-img upload"><img src="' + companionState.customImage + '" alt="Companion"></div>';
     return;
   }
-  const f = companionFace();
-  const blush = f.blush ? '<ellipse cx="66" cy="130" rx="15" ry="9" fill="url(#compBlush)"/><ellipse cx="154" cy="130" rx="15" ry="9" fill="url(#compBlush)"/>' : '';
-  const shirt = f.shirt || "#1f2937";
-  box.innerHTML = '<svg class="comp-svg" viewBox="0 0 220 240" xmlns="http://www.w3.org/2000/svg">'
-    + '<defs>'
-    +   '<radialGradient id="compIris" cx="50%" cy="28%" r="72%">'
-    +     '<stop offset="0%" stop-color="#ffffff" stop-opacity=".6"/>'
-    +     '<stop offset="32%" stop-color="' + f.eyes + '"/>'
-    +     '<stop offset="100%" stop-color="' + f.eyes + '"/>'
-    +   '</radialGradient>'
-    +   '<radialGradient id="compSkin" cx="50%" cy="36%" r="80%">'
-    +     '<stop offset="0%" stop-color="#ffffff" stop-opacity=".22"/>'
-    +     '<stop offset="70%" stop-color="#ffffff" stop-opacity="0"/>'
-    +     '<stop offset="100%" stop-color="#000000" stop-opacity=".12"/>'
-    +   '</radialGradient>'
-    +   '<radialGradient id="compBlush" cx="50%" cy="50%" r="50%">'
-    +     '<stop offset="0%" stop-color="#fb7185" stop-opacity=".55"/>'
-    +     '<stop offset="100%" stop-color="#fb7185" stop-opacity="0"/>'
-    +   '</radialGradient>'
-    + '</defs>'
-    // back hair (farthest layer)
-    + companionHairBack(f)
-    // neck
-    + '<path d="M92 156 L 128 156 L 134 208 L 86 208 Z" fill="' + f.skin + '"/>'
-    // shirt / shoulders
-    + '<path d="M44 232 Q 62 198 110 198 Q 158 198 176 232 Z" fill="' + shirt + '"/>'
-    + '<path d="M96 198 L 124 198 L 119 214 L 101 214 Z" fill="#0f172a"/>'
-    // ears
-    + '<ellipse cx="40" cy="112" rx="7" ry="11" fill="' + f.skin + '"/>'
-    + '<path d="M40 106 Q 43 112 40 118" stroke="#00000022" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
-    + '<ellipse cx="180" cy="112" rx="7" ry="11" fill="' + f.skin + '"/>'
-    + '<path d="M180 106 Q 177 112 180 118" stroke="#00000022" stroke-width="1.4" fill="none" stroke-linecap="round"/>'
-    // face
-    + '<path d="M48 98 Q 46 62 110 52 Q 174 62 172 98 Q 174 126 164 144 Q 152 170 110 172 Q 68 170 56 144 Q 46 126 48 98 Z" fill="' + f.skin + '"/>'
-    + '<path d="M48 98 Q 46 62 110 52 Q 174 62 172 98 Q 174 126 164 144 Q 152 170 110 172 Q 68 170 56 144 Q 46 126 48 98 Z" fill="url(#compSkin)"/>'
-    // chin shadow
-    + '<path d="M92 156 L 128 156 L 131 170 L 89 170 Z" fill="#00000014"/>'
-    + blush
-    // front hair (side locks + bangs over face)
-    + companionHairFront(f)
-    // eyebrows
-    + companionBrows(f.hair)
-    // eyes
-    + companionEye(78, f.eyes) + companionEye(142, f.eyes)
-    // nose
-    + '<path d="M110 122 L 110 129" stroke="#0000001f" stroke-width="1.6" stroke-linecap="round"/>'
-    + '<path d="M109 128 Q 110 131 111 128" stroke="#0000002e" stroke-width="1.2" fill="none" stroke-linecap="round"/>'
-    // mouth
-    + '<g class="comp-mouth-idle">'
-    +   '<path d="M98 152 Q 110 160 122 152" stroke="#8c2f2f" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
-    +   '<path d="M104 157 Q 110 160 116 157" stroke="#8c2f2f" stroke-width="1.2" fill="none" stroke-linecap="round" opacity=".5"/>'
-    + '</g>'
-    + '<g class="comp-mouth-talk"><ellipse cx="110" cy="155" rx="10" ry="5" fill="#8c2f2f"/></g>'
-    + '</svg>';
+  const g = companionGen();
+  const hair = String(g.hair || "#f6d365").replace("#", "");
+  const skin = String(g.skin || "#ffd9b3").replace("#", "");
+  const url = "https://api.dicebear.com/9.x/lorelei/svg?seed=" + encodeURIComponent(g.seed || "Kai")
+    + "&hairColor=" + encodeURIComponent(hair)
+    + "&skinColor=" + encodeURIComponent(skin)
+    + "&glassesProbability=0&hairAccessoriesProbability=0";
+  box.innerHTML = '<div class="companion-img generated"><img src="' + url + '" alt="Companion"></div>';
 }
 function companionScheduleBlink() {
   clearTimeout(companionBlinkTimer);
@@ -6080,33 +5967,32 @@ function companionClose() {
 function companionPreset(delta) {
   companionState.custom = null;
   companionState.customImage = null;
+  companionState.source = "generated";
   companionState.preset = (companionState.preset + delta + COMPANION_PRESETS.length) % COMPANION_PRESETS.length;
   companionRender(); companionSave();
 }
 function companionUpload(file) {
   if (!file) return;
   const rd = new FileReader();
-  rd.onload = () => { companionState.customImage = String(rd.result); companionState.custom = null; companionRender(); companionSave(); };
+  rd.onload = () => { companionState.customImage = String(rd.result); companionState.custom = null; companionState.source = "upload"; companionRender(); companionSave(); };
   rd.readAsDataURL(file);
 }
 function companionApplyFace(f) {
   if (!f || typeof f !== "object") return;
   const hairMap = { blonde:"#f6d365", blond:"#f6d365", brown:"#8b5a2b", black:"#1f2937", dark:"#1f2937", white:"#e2e8f0", silver:"#cbd5e1", blue:"#38bdf8", red:"#ef4444", pink:"#f9a8d4", ginger:"#f59e0b", orange:"#f59e0b" };
-  const eyeMap = { blue:"#3b82f6", green:"#10b981", brown:"#8b5a2b", grey:"#9ca3af", gray:"#9ca3af", violet:"#8b5cf6", purple:"#a855f7", amber:"#f59e0b", hazel:"#b45309", pink:"#ec4899" };
-  const skinMap = { fair:"#ffe0bd", light:"#ffd9b3", tan:"#eab68f", deep:"#c68a5b", dark:"#a9714b" };
-  const base = Object.assign({}, companionFace());
+  const skinMap = { fair:"#ffdfc4", light:"#ffd9b3", tan:"#eab68f", deep:"#c68a5b", dark:"#a9714b" };
+  const base = Object.assign({}, companionGen());
   if (typeof f.hair === "string" && hairMap[String(f.hair).toLowerCase().trim()]) base.hair = hairMap[String(f.hair).toLowerCase().trim()];
-  if (typeof f.eyes === "string" && eyeMap[String(f.eyes).toLowerCase().trim()]) base.eyes = eyeMap[String(f.eyes).toLowerCase().trim()];
-  if (typeof f.hairStyle === "string" && /long|short|spiky/.test(String(f.hairStyle).toLowerCase())) base.hairStyle = String(f.hairStyle).toLowerCase().match(/long|short|spiky/)[0];
   if (typeof f.skin === "string" && skinMap[String(f.skin).toLowerCase().trim()]) base.skin = skinMap[String(f.skin).toLowerCase().trim()];
   companionState.custom = base;
   companionState.customImage = null;
+  companionState.source = "generated";
   companionState.shown = true;
   companionRender(); companionSave();
 }
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "face" changes how you look when they describe it (hair, hairStyle, eyes, skin). Only use those fields when relevant — most of the time, just be yourself and talk.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "face" changes how you look when they describe it (hair color and skin tone). Only use those fields when relevant — most of the time, just be yourself and talk.`;
 
 let compMessages = [];
 let compBusy = false;
