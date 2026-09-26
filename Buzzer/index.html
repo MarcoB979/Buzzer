@@ -409,6 +409,7 @@
   .mon-line.rx { color: #34d399; }
   .mon-line.err { color: #f87171; }
   .mon-line.warn { color: #fbbf24; }
+  .mon-line.ai { color: #f0abfc; }
   .mon-x { color: #64748b; font-size: .65rem; }
   @media (max-width: 480px) {
     body { padding: 0; }
@@ -789,6 +790,12 @@
             <button class="ble-btn small" id="compSpeak" type="button" title="Toggle spoken replies">🔊</button>
             <button class="ble-btn small" id="compSend" type="button">Go</button>
           </div>
+          <details class="pad-debug" id="compMonitorPanel">
+            <summary>🖥 Live Dashboard Monitor</summary>
+            <div class="cpp-logger" style="margin-top:8px; max-width:none;">
+              <div id="compLog" style="margin-top:0;">—</div>
+            </div>
+          </details>
         </div>
       </div>
     </div>
@@ -1181,13 +1188,21 @@ let monitorRenderQueued = false;
 const escapeHtml = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function renderMonitor() {
   monitorRenderQueued = false;
-  const el = $("log");
-  if (!el) return;
-  el.innerHTML = monitorLines.map(l =>
+  const html = monitorLines.map(l =>
     `<div class="mon-line${l.cls ? " " + l.cls : ""}">${escapeHtml(l.text)}${l.n > 1 ? ` <span class="mon-x">×${l.n}</span>` : ""}</div>`
   ).join("");
-  const logger = el.parentElement;
-  if (logger) logger.scrollTop = logger.scrollHeight;
+  const el = $("log");
+  if (el) {
+    el.innerHTML = html;
+    const logger = el.parentElement;
+    if (logger) logger.scrollTop = logger.scrollHeight;
+  }
+  const cel = $("compLog");
+  if (cel) {
+    cel.innerHTML = html;
+    const clogger = cel.parentElement;
+    if (clogger) clogger.scrollTop = clogger.scrollHeight;
+  }
 }
 function monitor(msg, cls) {
   const text = String(msg == null ? "" : msg);
@@ -1234,10 +1249,7 @@ function stdCmdLabel(cmd) {
   const c = String(cmd || "").split(",")[0].trim();
   if (!c) return "";
   if (c.indexOf("stream:") === 0) return "stream";
-  if (c.indexOf("set:") === 0) {
-    const parts = c.split(":");
-    return parts.length >= 2 ? parts.slice(0, 2).join(":") : c;
-  }
+  if (c.indexOf("set:") === 0) return c;   // show the full command including its value
   return c;
 }
 function advancedCmdLabel(s) {
@@ -5900,6 +5912,7 @@ function aiPosRestoreMode() {
     const sp = getSetting(SPEED_KEY);
     sp.value = 0;
     settings[SPEED_KEY] = sp;
+    modeWatchPausedUntil = Date.now() + 5000; // let the firmware settle back into AP
     writeControlReliable(speedIndex() + ":0,").catch(() => {});
   }
 }
@@ -5909,6 +5922,7 @@ function aiPosEnterStd() {
   if (!connected || !stdCmd) return Promise.resolve(false);
   if ((stdStateName || "").indexOf("strokeEngine") === 0) return Promise.resolve(true);
   stdStateName = "";
+  modeWatchPausedUntil = Date.now() + 15000; // keep the mode watchdog out during the switch
   requestMode("go:strokeEngine");
   return aiPosWaitStd();
 }
@@ -6063,6 +6077,7 @@ function aiPosApplyEnvelope(P, canRun) {
   if (Array.isArray(P)) { for (const p of P) aiPosApplyEnvelope(p, canRun); return; }
   if (typeof P !== "object") return;
   const a = typeof P.action === "string" ? P.action : "";
+  monitor("AI pos: " + JSON.stringify(P), "ai");
   if ((a === "start" || a === "move" || a === "ready") && !connected) {
     aiAddMsg("system", "I can't move the OSSM — it isn't connected yet. Connect it and tell me to go again.");
     if (aiSpeakEnabled()) aiSpeak("Connect the OSSM first, then I'll move it.");
@@ -9277,6 +9292,10 @@ let modeWatchLastForceAt = 0;
 setInterval(() => {
   if (!connected || !stdCmd || demoMode || modeSwitchTimer) { modeWatchMismatchSince = 0; return; }
   if (Date.now() < modeWatchPausedUntil) return;
+  // Position setup runs the FIRMWARE in the stroke engine in the background while
+  // the screen stays on Advanced/Companion — that is intentional, so never force
+  // the device back to its screen mode while positioning is active.
+  if (aiPos.active || aiPos.moving) { modeWatchMismatchSince = 0; return; }
   if (machineModeMatches()) { modeWatchMismatchSince = 0; return; }
   if (machineMoving()) { modeWatchMismatchSince = 0; return; }
   const nowMs = Date.now();
