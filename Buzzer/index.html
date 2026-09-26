@@ -5551,6 +5551,13 @@ function aiPosMoveTo(pos) {
   if (!connected || appMode !== "std") return;
   const idx = aiPosPointIndex();
   if (idx < 0) return;
+  // Even if the AI forgot to send "start", make sure the client knows we are positioning
+  // so "stop"/"here" stay gentle and only the safe word is a full emergency stop.
+  if (!aiPos.active) {
+    aiPos.active = true;
+    if (!aiPos.safeWord) aiPos.safeWord = aiPosSafeWord();
+    aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
+  }
   // PointStroke: sensation = position between Min Pos and Max Pos.
   // Fix Min=0, Max=100 so sensation equals the absolute rail position (0-100).
   stdWrite("set:min:0");
@@ -5582,7 +5589,8 @@ function aiPosHandleInput(text, inp) {
   const tl = t.toLowerCase();
   const norm = tl.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
   // 1) safe word → full emergency stop
-  if (aiPos.safeWord && norm === aiPos.safeWord) {
+  const sw = aiPos.safeWord || aiPosSafeWord();
+  if (sw && norm === sw) {
     if (inp) inp.value = "";
     aiAddMsg("user", escapeHtml(text));
     aiPosReset();
@@ -5665,7 +5673,7 @@ async function aiSend(opts) {
   const inp = $("aiInput");
   const text = (inp ? inp.value : "").trim();
   if (!text || aiBusy) return;
-  if (aiPos.active && aiPosHandleInput(text, inp)) return;
+  if ((aiPos.active || aiPos.moving) && aiPosHandleInput(text, inp)) return;
   if (!aiPos.active && aiSafeWordHit(text)) {
     if (inp) inp.value = "";
     aiAddMsg("user", escapeHtml(text));
