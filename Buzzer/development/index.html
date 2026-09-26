@@ -2839,8 +2839,8 @@ function getFavorites() {
     const a = JSON.parse(localStorage.getItem("ossm-fun-favorites") || "[]");
     if (!Array.isArray(a)) return [];
     return a.map(x => {
-      if (typeof x === "string") return { url: x.trim(), title: "" };
-      if (x && typeof x === "object" && typeof x.url === "string") return { url: x.url.trim(), title: (typeof x.title === "string" ? x.title : "") };
+      if (typeof x === "string") return { url: x.trim(), title: "", kind: "video" };
+      if (x && typeof x === "object" && typeof x.url === "string") return { url: x.url.trim(), title: (typeof x.title === "string" ? x.title : ""), kind: (x.kind === "fun" ? "fun" : "video") };
       return null;
     }).filter(Boolean).slice(0, 25);
   } catch (e) { return []; }
@@ -2850,6 +2850,9 @@ function saveFavorites(list) {
 }
 function isFavUrl(url) {
   return getFavorites().some(f => f.url === url);
+}
+function favDisplayTitle(f) {
+  return ((f && f.kind === "fun") ? "[F] " : "") + ((f && f.title) || (f && f.url) || "");
 }
 function makeFavoriteRows(onLoad) {
   const favs = getFavorites();
@@ -2871,7 +2874,7 @@ function makeFavoriteRows(onLoad) {
     link.type = "button";
     link.className = "fun-btn";
     link.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;background:#1e293b;color:#7dd3fc;";
-    link.textContent = fav.title || url;
+    link.textContent = favDisplayTitle(fav);
     link.title = "Load " + url;
     link.onclick = () => onLoad(url);
     const del = document.createElement("button");
@@ -3013,7 +3016,7 @@ function buildFunControls() {
       funLog("Removed from favorites.");
     } else {
       if (favs.length >= 25) { funLog("Favorites list is full (25 max)."); return; }
-      favs.unshift({ url: cur, title: funState.videoName || "" });
+      favs.unshift({ url: cur, title: funState.videoName || "", kind: "fun" });
       saveFavorites(favs);
       funLog("Added to favorites ⭐");
     }
@@ -3559,17 +3562,23 @@ function pageExtract(html) {
   if (m) return { url: m[0], type: /m3u8/i.test(m[0]) ? "hls" : "mp4" };
   return { error: "No direct video URL found." };
 }
+async function fetchTimeout(url, ms) {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), ms || 8000);
+  try { return await fetch(url, { signal: c.signal }); }
+  finally { clearTimeout(t); }
+}
 async function fallbackExtract(pageUrl) {
   const proxies = ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest=", "https://corsproxy.io/?url="];
   let html = "";
   // Try reading the page directly first (works when the site allows CORS).
   try {
-    html = await (await fetch(pageUrl)).text();
+    html = await (await fetchTimeout(pageUrl, 8000)).text();
   } catch (e) {}
   if (html && html.length > 5000) return pageExtract(html);
   for (const p of proxies) {
     try {
-      html = await (await fetch(p + encodeURIComponent(pageUrl))).text();
+      html = await (await fetchTimeout(p + encodeURIComponent(pageUrl), 8000)).text();
       if (html && html.length > 5000) break;
     } catch (e) {}
   }
@@ -5980,8 +5989,8 @@ function aiVideoContext() {
   const favs = getFavorites();
   const searchNote = "\n\nSEARCH: you can't browse the web yourself, but you can search the built-in Funscripthub directory by category. Set \"search\":{\"query\":\"<a short tag or keyword like twink, blonde, brat>\"} to pull up matches, and add \"play\":true to load the first match. Funscripthub usually works, but its entries often only provide a funscript (not a direct video) — if the video can't load, tell the user and ask for a direct video link instead (when they give a link, the app adds it to favorites and plays it automatically).";
   if (!favs.length) return "\n\nFAVORITE VIDEOS: none saved yet. If the user asks you to play porn or put something on, either ask them for a direct video link (the app will favorite and play it), or use \"search\" to find something." + searchNote;
-  const lines = favs.map((f, i) => (i + 1) + '. title: "' + (f.title || "untitled") + '", url: "' + f.url + '"').join("\n");
-  return "\n\nFAVORITE VIDEOS (play these when the user asks to \"play porn\", \"put something on\", \"surprise me\", etc.):\n" + lines
+  const lines = favs.map((f, i) => (i + 1) + '. title: "' + favDisplayTitle(f) + '", kind: "' + (f.kind === "fun" ? "funscript video (syncs with the machine)" : "plain video (just casts to TV)") + '", url: "' + f.url + '"').join("\n");
+  return "\n\nFAVORITE VIDEOS (play these when the user asks to \"play porn\", \"put something on\", \"surprise me\", etc.). A title starting with [F] is a funscript video that syncs with the machine; anything else is a plain video that just casts to TV.\n" + lines
     + "\nHOW TO PLAY: for a surprise pick one at random; if they want to choose, list a few titles and ask which (translate any English title into the language you're replying in — e.g. \"Ethan fucks a little brat deep and hard\" becomes \"Ethan neukt een kleine brat hard\" in Dutch). To play one, set \"video\":{\"url\":\"<that exact url>\"}. The user picks the cast device themselves — tell them to press Cast to TV and choose their device."
     + searchNote;
 }
@@ -5997,10 +6006,35 @@ function favTitleFromUrl(url) {
     return h;
   } catch (e) { return String(url || "").slice(0, 40); }
 }
-function aiHandleLink(url, onMsg) {
+async function resolveVideo(raw) {
+  const pageUrl = /^https?:\/\//i.test(raw) ? raw : ("https://www.pornhub.com/view_video.php?viewkey=" + encodeURIComponent(extractPhKey(raw)));
+  let data = null;
+  if (/^https?:\/\/[^\s]+\.(?:mp4|m3u8|webm|m4v|mov|mkv|mpg|mpeg|ogv)(?:[?#].*)?$/i.test(raw)) {
+    data = { url: raw, type: /\.m3u8(?:[?#]|$)/i.test(raw) ? "hls" : "mp4" };
+  } else {
+    const extractor = getExtractorUrl();
+    if (extractor) data = await callExtractor(extractor + "?url=" + encodeURIComponent(pageUrl));
+    if (!data || data.error) data = await fallbackExtract(pageUrl);
+  }
+  if (!data || data.error || !data.url) return null;
+  let name = "Stream";
+  try { name = new URL(pageUrl).hostname; } catch (e) {}
+  if (/pornhub/i.test(pageUrl)) name = "Pornhub " + extractPhKey(pageUrl);
+  return { pageUrl, data, videoUrl: absUrl(data.url), name };
+}
+async function aiHandleLink(url, onMsg) {
+  const direct = /^https?:\/\/[^\s]+\.(?:mp4|m3u8|webm|m4v|mov|mkv|mpg|mpeg|ogv)(?:[?#].*)?$/i.test(url);
+  if (!direct) {
+    if (onMsg) onMsg("system", "Checking that link…");
+    const r = await resolveVideo(url);
+    if (!r) {
+      if (onMsg) onMsg("system", "I couldn't scrape that link, so I won't add it — try a direct video URL instead.");
+      return;
+    }
+  }
   const favs = getFavorites();
   if (!isFavUrl(url)) {
-    favs.unshift({ url: url, title: favTitleFromUrl(url) });
+    favs.unshift({ url: url, title: favTitleFromUrl(url), kind: "video" });
     saveFavorites(favs);
     renderFavorites();
     renderWatchFavorites();
@@ -7189,7 +7223,7 @@ if (wfav) wfav.onclick = () => {
     log("Removed from favorites.");
   } else {
     if (favs.length >= 25) { log("Favorites list is full (25 max)."); return; }
-    favs.unshift({ url: cur, title: funState.videoName || "" });
+    favs.unshift({ url: cur, title: funState.videoName || "", kind: "video" });
     saveFavorites(favs);
     log("Added to favorites ⭐");
   }
