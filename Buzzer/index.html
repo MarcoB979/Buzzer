@@ -5649,6 +5649,7 @@ function aiLocalInterpret(text) {
 // ---------- AI-guided position setup (set Min/Max by feel) ----------
 const AI_POS_STEP = 10;   // max move per step
 let aiPosSettleTimer = null;
+let aiPosReturnAp = false; // position setup temporarily switched AP -> std; restore after
 let aiPos = {
   active: false,
   phase: "safeWord",      // safeWord | rehome | min | max | speed | return | done
@@ -5686,6 +5687,11 @@ function aiSetStopMode(m) {
 function aiPosReset() {
   if (aiPosSettleTimer) { clearTimeout(aiPosSettleTimer); aiPosSettleTimer = null; }
   aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null };
+}
+function aiPosRestoreMode() {
+  const back = aiPosReturnAp;
+  aiPosReturnAp = false;
+  if (back && apAvailable() && appMode === "std") setModeFromDropdown("ap");
 }
 function aiPosPointIndex() {
   const p = stdPatterns.find(x => /go to point|point stroke|point/i.test((x.name || "").toLowerCase()));
@@ -5758,6 +5764,7 @@ function aiPosFinishReturn() {
     saveStdValues();
     buildInterface();
     aiPosReset();
+    aiPosRestoreMode();
     aiAddMsg("assistant", "We are ready to play — the rail is back at your starting position. What would you like?");
     aiSpeak("We are ready to play. What would you like?");
   }, delay);
@@ -5802,6 +5809,7 @@ function aiPosHandleInput(text, inp) {
     if (inp) inp.value = "";
     aiAddMsg("user", escapeHtml(text));
     aiPosReset();
+    aiPosRestoreMode();
     aiAddMsg("assistant", "Setup cancelled.");
     return true;
   }
@@ -5814,6 +5822,8 @@ function aiPosApplyEnvelope(P, canRun) {
   const a = typeof P.action === "string" ? P.action : "";
   if (a === "start") {
     if (!canRun) return;
+    aiPosReturnAp = (appMode === "ap");
+    if (aiPosReturnAp) setModeFromDropdown("std");
     aiPosReset(); aiPos.active = true;
     aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
   } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
@@ -5856,6 +5866,7 @@ function aiPosApplyEnvelope(P, canRun) {
     }
     aiPosSetSpeed(aiPos.speed);   // remember positioning speed preference
     aiPosReset();
+    aiPosRestoreMode();
   }
 }
 
@@ -5960,6 +5971,9 @@ function companionOpen() {
   if (v) v.style.display = "";
   companionState.shown = true;
   compModeActive = true;
+  // The companion drives the machine through Advanced Penetration (full control
+  // over depth, in/out speed, accel and modifiers) whenever the device supports it.
+  if (apAvailable() && appMode !== "ap") setModeFromDropdown("ap");
   syncModeDropdown();
   companionRender();
   companionSave();
@@ -6002,7 +6016,7 @@ function companionApplyFace(f) {
 }
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant.
 
-You can ALSO control the machine when they ask — use this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context; "memory" stores what they voluntarily share about themselves (name, desires, likes); "face" changes how you look when they describe it (hair, hairStyle, eyes, skin). Only use those fields when relevant — most of the time, just be yourself and talk.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "face" changes how you look when they describe it (hair, hairStyle, eyes, skin). Only use those fields when relevant — most of the time, just be yourself and talk.`;
 
 let compMessages = [];
 let compBusy = false;
