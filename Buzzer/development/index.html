@@ -603,6 +603,8 @@
   .companion-title { font-size: 1rem; font-weight: bold; color: #fff; }
   .companion-head-actions { display: flex; gap: 6px; align-items: center; }
   .companion-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .comp-main { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
+  .comp-side { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; }
   .companion-avatar { position: relative; width: min(64vw, 300px); height: min(64vw, 300px); flex: 0 0 auto; }
   .companion-avatar .companion-img { width: 100%; height: 100%; display: block; position: relative; }
   .companion-img { overflow: hidden; border-radius: 50%; background: #0b1220; transition: transform .11s ease; transform-origin: 50% 42%; }
@@ -613,6 +615,22 @@
   .companion-controls { display: flex; gap: 6px; }
   .companion-history { flex: 1 1 auto; min-height: 0; width: 100%; max-height: none; overflow-y: auto; }
   .companion-view .ai-row { width: 100%; }
+  #compSpeak.muted { opacity: .55; }
+  .comp-sliders { display: none; width: 100%; flex-direction: column; gap: 4px; }
+  .comp-sliders .slider-group { margin: 0; }
+  /* split layout (landscape / tablet) */
+  .companion-view.split .companion-body {
+    display: grid;
+    grid-template-columns: minmax(150px, 220px) 1fr;
+    grid-template-rows: minmax(0, 1fr);
+    gap: 12px;
+    align-items: stretch;
+  }
+  .companion-view.split .comp-main { grid-column: 1; grid-row: 1; min-height: 0; overflow-y: auto; justify-content: flex-start; }
+  .companion-view.split .companion-avatar { width: min(100%, 170px); height: min(100%, 170px); }
+  .companion-view.split .comp-sliders { display: flex; }
+  .companion-view.split .comp-side { grid-column: 2; grid-row: 1; min-height: 0; }
+  @media (max-width: 699px) { #compLayout { display: none; } }
   @keyframes compBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015); } }
   @keyframes compImgTalk { 0%, 100% { transform: translateY(0) scale(1); } 40% { transform: translateY(-2px) scale(1.012); } }
 </style>
@@ -712,24 +730,31 @@
       <div class="companion-head">
         <span class="companion-title">💞 AI Companion</span>
         <div class="companion-head-actions">
+          <button class="ble-btn small" id="compLayout" type="button" title="Switch layout (split / focused)">▦</button>
           <button class="ble-btn small" id="compSetupBtn" type="button" title="Set up your companion — persona &amp; look">✨ Setup</button>
           <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
         </div>
       </div>
-      <div class="companion-body">
-        <div class="companion-avatar" id="companionAvatar"></div>
-        <div class="companion-controls">
-          <button class="ble-btn small" id="compPrev" type="button" title="Previous face">◀</button>
-          <button class="ble-btn small" id="compNext" type="button" title="Next face">▶</button>
-          <button class="ble-btn small" id="compUploadBtn" type="button" title="Use your own image">📁</button>
-          <input type="file" id="compUpload" accept="image/*" style="display:none;">
+      <div class="companion-body" id="companionBody">
+        <div class="comp-main">
+          <div class="companion-avatar" id="companionAvatar"></div>
+          <div class="companion-controls">
+            <button class="ble-btn small" id="compPrev" type="button" title="Previous face">◀</button>
+            <button class="ble-btn small" id="compNext" type="button" title="Next face">▶</button>
+            <button class="ble-btn small" id="compUploadBtn" type="button" title="Use your own image">📁</button>
+            <input type="file" id="compUpload" accept="image/*" style="display:none;">
+          </div>
+          <div class="comp-sliders" id="compSliders"></div>
         </div>
-        <div class="ai-history companion-history" id="compHistory"></div>
-        <div class="ai-row">
-          <input type="text" id="compInput" placeholder="Talk to me… share what you like">
-          <button class="ble-btn small" id="compMic" type="button" title="Speak once">🎤</button>
-          <button class="ble-btn small" id="compLive" type="button" title="Keep listening">🎧</button>
-          <button class="ble-btn small" id="compSend" type="button">Go</button>
+        <div class="comp-side">
+          <div class="ai-history companion-history" id="compHistory"></div>
+          <div class="ai-row">
+            <input type="text" id="compInput" placeholder="Talk to me… share what you like">
+            <button class="ble-btn small" id="compMic" type="button" title="Speak once">🎤</button>
+            <button class="ble-btn small" id="compLive" type="button" title="Keep listening">🎧</button>
+            <button class="ble-btn small" id="compSpeak" type="button" title="Toggle spoken replies">🔊</button>
+            <button class="ble-btn small" id="compSend" type="button">Go</button>
+          </div>
         </div>
       </div>
     </div>
@@ -6131,6 +6156,8 @@ function companionOpen() {
   if (apAvailable() && appMode !== "ap") setModeFromDropdown("ap");
   syncModeDropdown();
   companionRender();
+  companionApplyLayout();
+  buildCompSliders();
   if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) { compSetupGreeted = true; compStartSetup(); }
   companionSave();
 }
@@ -6142,6 +6169,50 @@ function companionClose() {
   syncModeDropdown();
   companionSave();
   compLiveStop();
+}
+function companionLayout() {
+  try { return localStorage.getItem("ossm-companion-layout") === "split" ? "split" : "focused"; } catch (e) { return "focused"; }
+}
+function companionApplyLayout() {
+  const view = $("companionView");
+  const wide = window.innerWidth >= 700;
+  const actual = (companionLayout() === "split" && wide) ? "split" : "focused";
+  if (view) view.classList.toggle("split", actual === "split");
+  const btn = $("compLayout");
+  if (btn) { btn.textContent = actual === "split" ? "▣" : "▦"; btn.title = actual === "split" ? "Switch to focused layout" : "Switch to split layout (landscape / tablet)"; }
+  return actual;
+}
+function compSpeakSync() {
+  const b = $("compSpeak");
+  if (!b) return;
+  const on = aiSpeakEnabled();
+  b.textContent = on ? "🔊" : "🔇";
+  b.title = on ? "Spoken replies on — tap to mute" : "Spoken replies off — tap to unmute";
+  b.classList.toggle("muted", !on);
+}
+function buildCompSliders() {
+  const wrap = $("compSliders");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (appMode === "std") {
+    const caps = aiSafetyCaps();
+    wrap.appendChild(sliderEl("Max Pos", 0, caps.maxDepth, Math.round(stdValues.max), "#ff0c00", (v) => { stdValues.max = clamp(v, 0, caps.maxDepth); stdWrite("set:max:" + stdValues.max); saveStdValues(); }));
+    wrap.appendChild(sliderEl("Min Pos", caps.minDepth, caps.maxDepth, Math.round(stdValues.min), "#ff8100", (v) => { stdValues.min = clamp(v, caps.minDepth, caps.maxDepth); stdWrite("set:min:" + stdValues.min); saveStdValues(); }));
+    wrap.appendChild(sliderEl("Speed", 0, caps.maxSpeed, Math.round(stdValues.speed), "#7dd3fc", (v) => { applySpeedInstant(clamp(v, 0, caps.maxSpeed)); }));
+    wrap.appendChild(sliderEl("Sensation", 0, 100, Math.round(stdValues.sensation), "#00ff00", (v) => { stdValues.sensation = clamp(v, 0, 100); stdWrite("set:sensation:" + stdValues.sensation); saveStdValues(); }));
+    return;
+  }
+  const defs = [
+    { i: 0, label: "Max Pos", color: BASE_COLORS[0] },
+    { i: 1, label: "Min Pos", color: BASE_COLORS[1] },
+    { i: 6, label: "Speed", color: "#7dd3fc" },
+    { i: 2, label: "In Speed", color: BASE_COLORS[2] },
+    { i: 3, label: "Out Speed", color: BASE_COLORS[3] }
+  ];
+  for (const d of defs) {
+    const r = baseRange(d.i);
+    wrap.appendChild(sliderEl(d.label, r.min, r.max, Math.round(settingValue(baseKey(d.i))), d.color, (v) => setBase(d.i, v)));
+  }
 }
 function companionPreset(delta) {
   companionState.custom = null;
@@ -6242,7 +6313,7 @@ async function compSend() {
     if (res.avatar) { companionApplyAvatar(res.avatar); compSetupDone(); }
     if (res.video) aiApplyVideo(res.video);
     if (res.search) aiApplySearch(res.search);
-    if (res.params) aiApplySet(res.params);
+    if (res.params) { aiApplySet(res.params); buildCompSliders(); }
     if (res.limits) aiApplyLimits(res.limits);
     if (res.run && aiCanRunActive()) {
       if (res.run === "start") aiStartMachine();
@@ -6309,6 +6380,17 @@ function compLiveStart() {
   const close = $("compClose"); if (close) close.onclick = companionClose;
   const setupBtn = $("compSetupBtn");
   if (setupBtn) setupBtn.onclick = () => { try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {} compSetupGreeted = false; compStartSetup(); };
+  const layoutBtn = $("compLayout");
+  if (layoutBtn) layoutBtn.onclick = () => {
+    const target = companionApplyLayout() === "split" ? "focused" : "split";
+    try { localStorage.setItem("ossm-companion-layout", target); } catch (e) {}
+    companionApplyLayout();
+    buildCompSliders();
+  };
+  compSpeakSync();
+  const spk = $("compSpeak");
+  if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
+  window.addEventListener("resize", () => { if (companionState.shown) companionApplyLayout(); });
   const prev = $("compPrev"); if (prev) prev.onclick = () => companionPreset(-1);
   const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
   const up = $("compUploadBtn"); const upi = $("compUpload");
@@ -6622,7 +6704,7 @@ function aiProcessVoice(text) {
   const speakBox = $("aiSpeakReplies");
   if (speakBox) {
     speakBox.checked = aiSpeakEnabled();
-    speakBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-speak", speakBox.checked ? "1" : "0"); } catch (e) {} });
+    speakBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-speak", speakBox.checked ? "1" : "0"); } catch (e) {} compSpeakSync(); });
   }
   const memBox = $("aiMemoryEnabled");
   const forgetRow = $("aiForgetRow");
