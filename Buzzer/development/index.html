@@ -807,6 +807,7 @@
       <summary><span class="summary-left">🤖 AI assistant<span class="summary-value" id="aiProviderLabel"></span></span></summary>
       <div class="ai-settings-body">
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiEnabled" checked> Enable AI assistant</label>
+        <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCompanionEnabled" checked> Enable AI companion</label>
         <div id="aiExtrasRow" style="display:none;">
           <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCanRun"> Allow AI to start / pause the machine</label>
           <div class="ai-memory-label-row">
@@ -5897,6 +5898,11 @@ let companionState = { preset:0, custom:null, customImage:null, shown:false };
 let companionBlinkTimer = null;
 try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
 function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
+function companionEnabled() { try { return localStorage.getItem("ossm-companion-enabled") !== "0"; } catch (e) { return true; } }
+function companionSyncEntry() {
+  const b = $("aiFaceBtn");
+  if (b) b.style.display = companionEnabled() ? "" : "none";
+}
 function companionFace() { return companionState.custom || COMPANION_PRESETS[((companionState.preset % COMPANION_PRESETS.length) + COMPANION_PRESETS.length) % COMPANION_PRESETS.length]; }
 function companionEye(cx, color) {
   return '<g transform="translate(' + cx + ',116)">'
@@ -6384,6 +6390,16 @@ function aiProcessVoice(text) {
       buildInterface();
     });
   }
+  const compBox = $("aiCompanionEnabled");
+  if (compBox) {
+    compBox.checked = companionEnabled();
+    compBox.addEventListener("change", () => {
+      try { localStorage.setItem("ossm-companion-enabled", compBox.checked ? "1" : "0"); } catch (e) {}
+      if (!compBox.checked) companionClose();
+      companionSyncEntry();
+    });
+  }
+  companionSyncEntry();
   const runBox = $("aiCanRun");
   if (runBox) {
     runBox.checked = aiCanRun();
