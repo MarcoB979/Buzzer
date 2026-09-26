@@ -601,6 +601,7 @@
   .companion-view { position: fixed; inset: 0; z-index: 90; background: #05050a; display: flex; flex-direction: column; padding: 12px; }
   .companion-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
   .companion-title { font-size: 1rem; font-weight: bold; color: #fff; }
+  .companion-head-actions { display: flex; gap: 6px; align-items: center; }
   .companion-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .companion-avatar { position: relative; width: min(64vw, 300px); height: min(64vw, 300px); flex: 0 0 auto; }
   .companion-avatar .companion-img { width: 100%; height: 100%; display: block; position: relative; }
@@ -710,7 +711,10 @@
     <div class="companion-view" id="companionView" style="display:none;">
       <div class="companion-head">
         <span class="companion-title">💞 AI Companion</span>
-        <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
+        <div class="companion-head-actions">
+          <button class="ble-btn small" id="compSetupBtn" type="button" title="Set up your companion — persona &amp; look">✨ Setup</button>
+          <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
+        </div>
       </div>
       <div class="companion-body">
         <div class="companion-avatar" id="companionAvatar"></div>
@@ -5027,10 +5031,12 @@ function aiExtractJson(text) {
   else if (j.ui && typeof j.ui === "object" && !Array.isArray(j.ui) && typeof j.ui.action === "string") ui = j.ui;
   let face = null;
   if (j.face && typeof j.face === "object" && !Array.isArray(j.face)) face = j.face;
-  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face) {
-    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, lang };
+  let avatar = null;
+  if (j.avatar && typeof j.avatar === "object" && !Array.isArray(j.avatar)) avatar = j.avatar;
+  if (typeof j.reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar) {
+    return { reply: (typeof j.reply === "string" ? j.reply.trim() : null), params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -5530,7 +5536,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -5542,7 +5548,7 @@ async function aiCallDeepSeek(messages, key) {
     }
     if (attempt === 0) await sleepMs(1000);
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, lang: null, error: lastErr };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: lastErr };
 }
 
 async function aiCall(messages) {
@@ -5557,12 +5563,12 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
   }
-  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
+  return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: "the AI service is busy or returned an unusable reply" };
 }
 
 // Offline fallback: deterministic keyword mapping so explicit/erotic phrasing always works,
@@ -5899,11 +5905,11 @@ function aiApplyUi(ui) {
 
 // ---------- AI Companion face ----------
 const COMPANION_PRESETS = [
-  { name:"Noah", seed:"Noah",  hair:"#f6d365", skin:"#ffd9b3" },
-  { name:"Leo",  seed:"Leo",   hair:"#38bdf8", skin:"#ffd9b3" },
-  { name:"Felix",seed:"Felix", hair:"#4b5563", skin:"#ffe0bd" },
-  { name:"Kai",  seed:"Kai",   hair:"#f6d365", skin:"#ffe0bd" },
-  { name:"Luca", seed:"Luca",  hair:"#a16207", skin:"#f3c39c" }
+  { name:"Noah", seed:"Noah",  style:"lorelei",   hair:"#f6d365", skin:"#ffd9b3" },
+  { name:"Leo",  seed:"Leo",   style:"lorelei",   hair:"#38bdf8", skin:"#ffd9b3" },
+  { name:"Felix",seed:"Felix", style:"lorelei",   hair:"#4b5563", skin:"#ffe0bd" },
+  { name:"Kai",  seed:"Kai",   style:"lorelei",   hair:"#f6d365", skin:"#ffe0bd" },
+  { name:"Luca", seed:"Luca",  style:"lorelei",   hair:"#a16207", skin:"#f3c39c" }
 ];
 let companionState = { preset:0, custom:null, customImage:null, shown:false, source:"generated" };
 let companionBlinkTimer = null;
@@ -5916,7 +5922,7 @@ function companionSyncEntry() {
 }
 function companionGen() {
   const p = COMPANION_PRESETS[((companionState.preset % COMPANION_PRESETS.length) + COMPANION_PRESETS.length) % COMPANION_PRESETS.length];
-  return Object.assign({}, p, companionState.custom || {});
+  return Object.assign({ style:"lorelei", seed:"Noah" }, p, companionState.custom || {});
 }
 function companionRender() {
   const box = $("companionAvatar");
@@ -5928,7 +5934,7 @@ function companionRender() {
   const g = companionGen();
   const hair = String(g.hair || "#f6d365").replace("#", "");
   const skin = String(g.skin || "#ffd9b3").replace("#", "");
-  const url = "https://api.dicebear.com/9.x/lorelei/svg?seed=" + encodeURIComponent(g.seed || "Kai")
+  const url = "https://api.dicebear.com/9.x/" + (g.style || "lorelei") + "/svg?seed=" + encodeURIComponent(g.seed || "Noah")
     + "&hairColor=" + encodeURIComponent(hair)
     + "&skinColor=" + encodeURIComponent(skin)
     + "&glassesProbability=0&hairAccessoriesProbability=0";
@@ -5943,6 +5949,12 @@ function companionBlink() {
   if (av) { av.classList.add("blinking"); setTimeout(() => av.classList.remove("blinking"), 120); }
   companionScheduleBlink();
 }
+function compSetupState() { try { return localStorage.getItem("ossm-companion-setup") === "1"; } catch (e) { return false; } }
+function compSetupDone() { try { localStorage.setItem("ossm-companion-setup", "1"); } catch (e) {} }
+function compStartSetup() {
+  compAddMsg("assistant", "Hey you 😊 — before we dive in, I'd love to know you a little. What should I call you, what kind of dynamic do you like, and what are you into? Then we'll make me look exactly how you want — hair, skin, style… you can even ask for animal ears.");
+  if (aiSpeakEnabled()) aiSpeak("Hey you. Let's set me up. What should I call you, and what are you into?");
+}
 function companionOpen() {
   const v = $("companionView");
   if (v) v.style.display = "";
@@ -5953,6 +5965,7 @@ function companionOpen() {
   if (apAvailable() && appMode !== "ap") setModeFromDropdown("ap");
   syncModeDropdown();
   companionRender();
+  if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) { compSetupGreeted = true; compStartSetup(); }
   companionSave();
 }
 function companionClose() {
@@ -5977,28 +5990,34 @@ function companionUpload(file) {
   rd.onload = () => { companionState.customImage = String(rd.result); companionState.custom = null; companionState.source = "upload"; companionRender(); companionSave(); };
   rd.readAsDataURL(file);
 }
-function companionApplyFace(f) {
-  if (!f || typeof f !== "object") return;
+function companionApplyAvatar(a) {
+  if (!a || typeof a !== "object") return;
   const hairMap = { blonde:"#f6d365", blond:"#f6d365", brown:"#8b5a2b", black:"#1f2937", dark:"#1f2937", white:"#e2e8f0", silver:"#cbd5e1", blue:"#38bdf8", red:"#ef4444", pink:"#f9a8d4", ginger:"#f59e0b", orange:"#f59e0b" };
   const skinMap = { fair:"#ffdfc4", light:"#ffd9b3", tan:"#eab68f", deep:"#c68a5b", dark:"#a9714b" };
+  const styleMap = { anime:"lorelei", manga:"lorelei", cartoon:"avataaars", toon:"avataaars", flat:"avataaars", fantasy:"adventurer", rpg:"adventurer", animal:"big-ears", furry:"big-ears", ears:"big-ears" };
+  const w = (v) => String(v || "").toLowerCase().trim();
   const base = Object.assign({}, companionGen());
-  if (typeof f.hair === "string" && hairMap[String(f.hair).toLowerCase().trim()]) base.hair = hairMap[String(f.hair).toLowerCase().trim()];
-  if (typeof f.skin === "string" && skinMap[String(f.skin).toLowerCase().trim()]) base.skin = skinMap[String(f.skin).toLowerCase().trim()];
+  if (typeof a.style === "string" && styleMap[w(a.style)]) base.style = styleMap[w(a.style)];
+  if (typeof a.seed === "string" && a.seed.trim()) base.seed = a.seed.trim().slice(0, 30);
+  if (typeof a.hair === "string") { if (hairMap[w(a.hair)]) base.hair = hairMap[w(a.hair)]; else if (/^#[0-9a-f]{6}$/i.test(a.hair.trim())) base.hair = a.hair.trim(); }
+  if (typeof a.skin === "string") { if (skinMap[w(a.skin)]) base.skin = skinMap[w(a.skin)]; else if (/^#[0-9a-f]{6}$/i.test(a.skin.trim())) base.skin = a.skin.trim(); }
   companionState.custom = base;
   companionState.customImage = null;
   companionState.source = "generated";
   companionState.shown = true;
   companionRender(); companionSave();
 }
+function companionApplyFace(f) { companionApplyAvatar(f); }
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "face" changes how you look when they describe it (hair color and skin tone). Only use those fields when relevant — most of the time, just be yourself and talk.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). "face" is a simpler hair/skin-only shorthand for the same thing. Only use those fields when relevant — most of the time, just be yourself and talk.`;
 
 let compMessages = [];
 let compBusy = false;
 let compListening = null;
 let compLive = false;
 let compLiveRec = null;
+let compSetupGreeted = false;
 
 function compAddMsg(role, html) {
   const h = $("compHistory");
@@ -6020,18 +6039,20 @@ async function compSend() {
   compAddMsg("user", escapeHtml(text));
   const th = compAddMsg("assistant", '<span class="ai-thinking">Thinking…</span>');
   try {
+    if (!compSetupState() && /\b(skip setup|skip this|no setup|not now|never ?mind the setup)\b/i.test(text)) compSetupDone();
     const cur = aiCurrentState();
     const memOn = aiMemoryActive();
     const mem = memOn ? aiMemory() : "";
     const memLine = memOn && mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const setupLine = compSetupState() ? "" : ("\n\nFIRST-TIME SETUP (this is their first time — they haven't configured you yet): warmly ask a couple of short questions at a time (never a questionnaire) about (1) what they'd like you to be called and your role/dynamic, (2) what they're into and interested in, and (3) how they want you to look — hair color, skin tone, and a style: anime, cartoon, fantasy, or animal (animal ears, the closest to furry). Once you have enough, propose a look, set it with \"avatar\" ({\"style\":...,\"seed\":...,\"hair\":...,\"skin\":...}), and save what they shared about themselves with \"memory\". After you set an avatar, drop the setup tone and just be yourself.");
     compMessages.push({ role: "user", content: text });
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine },
       ...compMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar) {
       if (res.raw) compMessages.push({ role: "assistant", content: res.raw });
     } else {
       compMessages.pop();
@@ -6043,6 +6064,7 @@ async function compSend() {
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && aiMemoryActive()) aiSetMemory(res.memory);
     if (res.face) companionApplyFace(res.face);
+    if (res.avatar) { companionApplyAvatar(res.avatar); compSetupDone(); }
     if (res.params) aiApplySet(res.params);
     if (res.limits) aiApplyLimits(res.limits);
     if (res.run && aiCanRunActive()) {
@@ -6108,6 +6130,8 @@ function compLiveStart() {
 (function wireCompanion() {
   const fb = $("aiFaceBtn"); if (fb) fb.onclick = companionOpen;
   const close = $("compClose"); if (close) close.onclick = companionClose;
+  const setupBtn = $("compSetupBtn");
+  if (setupBtn) setupBtn.onclick = () => { try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {} compSetupGreeted = false; compStartSetup(); };
   const prev = $("compPrev"); if (prev) prev.onclick = () => companionPreset(-1);
   const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
   const up = $("compUploadBtn"); const upi = $("compUpload");
