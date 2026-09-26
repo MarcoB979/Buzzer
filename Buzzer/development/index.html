@@ -6757,6 +6757,7 @@ const GP_ACTIONS = [
   { id:"colRight", group:"general", label:"Hide/show settings (▶)", mode:"both", help:"Landscape: toggles the right settings column." },
   { id:"estop", group:"general", label:"Emergency stop", mode:"both", help:"Immediately force-stops the OSSM and returns it to the menu." },
   { id:"aiVoice", group:"general", label:"AI listen (hands-free)", mode:"both", help:"Opens the AI panel and toggles continuous hands-free listening." },
+  { id:"aiMic", group:"general", label:"AI mic (speak once)", mode:"both", help:"Opens the AI panel and starts the microphone for one command." },
 
   // ---- Standard screen ----
   { id:"patternNext", group:"std", label:"Pattern next", mode:"std", repeat:true, help:"Standard mode: next stroke pattern." },
@@ -6810,6 +6811,7 @@ const DEFAULT_BINDINGS = {
   colRight:    null,
   estop:       { src:"pad", kind:"btn", idx:8 },
   aiVoice:     null,
+  aiMic:       null,
   patternNext: { src:"pad", kind:"btn", idx:15 },
   patternPrev: { src:"pad", kind:"btn", idx:14 },
   navNext:     { src:"pad", kind:"btn", idx:15 },
@@ -6857,6 +6859,7 @@ const DEFAULT_KB_BINDINGS = {
   colRight:      { src:"kb", kind:"btn", code:"KeyP", key:"p" },
   estop:         { src:"kb", kind:"btn", code:"Escape", key:"Esc" },
   aiVoice:       { src:"kb", kind:"btn", code:"Backquote", key:"`" },
+  aiMic:         null,
   patternNext:   { src:"kb", kind:"btn", code:"BracketRight", key:"]" },
   patternPrev:   { src:"kb", kind:"btn", code:"BracketLeft", key:"[" },
   navNext:       { src:"kb", kind:"btn", code:"Period", key:"." },
@@ -7309,6 +7312,7 @@ function gpHandleDigital(id) {
     case "colLeft": toggleColSide(1); break;
     case "colRight": toggleColSide(3); break;
     case "aiVoice": gpAiVoice(); break;
+    case "aiMic": gpAiMic(); break;
     case "fullscreen": toggleVideoFullscreen(); break;
     case "castToggle": toggleCast(); break;
     case "castPlayPause": castPlayPause(); break;
@@ -7333,9 +7337,7 @@ function gpHandleDigital(id) {
   }
 }
 
-function gpAiVoice() {
-  if (!aiEnabled()) return;
-  if (appMode !== "std" && appMode !== "ap") return;
+function gpAiOpenPanel() {
   const p = $("aiPanel");
   if (!p) return;
   if (p.style.display === "none") {
@@ -7344,7 +7346,18 @@ function gpAiVoice() {
     const i = $("aiInput"); if (i) { try { i.focus(); } catch (e) {} }
   }
   syncAiOpenClass();
+}
+function gpAiVoice() {
+  if (!aiEnabled()) return;
+  if (appMode !== "std" && appMode !== "ap") return;
+  gpAiOpenPanel();
   aiLiveToggle();
+}
+function gpAiMic() {
+  if (!aiEnabled()) return;
+  if (appMode !== "std" && appMode !== "ap") return;
+  gpAiOpenPanel();
+  aiVoice();
 }
 
 function bindingHeld(b, gp) {
