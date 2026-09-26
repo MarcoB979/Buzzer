@@ -625,8 +625,8 @@
   .photo-modal-body { font-size: .82rem; line-height: 1.45; color: #94a3b8; margin-bottom: 14px; }
   .photo-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .photo-modal-actions .ble-btn.danger { background: #7f1d1d; }
-  .photo-calib-stage { position: relative; width: 100%; max-height: 52vh; overflow: hidden; border-radius: 10px; margin-bottom: 10px; cursor: crosshair; background: #000; }
-  .photo-calib-stage img { width: 100%; display: block; }
+  .photo-calib-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 10px; overflow: hidden; border-radius: 10px; cursor: crosshair; background: #000; }
+  .photo-calib-stage img { display: block; max-width: 100%; max-height: 46vh; width: auto; height: auto; }
   .photo-calib-dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #38bdf8; border: 2px solid #fff; transform: translate(-50%,-50%); pointer-events: none; box-shadow: 0 0 6px rgba(0,0,0,.5); }
   .photo-calib-hint { font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
   #compConnect.on { background: #166534; }
@@ -5113,14 +5113,22 @@ function aiNormalizeParams(obj) {
 
 function aiExtractJson(text) {
   // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "pos": {...}, "lang": ".."} or a flat params object.
-  if (!text) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null };
-  const s = text.indexOf("{");
-  const e = text.lastIndexOf("}");
-  if (s < 0 || e <= s) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null };
+  // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, lang: null });
+  if (!text) return empty();
+  const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
-  try { j = JSON.parse(text.slice(s, e + 1).replace(/```/g, "")); } catch (err) {}
-  if (!j || typeof j !== "object" || Array.isArray(j)) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null };
-  if (typeof j.error === "string" && j.error) return { reply: null, params: null, limits: null, run: null, memory: null, pos: null, lang: null }; // rate-limit / error envelope
+  try { j = JSON.parse(t); } catch (err) {}
+  if (!j || typeof j !== "object" || Array.isArray(j)) {
+    const s = t.indexOf("{");
+    const e = t.lastIndexOf("}");
+    if (s >= 0 && e > s) { try { j = JSON.parse(t.slice(s, e + 1)); } catch (err) {} }
+  }
+  if (!j || typeof j !== "object" || Array.isArray(j)) {
+    const plain = t.replace(/\s+/g, " ").trim();
+    return plain ? Object.assign(empty(), { reply: plain }) : empty();
+  }
+  if (typeof j.error === "string" && j.error) return empty(); // rate-limit / error envelope
   const parseLimits = (L) => {
     if (!L || typeof L !== "object" || Array.isArray(L)) return null;
     const out = {};
@@ -6656,7 +6664,7 @@ function companionLiveComputeFace(img, pts) {
   const eyeDistN = Math.max(0.04, Math.hypot(re[0] - le[0], re[1] - le[1]));
   const eyeDistPx = eyeDistN * iw;
   // Square crop in PIXELS so the round avatar never stretches the photo.
-  const side = Math.max(16, Math.min(iw, ih, eyeDistPx * 2.7));
+  const side = Math.max(16, Math.min(iw, ih, eyeDistPx * 3.2));
   const cx = eyeMidX * iw;
   const cy = eyeMidY * ih;
   const x = Math.max(0, Math.min(iw - side, cx - side / 2));
@@ -6837,10 +6845,10 @@ function companionLiveFrame(now) {
   const speaking = !!(window.speechSynthesis && speechSynthesis.speaking);
 
   // --- mouth openness ---
-  let target = speaking ? 1 : 0;
-  if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "smile") target = Math.max(target, 0.3);
+  let target = speaking ? 0.8 : 0;
+  if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "smile") target = Math.max(target, 0.25);
   companionLive.mouth += (target - companionLive.mouth) * 0.35;
-  if (speaking) companionLive.mouth += Math.sin(t * 21) * 0.05;
+  if (speaking) companionLive.mouth += Math.sin(t * 21) * 0.02;
   companionLive.mouth = Math.max(0, Math.min(1, companionLive.mouth));
   const open = companionLive.mouth;
 
@@ -6886,8 +6894,8 @@ function companionLiveFrame(now) {
     const mcv = companionLive.mcv, mctx = companionLive.mcvCtx;
     if (mcv && mctx) {
       const mIx = f.m[0] * iw, mIy = f.m[1] * ih;
-      const mouthW = f.eyeDist * iw * s * 1.5;
-      const mouthH = f.eyeDist * iw * s * 0.5;
+      const mouthW = f.eyeDist * iw * s * 1.15;
+      const mouthH = f.eyeDist * iw * s * 0.34;
       const stripW = Math.min(w, mouthW * 2.2);
       const stripH = mouthH * 2.6;
       const W2 = Math.ceil(stripW), H2 = Math.ceil(stripH);
@@ -6896,7 +6904,7 @@ function companionLiveFrame(now) {
       const srcX = mIx - srcW / 2;
       const srcY = mIy - srcH * 0.40;
       const split = 0.40;
-      const drop = open * mouthH * 0.95;
+      const drop = open * mouthH * 0.55;
       mctx.clearRect(0, 0, W2, H2);
       mctx.drawImage(img, srcX, srcY, srcW, srcH * split, 0, 0, W2, H2 * split);
       // the opening between the lips
@@ -6928,21 +6936,21 @@ function companionLiveFrame(now) {
       const eix = e[0] * iw, eiy = e[1] * ih;
       let top, eyeHpx, eyeWpx;
       const box = companionLive.eyes && companionLive.eyes[i];
-      if (box) { top = box.top; eyeHpx = box.bottom - box.top; eyeWpx = eyeHpx * 2.0; }
+      if (box) { top = box.top; eyeHpx = Math.min(box.bottom - box.top, f.eyeDist * iw * 0.28); eyeWpx = eyeHpx * 2.4; }
       else { eyeHpx = f.eyeDist * iw * 0.20; top = eiy - eyeHpx * 0.5; eyeWpx = f.eyeDist * iw * 0.85; }
-      const lidSrcH = eyeHpx * 0.7;                 // pure skin strip just above the eye
-      const lidW = eyeWpx * 1.5;
+      const lidSrcH = eyeHpx * 0.5;                 // pure skin strip just above the eye
+      const lidW = eyeWpx * 1.25;
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
-      const coverH = (lidSrcH + eyeHpx * 1.15) * blink * s;  // reach past the eye bottom
+      const coverH = (lidSrcH + eyeHpx * 0.55) * blink * s;  // just cover the eye opening
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2), lidW * s, coverH);
       if (blink > 0.2) {
         ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
-        ctx.lineWidth = Math.max(1, eyeHpx * 0.12 * s);
+        ctx.lineWidth = Math.max(1, eyeHpx * 0.08 * s);
         const ly = ty(srcY2) + coverH;
         ctx.beginPath();
         ctx.moveTo(tx(eix) - eyeWpx * 0.7 * s, ly);
-        ctx.quadraticCurveTo(tx(eix), ly + eyeHpx * 0.28 * s, tx(eix) + eyeWpx * 0.7 * s, ly);
+        ctx.quadraticCurveTo(tx(eix), ly + eyeHpx * 0.12 * s, tx(eix) + eyeWpx * 0.7 * s, ly);
         ctx.stroke();
       }
     });
@@ -6998,7 +7006,7 @@ function companionLiveDrawFrown(ctx, img, f, iw, ih, s, tx, ty, amount) {
 
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words. You may put ONE invisible emotion tag at the very start of "reply" to set your face: [smile], [blush], [frown] or [thinking] — the app strips it out, so the user never sees or hears it.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move to their shallowest point while they say "stop", then to their deepest point while they say "stop" again, then gently back to the shallowest point (while moving you only listen, you don't talk). That is the "pos" flow. Or they can simply tell you the three numbers. Only use those fields when relevant — most of the time, just be yourself and talk.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move to their shallowest point while they say "stop", then to their deepest point while they say "stop" again, then gently back to the shallowest point (while moving you only listen, you don't talk). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
 
 let compMessages = [];
 let compBusy = false;
