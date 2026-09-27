@@ -949,26 +949,26 @@
     </details>
 
     <details class="online-videos" id="onlineVideos">
-      <summary>🌐 Online videos</summary>
+      <summary>🌐 Video library</summary>
       <div class="online-body">
         <div class="online-source">
           <button type="button" id="srcHubBtn" class="online-src-btn active">Funscripthub</button>
-          <button type="button" id="srcEroBtn" class="online-src-btn">EroScripts</button>
+          <button type="button" id="srcStashBtn" class="online-src-btn">Stash</button>
         </div>
         <div class="online-controls" id="hubControls">
           <input type="text" id="onlineTagFilter" placeholder="Filter tags…">
           <select id="onlineTagSelect"><option value="">All videos</option></select>
         </div>
-        <div class="online-controls" id="eroControls" style="display:none;">
+        <div class="online-controls" id="stashControls" style="display:none;">
           <div class="ero-search-row">
-            <input type="text" id="eroSearch" placeholder="Search funscripts… (scene, actress, JAV code)">
-            <button type="button" id="eroSearchBtn" class="ble-btn small">Search</button>
+            <input type="text" id="stashUrl" placeholder="Stash URL (e.g. http://192.168.1.10:9999)" autocomplete="off">
+            <input type="password" id="stashKey" placeholder="Stash API key (optional)" autocomplete="off">
           </div>
-          <div class="ero-creds">
-            <input type="text" id="eroUser" placeholder="EroScripts username" autocomplete="username">
-            <input type="password" id="eroKey" placeholder="EroScripts API key" autocomplete="off">
+          <div class="ero-search-row">
+            <input type="text" id="stashSearch" placeholder="Search scenes… (title, tag, performer)">
+            <button type="button" id="stashSearchBtn" class="ble-btn small">Search</button>
           </div>
-          <div class="ero-hint">Get an API key at EroScripts → your avatar → Settings → API keys. It lets the app download scripts as you.</div>
+          <div class="ero-hint">Point Buzzer at your self-hosted Stash (PC / NAS). Scenes marked interactive auto-load their funscript. Stored on this device only.</div>
         </div>
         <div class="online-results" id="onlineResults"></div>
         <div class="online-more" id="onlineMore" style="display:none;"><button class="ble-btn small" id="onlineMoreBtn" type="button">More…</button></div>
@@ -8022,7 +8022,7 @@ let onlineBusy = false;
 let onlineHasMore = true;
 let onlineStarted = false;
 let onlineSource = "hub";
-let eroPage = 1;
+let stashPage = 1;
 
 function jinaExtractJson(text) {
   let raw = text;
@@ -8124,150 +8124,18 @@ async function onlineLoadResults(reset) {
 
 function setOnlineSource(src) {
   onlineSource = src;
-  const hubBtn = $("srcHubBtn"), eroBtn = $("srcEroBtn");
-  const hubC = $("hubControls"), eroC = $("eroControls");
+  const hubBtn = $("srcHubBtn"), stashBtn = $("srcStashBtn");
+  const hubC = $("hubControls"), stashC = $("stashControls");
   if (hubBtn) hubBtn.classList.toggle("active", src === "hub");
-  if (eroBtn) eroBtn.classList.toggle("active", src === "ero");
+  if (stashBtn) stashBtn.classList.toggle("active", src === "stash");
   if (hubC) hubC.style.display = src === "hub" ? "" : "none";
-  if (eroC) eroC.style.display = src === "ero" ? "" : "none";
+  if (stashC) stashC.style.display = src === "stash" ? "" : "none";
   const box = $("onlineResults");
   if (box) box.innerHTML = "";
   const more = $("onlineMore");
   if (more) more.style.display = "none";
-  if (src === "hub") onlineLoadResults(true);
-  else eroLoadResults(true);
-}
-
-async function eroLoadResults(reset) {
-  const box = $("onlineResults");
-  const q = ($("eroSearch") ? $("eroSearch").value : "").trim();
-  if (!box) return;
-  if (!q) {
-    box.innerHTML = "";
-    const n = document.createElement("div");
-    n.className = "online-note"; n.textContent = "Type a search above (scene, actress, JAV code…).";
-    box.appendChild(n);
-    const more = $("onlineMore"); if (more) more.style.display = "none";
-    return;
-  }
-  if (onlineBusy) return;
-  if (reset) { eroPage = 1; box.innerHTML = ""; }
-  onlineBusy = true;
-  const note = document.createElement("div");
-  note.className = "online-note"; note.textContent = "Searching EroScripts…";
-  box.appendChild(note);
-  try {
-    const url = "https://discuss.eroscripts.com/search.json?q=" + encodeURIComponent(q) + "&page=" + eroPage;
-    const j = await jinaGetJson(url);
-    note.remove();
-    const topics = (j && j.topics) || [];
-    if (!topics.length) {
-      const e = document.createElement("div");
-      e.className = "online-note"; e.textContent = "No results for \"" + q + "\".";
-      box.appendChild(e);
-    } else {
-      for (const t of topics) box.appendChild(eroItemEl(t));
-      eroPage++;
-    }
-  } catch (e) {
-    note.remove();
-    const err = document.createElement("div");
-    err.className = "online-note"; err.textContent = "EroScripts search failed: " + ((e && e.message) || e);
-    box.appendChild(err);
-  }
-  onlineBusy = false;
-}
-
-function eroItemEl(t) {
-  const row = document.createElement("div");
-  row.className = "online-item";
-  const title = document.createElement("div");
-  title.className = "online-title"; title.textContent = t.title || t.fancy_title || "";
-  const bottom = document.createElement("div");
-  bottom.className = "online-bottom";
-  const meta = document.createElement("div");
-  meta.className = "online-meta";
-  meta.textContent = ((t.posts_count ? t.posts_count + " replies · " : "") + (t.last_poster_username || ""));
-  const get = document.createElement("button");
-  get.type = "button"; get.className = "online-load"; get.textContent = "Get script";
-  get.onclick = () => eroGetScript(t.id, get);
-  bottom.appendChild(meta); bottom.appendChild(get);
-  row.appendChild(title); row.appendChild(bottom);
-  return row;
-}
-
-function eroCreds() {
-  const user = ($("eroUser") ? $("eroUser").value : "").trim();
-  const key = ($("eroKey") ? $("eroKey").value : "").trim();
-  return { user, key };
-}
-
-async function eroCollectScriptUrls(topicId) {
-  const out = [];
-  const seen = new Set();
-  const collect = (posts) => {
-    for (const p of posts || []) {
-      const re = /href="([^"]+)"/gi;
-      let m;
-      while ((m = re.exec(p.cooked || ""))) {
-        let u = m[1].replace(/&amp;/g, "&");
-        if (/\.funscript(\?|#|$)/i.test(u)) {
-          if (u.startsWith("/")) u = "https://discuss.eroscripts.com" + u;
-          if (!seen.has(u)) { seen.add(u); out.push(u); }
-        }
-      }
-    }
-  };
-  try {
-    const first = await jinaGetJson("https://discuss.eroscripts.com/t/" + topicId + ".json");
-    const postsCount = first.posts_count || 0;
-    const chunk = first.chunk_size || 20;
-    collect(first.post_stream && first.post_stream.posts);
-    let offset = chunk;
-    const cap = Math.min(postsCount, 120);
-    while (!out.length && offset < cap) {
-      const j = await jinaGetJson("https://discuss.eroscripts.com/t/" + topicId + "/" + offset + ".json");
-      collect(j.post_stream && j.post_stream.posts);
-      offset += chunk;
-    }
-  } catch (e) {}
-  return out;
-}
-
-async function eroGetScript(topicId, btn) {
-  const creds = eroCreds();
-  if (!creds.user || !creds.key) {
-    funLog("Add your EroScripts username + API key above, then tap 'Get script' again.");
-    if (btn) btn.textContent = "Add login";
-    return;
-  }
-  if (btn) { btn.disabled = true; btn.textContent = "Fetching…"; }
-  funLog("Downloading the funscript with your EroScripts account…");
-  const done = (label) => { if (btn) { btn.textContent = label; btn.disabled = false; } };
-  try {
-    const urls = await eroCollectScriptUrls(topicId);
-    if (!urls.length) {
-      funLog("No .funscript attached in this topic — opening it so you can grab the file there.");
-      try { window.open("https://discuss.eroscripts.com/t/" + topicId, "_blank"); } catch (e) {}
-      done("No script");
-      return;
-    }
-    let ok = false;
-    for (const u of urls) {
-      const sep = u.indexOf("?") >= 0 ? "&" : "?";
-      const authed = u + sep + "api_key=" + encodeURIComponent(creds.key) + "&api_username=" + encodeURIComponent(creds.user);
-      if (await loadFunscriptUrl(authed)) { ok = true; break; }
-    }
-    done(ok ? "Loaded ✓" : "Failed");
-    if (ok) {
-      if (appMode !== "fun") funLog("Script loaded — switch to Funscript mode to play it.");
-    } else {
-      funLog("Couldn't fetch the script — check your API key, or open the topic and download it manually.");
-    }
-  } catch (e) {
-    funLog("EroScripts load failed: " + (e && e.message ? e.message : e));
-    done("Failed");
-  }
+  if (src === "stash") stashLoadResults(true);
+  else onlineLoadResults(true);
 }
 
 function onlineItemEl(it) {
@@ -8417,32 +8285,176 @@ async function loadFunscriptUrl(url) {
   }
 }
 
+// ================= Stash source (self-hosted) =================
+function stashRead() {
+  let url = "", key = "";
+  try { url = ($("stashUrl") ? $("stashUrl").value : "").trim(); } catch (e) {}
+  try { key = ($("stashKey") ? $("stashKey").value : "").trim(); } catch (e) {}
+  if (!url) { try { url = (localStorage.getItem("ossm-stash-url") || "").trim(); } catch (e) {} }
+  if (!key) { try { key = (localStorage.getItem("ossm-stash-key") || "").trim(); } catch (e) {} }
+  return { url, key };
+}
+function stashBase() {
+  const { url } = stashRead();
+  if (!url) return "";
+  return /^https?:\/\//i.test(url) ? url.replace(/\/+$/, "") : ("http://" + url.replace(/\/+$/, ""));
+}
+function stashAbs(u) {
+  if (!u) return "";
+  let out = /^https?:\/\//i.test(u) ? u : (stashBase() + (u.charAt(0) === "/" ? "" : "/") + u);
+  const { key } = stashRead();
+  if (key && out.indexOf("apikey=") < 0) out += (out.indexOf("?") >= 0 ? "&" : "?") + "apikey=" + encodeURIComponent(key);
+  return out;
+}
+async function stashGql(query, variables) {
+  const { key } = stashRead();
+  const base = stashBase();
+  if (!base) throw new Error("Enter your Stash URL first.");
+  const headers = { "Content-Type": "application/json" };
+  if (key) headers["ApiKey"] = key;
+  const r = await fetch(base + "/graphql", { method: "POST", headers, body: JSON.stringify({ query, variables: variables || {} }) });
+  if (!r.ok) throw new Error("Stash HTTP " + r.status);
+  const j = await r.json();
+  if (j && j.errors && j.errors.length) throw new Error((j.errors[0] && j.errors[0].message) || "Stash query error");
+  return (j && j.data) || {};
+}
+function stashFmtDur(sec) {
+  const s = Math.round(Number(sec) || 0);
+  const m = Math.floor(s / 60), r = s % 60;
+  return m + ":" + String(r).padStart(2, "0");
+}
+async function stashLoadResults(reset) {
+  if (onlineBusy) return;
+  const box = $("onlineResults");
+  if (!box) return;
+  const q = ($("stashSearch") ? $("stashSearch").value : "").trim();
+  if (reset) { stashPage = 1; box.innerHTML = ""; }
+  onlineBusy = true;
+  const note = document.createElement("div");
+  note.className = "online-note"; note.textContent = "Searching Stash…";
+  box.appendChild(note);
+  try {
+    const data = await stashGql(`query FindScenes($q: String, $page: Int!, $per: Int!) { findScenes(filter: { q: $q, page: $page, per_page: $per, sort: "date", direction: "DESC" }) { count scenes { id title date interactive paths { screenshot funscript stream } files { duration } performers { name } tags { name } studio { name } } } }`, { q: q || null, page: stashPage, per: 24 });
+    note.remove();
+    const scenes = (data.findScenes && data.findScenes.scenes) || [];
+    if (!scenes.length) {
+      const e = document.createElement("div");
+      e.className = "online-note"; e.textContent = "No scenes found.";
+      box.appendChild(e);
+    } else {
+      for (const s of scenes) box.appendChild(stashItemEl(s));
+      stashPage++;
+    }
+    const more = $("onlineMore");
+    if (more) more.style.display = scenes.length ? "" : "none";
+  } catch (e) {
+    note.remove();
+    const err = document.createElement("div");
+    err.className = "online-note"; err.textContent = "Stash: " + ((e && e.message) || e);
+    box.appendChild(err);
+  }
+  onlineBusy = false;
+}
+function stashItemEl(s) {
+  const row = document.createElement("div");
+  row.className = "online-item";
+  const title = document.createElement("div");
+  title.className = "online-title"; title.textContent = s.title || ("Scene " + s.id);
+  const bottom = document.createElement("div");
+  bottom.className = "online-bottom";
+  const img = document.createElement("img");
+  img.className = "online-thumb";
+  img.loading = "lazy";
+  img.src = stashAbs((s.paths && s.paths.screenshot) || ("/scene/" + s.id + "/screenshot"));
+  img.alt = "";
+  img.onerror = () => { img.style.visibility = "hidden"; };
+  const meta = document.createElement("div");
+  meta.className = "online-meta";
+  const dur = (s.files && s.files.length && s.files[0].duration) ? s.files[0].duration : 0;
+  meta.textContent = (dur ? stashFmtDur(dur) + " · " : "") + [
+    (s.studio && s.studio.name) || "",
+    (s.performers || []).map(p => p.name).join(", "),
+    (s.tags || []).slice(0, 4).map(t => t.name).join(", ")
+  ].filter(Boolean).join(" · ");
+  const load = document.createElement("button");
+  load.type = "button"; load.className = "online-load"; load.textContent = "Load";
+  load.onclick = () => stashLoadVideo(s.id, s.title || ("Scene " + s.id), load);
+  bottom.appendChild(img); bottom.appendChild(meta); bottom.appendChild(load);
+  row.appendChild(title); row.appendChild(bottom);
+  return row;
+}
+async function stashLoadVideo(id, name, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; btn._t = (btn._t || 0) + 1; }
+  const done = (label) => {
+    if (!btn) return;
+    btn.textContent = label; btn.disabled = false;
+    const t = btn._t || 0;
+    setTimeout(() => { if (btn && (btn._t || 0) === t && !btn.disabled) btn.textContent = "Load"; }, 3000);
+  };
+  try {
+    const data = await stashGql(`query FindScene($id: ID!) { findScene(id: $id) { id title paths { stream funscript } sceneStreams { url mime_type } } }`, { id: String(id) });
+    const sc = data.findScene;
+    if (!sc) throw new Error("scene not found");
+    const streams = (sc.sceneStreams || []).filter(x => x && x.url);
+    const direct = streams.find(x => /\.(mp4|webm|m4v|mov)([?#]|$)/i.test(x.url || ""));
+    let video = direct ? direct.url : (streams.length ? streams[0].url : ((sc.paths && sc.paths.stream) || ""));
+    video = stashAbs(video);
+    const scriptUrl = stashAbs((sc.paths && sc.paths.funscript) || "");
+    if (!video) throw new Error("no stream URL");
+    if (appMode === "fun") {
+      let scriptLoaded = false;
+      if (scriptUrl) scriptLoaded = await loadFunscriptUrl(scriptUrl);
+      if (/\.m3u8([?#]|$)/i.test(video)) {
+        if (typeof Hls === "undefined") { funLog("HLS streams need internet (hls.js)."); done("HLS"); return; }
+        funState.videoUrl = video;
+        funState.videoName = name;
+        funState.castUrl = null; funState.uploading = false; funState.localFile = null;
+        const nv = $("funVideoName"); if (nv) nv.textContent = name;
+        buildFunVideo(); updateCastButton(); updateStartButton();
+        funState.offsetMs = 0; applyRememberedOffset();
+        const v = $("funVideo");
+        if (v) { if (funState.hls) funState.hls.destroy(); funState.hls = new Hls(); funState.hls.loadSource(video); funState.hls.attachMedia(v); }
+      } else {
+        setFunVideo(video, name);
+      }
+      done(scriptLoaded ? "Script + video ✓" : "Video ✓");
+    } else {
+      setWatchVideo(video, name, null);
+      log("Stash video loaded — press Cast to TV, or switch to Funscript mode to play it.");
+      done("Loaded ✓");
+    }
+  } catch (e) {
+    funLog("Stash load failed: " + ((e && e.message) || e));
+    done("Failed");
+  }
+}
+
 (function wireOnlineVideos() {
   const f = $("onlineTagFilter");
   const sel = $("onlineTagSelect");
   const more = $("onlineMoreBtn");
   const ov = $("onlineVideos");
   const hubBtn = $("srcHubBtn");
-  const eroBtn = $("srcEroBtn");
-  const eroSearch = $("eroSearch");
-  const eroSearchBtn = $("eroSearchBtn");
-  const eroUser = $("eroUser");
-  const eroKey = $("eroKey");
+  const stashBtn = $("srcStashBtn");
+  const stashUrl = $("stashUrl");
+  const stashKey = $("stashKey");
+  const stashSearch = $("stashSearch");
+  const stashSearchBtn = $("stashSearchBtn");
   if (f) f.addEventListener("input", renderOnlineTagSelect);
   if (sel) sel.addEventListener("change", () => { onlineSelectedTag = sel.value; onlineLoadResults(true); });
   if (hubBtn) hubBtn.onclick = () => setOnlineSource("hub");
-  if (eroBtn) eroBtn.onclick = () => setOnlineSource("ero");
-  if (eroSearch) eroSearch.addEventListener("keydown", (e) => { if (e.key === "Enter") eroLoadResults(true); });
-  if (eroSearchBtn) eroSearchBtn.onclick = () => eroLoadResults(true);
-  try { if (eroUser) eroUser.value = localStorage.getItem("ossm-ero-user") || ""; } catch (e) {}
-  try { if (eroKey) eroKey.value = localStorage.getItem("ossm-ero-key") || ""; } catch (e) {}
-  if (eroUser) eroUser.addEventListener("change", () => { try { localStorage.setItem("ossm-ero-user", eroUser.value.trim()); } catch (e) {} });
-  if (eroKey) eroKey.addEventListener("change", () => { try { localStorage.setItem("ossm-ero-key", eroKey.value.trim()); } catch (e) {} });
-  if (more) more.onclick = () => { if (onlineSource === "ero") eroLoadResults(false); else onlineLoadResults(false); };
+  if (stashBtn) stashBtn.onclick = () => setOnlineSource("stash");
+  try { if (stashUrl) stashUrl.value = localStorage.getItem("ossm-stash-url") || ""; } catch (e) {}
+  try { if (stashKey) stashKey.value = localStorage.getItem("ossm-stash-key") || ""; } catch (e) {}
+  if (stashUrl) stashUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-stash-url", stashUrl.value.trim()); } catch (e) {} });
+  if (stashKey) stashKey.addEventListener("change", () => { try { localStorage.setItem("ossm-stash-key", stashKey.value.trim()); } catch (e) {} });
+  if (stashSearch) stashSearch.addEventListener("keydown", (e) => { if (e.key === "Enter") stashLoadResults(true); });
+  if (stashSearchBtn) stashSearchBtn.onclick = () => stashLoadResults(true);
+  if (more) more.onclick = () => { if (onlineSource === "stash") stashLoadResults(false); else onlineLoadResults(false); };
   if (ov) ov.addEventListener("toggle", () => {
     if (ov.open && !onlineStarted) {
       onlineStarted = true;
-      if (onlineSource === "ero") eroLoadResults(true); else onlineLoadResults(true);
+      if (onlineSource === "stash") stashLoadResults(true); else onlineLoadResults(true);
     }
   });
   if (ov && ov.style.display !== "none") onlineLoadTags();
