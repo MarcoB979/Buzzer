@@ -907,8 +907,12 @@
       <button class="ble-btn" id="ble-button">Connect</button>
     </div>
 
-    <div class="ble-panel small" id="fullscreen-panel">
-      <span class="ble-status">Fullscreen hides the phone status bar</span>
+    <div class="ble-panel small" id="fullscreen-panel" style="flex-wrap:wrap;gap:6px;align-items:center;">
+      <span class="ble-status" style="flex:1 1 100%;">Fullscreen hides the status bar &amp; locks landscape</span>
+      <label class="inline-toggle" style="font-size:.75rem;gap:8px;flex:1 1 auto;">
+        <span>Keep screen awake</span>
+        <span class="switch"><input type="checkbox" id="wakeLockToggle"><span class="slider"></span></span>
+      </label>
       <button class="ble-btn small" id="fullscreen-button" type="button">⛶ Fullscreen</button>
     </div>
 
@@ -4949,7 +4953,31 @@ function updateFullscreenButton() {
   if (!b) return;
   const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
   b.textContent = on ? "Exit fullscreen" : "⛶ Fullscreen";
+  // Lock landscape while fullscreen so the phone doesn't rotate back mid-session.
+  try {
+    if (screen.orientation) {
+      if (on && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {});
+      else if (!on && screen.orientation.unlock) screen.orientation.unlock();
+    }
+  } catch (e) {}
 }
+// ---- Keep the screen awake while the app is in use (wake lock) ----
+let wakeLockObj = null;
+function wakeLockEnabled() { try { return localStorage.getItem("ossm-wake-lock") !== "0"; } catch (e) { return true; } }
+async function requestWakeLock() {
+  if (!("wakeLock" in navigator)) return;
+  try {
+    wakeLockObj = await navigator.wakeLock.request("screen");
+    wakeLockObj.addEventListener("release", () => { wakeLockObj = null; });
+  } catch (e) {}
+}
+function releaseWakeLock() {
+  if (wakeLockObj) { try { wakeLockObj.release(); } catch (e) {} wakeLockObj = null; }
+}
+function syncWakeLock() {
+  if (wakeLockEnabled() && !document.hidden) requestWakeLock(); else releaseWakeLock();
+}
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else syncWakeLock(); });
 
 // ---------- Events ----------
 $("ble-button").onclick = connect;
@@ -4965,6 +4993,12 @@ if (fsBtn) {
     fsBtn.textContent = "Not supported";
   }
 }
+const wlToggle = $("wakeLockToggle");
+if (wlToggle) {
+  wlToggle.checked = wakeLockEnabled();
+  wlToggle.addEventListener("change", () => { try { localStorage.setItem("ossm-wake-lock", wlToggle.checked ? "1" : "0"); } catch (e) {} syncWakeLock(); });
+}
+syncWakeLock();
 $("header-disconnect").onclick = disconnect;
 $("header-stop").onclick = emergencyStop;
 const kofiToggleBtn = $("kofiToggle");
@@ -9405,10 +9439,12 @@ setInterval(() => {
   if (appMode === "fun" && funState.playing) return;
   if (speedRampActive) return; // the ramp owns speed; skip device reads mid-ramp
   gattOp(() => stdState.readValue()).then(v => {
-    const before = stdStateName;
+    const beforeName = stdStateName;
+    const beforeVals = [stdValues.speed, stdValues.max, stdValues.min, stdValues.sensation, stdValues.pattern].join(",");
     parseStdState(decode(v));
+    const afterVals = [stdValues.speed, stdValues.max, stdValues.min, stdValues.sensation, stdValues.pattern].join(",");
     if (appMode === "ap") enforceModeAvailability();
-    else if (appMode === "std") { updateStartButton(); if (stdStateName !== before) buildInterface(); }
+    else if (appMode === "std") { updateStartButton(); if (stdStateName !== beforeName || afterVals !== beforeVals) buildInterface(); }
     else if (appMode === "fun") updateStartButton();
   }).catch(() => {});
 }, 500);
