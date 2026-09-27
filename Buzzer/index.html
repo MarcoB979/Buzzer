@@ -364,7 +364,11 @@
   .watch-favs-title { font-size: .7rem; color: #facc15; margin-bottom: 4px; }
   .watch-favs .fun-row { margin-bottom: 4px; }
   .watch-favs .fun-btn { font-size: .72rem; padding: 6px 8px; }
-  .watch-body .fun-cast-overlay { position: static; inset: auto; }
+  #watch-stage { min-height: 264px; }
+  #watch-stage .fun-video { border-radius: 0 0 8px 8px; min-height: 220px; }
+  .watch-toolbar { display: flex; align-items: center; gap: 8px; padding: 5px 8px; background: #111827; border: 1px solid var(--border-color); border-bottom: none; border-radius: 8px 8px 0 0; }
+  .watch-stage-name { flex: 1 1 auto; min-width: 0; font-size: .75rem; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .watch-toolbar .ble-btn.small { flex: 0 0 auto; }
   .online-videos { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px 12px; margin-top: 10px; }
   .online-videos summary { list-style: none; cursor: pointer; user-select: none; font-size: .8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); display: flex; align-items: center; justify-content: space-between; }
   .online-videos summary::-webkit-details-marker { display: none; }
@@ -849,6 +853,15 @@
       <button class="fun-preview-toggle" id="funPreviewToggle" title="Show funscript preview">▴</button>
     </div>
 
+    <div class="fun-stage" id="watch-stage" style="display:none;">
+      <div class="watch-toolbar">
+        <span class="watch-stage-name" id="watchStageName">video</span>
+        <button class="ble-btn small" id="watchStageCast" type="button">🎦 Cast</button>
+        <button class="ble-btn small" id="watchStageClose" type="button" title="Close player">✕</button>
+      </div>
+      <div class="fun-video" id="watch-video"></div>
+    </div>
+
     <div class="fun-preview-wrap" id="fun-preview-wrap" style="display:none;">
       <canvas id="funPreview"></canvas>
     </div>
@@ -863,6 +876,7 @@
           <button class="ble-btn" id="watchUrlGo" type="button">Load</button>
           <button class="ble-btn" id="watchFavBtn" type="button" title="Add / remove current URL from favorites">☆</button>
           <button class="ble-btn" id="watchFileBtn" type="button">📁 File</button>
+          <button class="ble-btn" id="watchStashBtn" type="button" title="Browse your Stash library and load a scene">📚 Stash</button>
           <input type="file" id="watchFileInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg,application/octet-stream" style="display:none;">
         </div>
         <div class="watch-favs">
@@ -982,6 +996,7 @@
             <input type="text" id="stashSearch" placeholder="Search scenes… (title, tag, performer)">
             <button type="button" id="stashSearchBtn" class="ble-btn small">Search</button>
           </div>
+          <div class="ero-hint" id="stashMixedWarning" style="display:none;color:#f87171;">⚠ This page runs over HTTPS, so it can't reach an <code>http://</code> Stash address — browsers block it (mixed content). Serve Stash over HTTPS (e.g. a reverse proxy) or open Buzzer on the same PC that hosts Stash.</div>
           <div class="ero-hint">Point Buzzer at your self-hosted Stash (PC / NAS). Scenes marked interactive auto-load their funscript. Stored on this device only.</div>
         </div>
         <div class="online-results" id="onlineResults"></div>
@@ -2070,6 +2085,7 @@ function buildInterfaceNow() {
   $("speed-control").style.display = isFun ? "none" : "";
   $("fun-controls").style.display = isFun ? "" : "none";
   $("fun-stage").style.display = isFun ? "" : "none";
+  if (isFun) { const ws = $("watch-stage"); if (ws) ws.style.display = "none"; }
   $("watch-panel").style.display = isFun ? "none" : "";
   if (!isFun) placeWatchPanel();
   $("fun-preview-wrap").style.display = (isFun && funPreviewShown) ? "" : "none";
@@ -3905,9 +3921,9 @@ function initCast() {
         castConnected = nowConnected;
         castSession = nowConnected ? castContext.getCurrentSession() : null;
         if (nowConnected) {
-          const v = $("funVideo");
-          castPausedLocal = !!(v && !v.paused);
-          if (castPausedLocal) v.pause();
+          const lv = (appMode === "fun") ? $("funVideo") : $("watchVideo");
+          castPausedLocal = !!(lv && !lv.paused);
+          if (castPausedLocal) lv.pause();
           castConnectAt = Date.now(); castFailNotified = false; castWasPlaying = false; castEnded = false;
           castVolume = 1; castMuted = false;
           castRemotePlayer = null; castRemoteController = null;
@@ -4629,12 +4645,12 @@ function updateCastSeekUI() {
   }
 }
 function castOverlayHost() {
-  return (appMode === "fun") ? $("fun-video") : $("watch-body");
+  return (appMode === "fun") ? $("fun-video") : $("watch-video");
 }
 function setCastOverlay(show) {
   const wrap = castOverlayHost();
   if (!wrap) return;
-  const other = (wrap === $("fun-video")) ? $("watch-body") : $("fun-video");
+  const other = (wrap === $("fun-video")) ? $("watch-video") : $("fun-video");
   const stale = other && other.querySelector(".fun-cast-overlay");
   if (stale) stale.remove();
   const v = wrap.querySelector("video");
@@ -4704,6 +4720,49 @@ function placeWatchPanel() {
     if (wp.parentNode !== anchor.parentNode || wp.nextElementSibling !== anchor) anchor.parentNode.insertBefore(wp, anchor);
   }
 }
+let watchStageHidden = false;
+function closeWatchStage() {
+  watchStageHidden = true;
+  const v = $("watchVideo"); if (v) { try { v.pause(); } catch (e) {} }
+  const stage = $("watch-stage"); if (stage) stage.style.display = "none";
+}
+function buildWatchVideo() {
+  const stage = $("watch-stage");
+  if (!stage) return;
+  if (appMode === "fun" || !funState.videoUrl || watchStageHidden) { stage.style.display = "none"; return; }
+  stage.style.display = "";
+  const wrap = $("watch-video");
+  if (!wrap) return;
+  const nameEl = $("watchStageName");
+  if (nameEl) nameEl.textContent = funState.videoName || "video";
+  const castBtn = $("watchStageCast");
+  if (castBtn) {
+    castBtn.style.display = (!castConnected && castAvailable) ? "" : "none";
+    castBtn.textContent = "🎦 Cast";
+    castBtn.disabled = !castAvailable;
+  }
+  let v = wrap.querySelector("video");
+  if (!v) {
+    wrap.innerHTML = "";
+    v = document.createElement("video");
+    v.id = "watchVideo";
+    v.controls = true;
+    v.playsInline = true;
+    wrap.appendChild(v);
+  }
+  const url = funState.videoUrl;
+  if (!url) return;
+  if (/\.m3u8([?#]|$)/i.test(url)) {
+    if (typeof Hls !== "undefined") {
+      if (funState.hls) funState.hls.destroy();
+      funState.hls = new Hls();
+      funState.hls.loadSource(url);
+      funState.hls.attachMedia(v);
+    }
+  } else if (v.src !== url) {
+    v.src = url;
+  }
+}
 function buildWatchPanel() {
   const hasVideo = !!(funState.videoUrl || funState.castUrl || funState.localFile);
   const wn = $("watchName");
@@ -4715,6 +4774,7 @@ function buildWatchPanel() {
     btn.style.display = (!castConnected && hasVideo) ? "" : "none";
     btn.disabled = !castAvailable;
   }
+  buildWatchVideo();
   setCastOverlay(castConnected);
   renderWatchFavorites();
 }
@@ -4743,6 +4803,7 @@ function setWatchVideo(url, name, localFile) {
   funState.uploading = false;
   funState.localFile = localFile || null;
   funState.fileMeta = null;
+  watchStageHidden = false;
   buildWatchPanel();
 }
 async function loadWatchUrl(rawOverride) {
@@ -4767,7 +4828,7 @@ async function loadWatchUrl(rawOverride) {
   if (/pornhub/i.test(pageUrl)) name = "Pornhub " + extractPhKey(pageUrl);
   if (castConnected) { try { stopCast(); } catch (e) {} }
   setWatchVideo(absUrl(data.url), name, null);
-  log("Video loaded — press Cast to TV.");
+  log("Video loaded — watch it here, or press Cast to TV.");
 }
 function startCastPolling() {
   castRemoteTime = 0; castClockBaseMs = Date.now(); // autoplay: clock starts now
@@ -4828,10 +4889,10 @@ function toggleCast() {
 function fallbackToLocal() {
   if (castPausedLocal) {
     castPausedLocal = false;
-    const v = $("funVideo");
+    const v = (appMode === "fun") ? $("funVideo") : $("watchVideo");
     if (v && v.paused && funState.videoUrl) {
       v.play().catch(() => {});
-      syncFunToTime(v.currentTime * 1000);
+      if (appMode === "fun") syncFunToTime(v.currentTime * 1000);
     }
   } else if (funState.playing) {
     funStopStreaming();
@@ -8240,7 +8301,7 @@ async function onlineLoadVideo(id, btn) {
     } else {
       if (video) {
         setWatchVideo(video, d.title, null);
-        log("Video loaded — press Cast to TV.");
+        log("Video loaded — watch it here, or press Cast to TV.");
         done("Loaded ✓");
       } else {
         log("No playable video link (gofile expired/Premium).");
@@ -8317,6 +8378,13 @@ function stashBase() {
   const { url } = stashRead();
   if (!url) return "";
   return /^https?:\/\//i.test(url) ? url.replace(/\/+$/, "") : ("http://" + url.replace(/\/+$/, ""));
+}
+function stashMixedContentWarning() {
+  const el = $("stashMixedWarning");
+  if (!el) return;
+  const httpsPage = location.protocol === "https:";
+  const httpStash = /^http:\/\//i.test(stashBase());
+  el.style.display = (httpsPage && httpStash) ? "" : "none";
 }
 function stashAbs(u) {
   if (!u) return "";
@@ -8442,7 +8510,7 @@ async function stashLoadVideo(id, name, btn) {
       done(scriptLoaded ? "Script + video ✓" : "Video ✓");
     } else {
       setWatchVideo(video, name, null);
-      log("Stash video loaded — press Cast to TV, or switch to Funscript mode to play it.");
+      log("Stash video loaded — playing locally; press Cast to TV to watch on the big screen.");
       done("Loaded ✓");
     }
   } catch (e) {
@@ -8527,8 +8595,9 @@ async function stashPickerLoad(reset) {
   if (stashBtn) stashBtn.onclick = () => setOnlineSource("stash");
   try { if (stashUrl) stashUrl.value = localStorage.getItem("ossm-stash-url") || ""; } catch (e) {}
   try { if (stashKey) stashKey.value = localStorage.getItem("ossm-stash-key") || ""; } catch (e) {}
-  if (stashUrl) stashUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-stash-url", stashUrl.value.trim()); } catch (e) {} });
+  if (stashUrl) stashUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-stash-url", stashUrl.value.trim()); } catch (e) {} stashMixedContentWarning(); });
   if (stashKey) stashKey.addEventListener("change", () => { try { localStorage.setItem("ossm-stash-key", stashKey.value.trim()); } catch (e) {} });
+  stashMixedContentWarning();
   if (stashSearch) stashSearch.addEventListener("keydown", (e) => { if (e.key === "Enter") stashLoadResults(true); });
   if (stashSearchBtn) stashSearchBtn.onclick = () => stashLoadResults(true);
   if (more) more.onclick = () => { if (onlineSource === "stash") stashLoadResults(false); else onlineLoadResults(false); };
@@ -8559,6 +8628,9 @@ const bsh = $("btnStartHeader"); if (bsh) bsh.onclick = toggleStart;
 const wcb = $("watchCastBtn"); if (wcb) wcb.onclick = watchCast;
 const wgo = $("watchUrlGo"); if (wgo) wgo.onclick = () => loadWatchUrl();
 const wfb = $("watchFileBtn"); if (wfb) wfb.onclick = () => { const fi = $("watchFileInput"); if (fi) fi.click(); };
+const wst = $("watchStashBtn"); if (wst) wst.onclick = () => { stashPickerOpen(); };
+const wsc = $("watchStageCast"); if (wsc) wsc.onclick = watchCast;
+const wsx = $("watchStageClose"); if (wsx) wsx.onclick = closeWatchStage;
 const wui = $("watchUrlInput"); if (wui) wui.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); loadWatchUrl(); } });
 const wfav = $("watchFavBtn");
 if (wfav) wfav.onclick = () => {
