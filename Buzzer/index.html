@@ -908,10 +908,14 @@
     </div>
 
     <div class="ble-panel small" id="fullscreen-panel" style="flex-wrap:wrap;gap:6px;align-items:center;">
-      <span class="ble-status" style="flex:1 1 100%;">Fullscreen hides the status bar &amp; locks landscape</span>
-      <label class="inline-toggle" style="font-size:.75rem;gap:8px;flex:1 1 auto;">
+      <span class="ble-status" style="flex:1 1 100%;">Screen options</span>
+      <label class="inline-toggle" style="font-size:.75rem;gap:8px;flex:1 1 100%;">
         <span>Keep screen awake</span>
         <span class="switch"><input type="checkbox" id="wakeLockToggle"><span class="slider"></span></span>
+      </label>
+      <label class="inline-toggle" style="font-size:.75rem;gap:8px;flex:1 1 100%;">
+        <span>Force landscape</span>
+        <span class="switch"><input type="checkbox" id="forceLandscapeToggle"><span class="slider"></span></span>
       </label>
       <button class="ble-btn small" id="fullscreen-button" type="button">⛶ Fullscreen</button>
     </div>
@@ -4953,13 +4957,18 @@ function updateFullscreenButton() {
   if (!b) return;
   const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
   b.textContent = on ? "Exit fullscreen" : "⛶ Fullscreen";
-  // Lock landscape while fullscreen so the phone doesn't rotate back mid-session.
-  try {
-    if (screen.orientation) {
-      if (on && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {});
-      else if (!on && screen.orientation.unlock) screen.orientation.unlock();
-    }
-  } catch (e) {}
+  if (on) syncOrientationLock(); // entering fullscreen lets the browser lock landscape
+}
+// ---- Orientation (force landscape) ----
+function forceLandscapeEnabled() { try { return localStorage.getItem("ossm-force-landscape") !== "0"; } catch (e) { return true; } }
+function lockLandscape() {
+  try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); } catch (e) {}
+}
+function unlockOrientation() {
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
+}
+function syncOrientationLock() {
+  if (forceLandscapeEnabled()) lockLandscape(); else unlockOrientation();
 }
 // ---- Keep the screen awake while the app is in use (wake lock) ----
 let wakeLockObj = null;
@@ -4977,7 +4986,7 @@ function releaseWakeLock() {
 function syncWakeLock() {
   if (wakeLockEnabled() && !document.hidden) requestWakeLock(); else releaseWakeLock();
 }
-document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else syncWakeLock(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else { syncWakeLock(); syncOrientationLock(); } });
 
 // ---------- Events ----------
 $("ble-button").onclick = connect;
@@ -4998,7 +5007,13 @@ if (wlToggle) {
   wlToggle.checked = wakeLockEnabled();
   wlToggle.addEventListener("change", () => { try { localStorage.setItem("ossm-wake-lock", wlToggle.checked ? "1" : "0"); } catch (e) {} syncWakeLock(); });
 }
+const flToggle = $("forceLandscapeToggle");
+if (flToggle) {
+  flToggle.checked = forceLandscapeEnabled();
+  flToggle.addEventListener("change", () => { try { localStorage.setItem("ossm-force-landscape", flToggle.checked ? "1" : "0"); } catch (e) {} syncOrientationLock(); });
+}
 syncWakeLock();
+syncOrientationLock();
 $("header-disconnect").onclick = disconnect;
 $("header-stop").onclick = emergencyStop;
 const kofiToggleBtn = $("kofiToggle");
@@ -8109,7 +8124,7 @@ function setModeFromDropdown(target) {
     funState.maxDepth = 20;
     if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
     funControlsCollapsed = false;
-    if (!forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {});
+    syncOrientationLock();
   }
   buildInterface();
   if (appMode === "std") enterStdMode();
@@ -9032,9 +9047,7 @@ function gpToggleMode() {
   setDemoMode(false);
   if (apAvailable()) appMode = appMode === "ap" ? "std" : (appMode === "std" ? "fun" : "ap");
   else appMode = appMode === "std" ? "fun" : "std";
-  if (appMode === "fun" && !forceFunLayout && window.innerWidth < 700 && screen.orientation && screen.orientation.lock) {
-    screen.orientation.lock("landscape").catch(() => {});
-  }
+  if (appMode === "fun") syncOrientationLock();
   buildInterface();
   if (appMode === "std") enterStdMode();
   else if (appMode === "fun") enterStreamingMode();
