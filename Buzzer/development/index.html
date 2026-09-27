@@ -977,17 +977,9 @@
     </details>
 
     <details class="online-videos" id="onlineVideos">
-      <summary>🌐 Video library</summary>
+      <summary>📚 Stash library</summary>
       <div class="online-body">
-        <div class="online-source">
-          <button type="button" id="srcHubBtn" class="online-src-btn active">Funscripthub</button>
-          <button type="button" id="srcStashBtn" class="online-src-btn">Stash</button>
-        </div>
-        <div class="online-controls" id="hubControls">
-          <input type="text" id="onlineTagFilter" placeholder="Filter tags…">
-          <select id="onlineTagSelect"><option value="">All videos</option></select>
-        </div>
-        <div class="online-controls" id="stashControls" style="display:none;">
+        <div class="online-controls" id="stashControls">
           <div class="ero-search-row">
             <input type="text" id="stashUrl" placeholder="Stash URL (e.g. http://192.168.1.10:9999)" autocomplete="off">
             <input type="password" id="stashKey" placeholder="Stash API key (optional)" autocomplete="off">
@@ -5172,7 +5164,6 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to prompt the user to connect (you can't pair Bluetooth yourself). Otherwise null.
 - "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
 - "video" (optional): play one of the user's videos — {"url":"<the exact url from your FAVORITE VIDEOS context>"} or a local one {"local":"<the exact file name from your LOCAL VIDEOS context>"}. Use it when the user asks to watch porn or put something on: pick one at random for a surprise or ask which they want (translating the title into the language you're replying in). The user picks the cast device themselves. Otherwise null.
-- "search" (optional): search the built-in Funscripthub directory — {"query":"<a short tag or keyword>"}; add "play":true to load the first match. Use it when the user wants you to find something new based on what you know they like. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -6391,12 +6382,10 @@ function aiApplyVideo(v) {
 }
 function aiVideoContext() {
   const favs = getFavorites();
-  const searchNote = "\n\nSEARCH: you can't browse the web yourself, but you can search the built-in Funscripthub directory by category. Set \"search\":{\"query\":\"<a short tag or keyword like twink, blonde, brat>\"} to pull up matches, and add \"play\":true to load the first match. Funscripthub usually works, but its entries often only provide a funscript (not a direct video) — if the video can't load, tell the user and ask for a direct video link instead (when they give a link, the app adds it to favorites and plays it automatically).";
-  if (!favs.length) return "\n\nFAVORITE VIDEOS: none saved yet. If the user asks you to play porn or put something on, ask them (in your character's voice) to tap the folder button (📂) to show where their local videos are, or ask for a direct video link (the app will favorite and play it), or use \"search\" to find something." + searchNote;
+  if (!favs.length) return "\n\nFAVORITE VIDEOS: none saved yet. If the user asks you to play porn or put something on, ask them (in your character's voice) to tap the folder button (📂) to show where their local videos are, or ask for a direct video link (the app will favorite and play it).";
   const lines = favs.map((f, i) => (i + 1) + '. title: "' + favDisplayTitle(f) + '", kind: "' + (f.kind === "fun" ? "funscript video (syncs with the machine)" : "plain video (just casts to TV)") + '", url: "' + f.url + '"').join("\n");
   return "\n\nFAVORITE VIDEOS (play these when the user asks to \"play porn\", \"put something on\", \"surprise me\", etc.). A title starting with [F] is a funscript video that syncs with the machine; anything else is a plain video that just casts to TV.\n" + lines
-    + "\nHOW TO PLAY: for a surprise pick one at random; if they want to choose, list a few titles and ask which (translate any English title into the language you're replying in — e.g. \"Ethan fucks a little brat deep and hard\" becomes \"Ethan neukt een kleine brat hard\" in Dutch). To play one, set \"video\":{\"url\":\"<that exact url>\"}. The user picks the cast device themselves — tell them to press Cast to TV and choose their device."
-    + searchNote;
+    + "\nHOW TO PLAY: for a surprise pick one at random; if they want to choose, list a few titles and ask which (translate any English title into the language you're replying in — e.g. \"Ethan fucks a little brat deep and hard\" becomes \"Ethan neukt een kleine brat hard\" in Dutch). To play one, set \"video\":{\"url\":\"<that exact url>\"}. The user picks the cast device themselves — tell them to press Cast to TV and choose their device.";
 }
 function aiExtractLink(text) {
   const m = String(text || "").match(/https?:\/\/[^\s<"']+/i);
@@ -6450,27 +6439,8 @@ async function aiHandleLink(url, onMsg) {
   loadVideoUrl(url);
 }
 async function aiApplySearch(s) {
-  const q = (s && typeof s === "object" && typeof s.query === "string" ? s.query : (typeof s === "string" ? s : "")).trim().toLowerCase();
-  if (!q) return;
-  const ov = $("onlineVideos");
-  if (ov) { ov.style.display = ""; ov.open = true; }
-  const play = !!(s && typeof s === "object" && s.play);
-  try {
-    if (!onlineTags.length) await onlineLoadTags();
-    const matches = onlineTags.filter(t => (t.tagname || "").toLowerCase().includes(q));
-    if (!matches.length) { funLog("No category found for \"" + q + "\" — try a different word, or paste a direct link."); return; }
-    onlineSelectedTag = String(matches[0].id);
-    const sel = $("onlineTagSelect");
-    if (sel) sel.value = onlineSelectedTag;
-    await onlineLoadResults(true);
-    if (play) {
-      const items = await onlineFetch({ hub: "getVideos", page: "1", tag: onlineSelectedTag });
-      if (Array.isArray(items) && items.length) onlineLoadVideo(items[0].id);
-      else funLog("Found the category but couldn't load a video — try another.");
-    }
-  } catch (e) {
-    funLog("Search failed: " + (e && e.message ? e.message : e));
-  }
+  // Funscripthub was removed — ignore any "search" the model may emit.
+  funLog("The online directory is gone — use your Stash library (📚 Stash library) instead.");
 }
 
 // ---------- AI Companion face ----------
@@ -7219,7 +7189,7 @@ function companionLiveDrawFrown(ctx, img, f, iw, ih, s, tx, ty, amount) {
 
 const AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words. You may put ONE invisible emotion tag at the very start of "reply" to set your face: [smile], [blush], [frown] or [thinking] — the app strips it out, so the user never sees or hears it.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "search" searches the Funscripthub directory — {"query":"<tag>"} (add "play":true to load the first match). "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move deeper to their deepest point while they say "stop", then back out to their shallowest point while they say "stop" again (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}; they pick the cast device themselves. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move deeper to their deepest point while they say "stop", then back out to their shallowest point while they say "stop" again (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
 
 let compMessages = [];
 let compBusy = false;
@@ -8093,240 +8063,11 @@ if (modeMenuEl) {
 }
 document.addEventListener("click", () => setModeMenuOpen(false));
 
-// ================= Online videos (Funscripthub) =================
-let onlineTags = [];
-let onlineSelectedTag = "";
-let onlinePage = 1;
+// ================= Online videos (Stash) =================
 let onlineBusy = false;
-let onlineHasMore = true;
 let onlineStarted = false;
-let onlineSource = "hub";
 let stashPage = 1;
 let stashPickerPage = 1;
-
-function jinaExtractJson(text) {
-  let raw = text;
-  const idx = text.indexOf("Markdown Content:");
-  if (idx >= 0) raw = text.slice(idx + "Markdown Content:".length);
-  raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  const start = raw.search(/[\[{]/);
-  if (start < 0) throw new Error("no JSON in response");
-  return JSON.parse(raw.slice(start));
-}
-async function jinaGetJson(url) {
-  const r = await fetch("https://r.jina.ai/" + url);
-  if (!r.ok) throw new Error("jina status " + r.status);
-  return jinaExtractJson(await r.text());
-}
-async function onlineFetch(params) {
-  const base = workerBaseUrl();
-  if (base) {
-    const qs = new URLSearchParams(params);
-    const r = await fetch(base + "?" + qs.toString());
-    if (!r.ok) throw new Error("hub status " + r.status);
-    return await r.json();
-  }
-  const api = new URL("https://www.funscripthub.com/app/openapi/" + params.hub);
-  for (const [k, v] of Object.entries(params)) if (k !== "hub") api.searchParams.set(k, v);
-  const apiUrl = api.toString();
-  // No worker: try direct (rarely allowed), then the free Jina reader, then public proxies.
-  try { const r = await fetch(apiUrl); if (r.ok) return await r.json(); } catch (e) {}
-  try {
-    const r = await fetch("https://r.jina.ai/" + apiUrl);
-    if (r.ok) return jinaExtractJson(await r.text());
-  } catch (e) {}
-  for (const p of ["https://api.allorigins.win/raw?url=", "https://api.codetabs.com/v1/proxy?quest="]) {
-    try { const r = await fetch(p + encodeURIComponent(apiUrl)); if (r.ok) return await r.json(); } catch (e) {}
-  }
-  throw new Error("Could not reach Funscripthub — try again in a moment.");
-}
-
-async function onlineLoadTags() {
-  try {
-    const tags = await onlineFetch({ hub: "getAllTags" });
-    onlineTags = Array.isArray(tags) ? tags : [];
-    renderOnlineTagSelect();
-  } catch (e) {
-    funLog("Online tags failed: " + (e && e.message ? e.message : e));
-  }
-}
-
-function renderOnlineTagSelect() {
-  const sel = $("onlineTagSelect");
-  if (!sel) return;
-  const filter = ($("onlineTagFilter") ? $("onlineTagFilter").value : "").trim().toLowerCase();
-  const opts = onlineTags.filter(t => !filter || (t.tagname || "").toLowerCase().includes(filter));
-  const prev = sel.value;
-  sel.innerHTML = "";
-  const all = document.createElement("option");
-  all.value = ""; all.textContent = "All videos";
-  sel.appendChild(all);
-  for (const t of opts) {
-    const o = document.createElement("option");
-    o.value = String(t.id); o.textContent = t.tagname + " (" + t.icount + ")";
-    sel.appendChild(o);
-  }
-  sel.value = prev && onlineTags.some(t => String(t.id) === prev) ? prev : "";
-}
-
-async function onlineLoadResults(reset) {
-  if (onlineBusy) return;
-  const box = $("onlineResults");
-  if (!box) return;
-  if (reset) { onlinePage = 1; onlineHasMore = true; box.innerHTML = ""; }
-  onlineBusy = true;
-  const note = document.createElement("div");
-  note.className = "online-note"; note.textContent = "Loading…";
-  box.appendChild(note);
-  try {
-    const params = { hub: "getVideos", page: String(onlinePage) };
-    if (onlineSelectedTag) params.tag = onlineSelectedTag;
-    const items = await onlineFetch(params);
-    note.remove();
-    if (!Array.isArray(items) || !items.length) {
-      onlineHasMore = false;
-      if (reset) { const e = document.createElement("div"); e.className = "online-note"; e.textContent = "No videos found for this tag."; box.appendChild(e); }
-    } else {
-      for (const it of items) box.appendChild(onlineItemEl(it));
-      onlineHasMore = true;
-      onlinePage++;
-    }
-    const more = $("onlineMore");
-    if (more) more.style.display = onlineHasMore ? "" : "none";
-  } catch (e) {
-    note.remove();
-    const err = document.createElement("div");
-    err.className = "online-note"; err.textContent = "Could not reach Funscripthub: " + ((e && e.message) || e);
-    box.appendChild(err);
-  }
-  onlineBusy = false;
-}
-
-function setOnlineSource(src) {
-  onlineSource = src;
-  const hubBtn = $("srcHubBtn"), stashBtn = $("srcStashBtn");
-  const hubC = $("hubControls"), stashC = $("stashControls");
-  if (hubBtn) hubBtn.classList.toggle("active", src === "hub");
-  if (stashBtn) stashBtn.classList.toggle("active", src === "stash");
-  if (hubC) hubC.style.display = src === "hub" ? "" : "none";
-  if (stashC) stashC.style.display = src === "stash" ? "" : "none";
-  const box = $("onlineResults");
-  if (box) box.innerHTML = "";
-  const more = $("onlineMore");
-  if (more) more.style.display = "none";
-  if (src === "stash") stashLoadResults(true);
-  else onlineLoadResults(true);
-}
-
-function onlineItemEl(it) {
-  const row = document.createElement("div");
-  row.className = "online-item";
-  const title = document.createElement("div");
-  title.className = "online-title"; title.textContent = it.title || "";
-  const bottom = document.createElement("div");
-  bottom.className = "online-bottom";
-  const img = document.createElement("img");
-  img.className = "online-thumb";
-  img.loading = "lazy";
-  img.src = "https://funbase8a9d.blob.core.windows.net/images/small_" + (it.imageurl || "");
-  img.alt = "";
-  img.onerror = () => { img.style.visibility = "hidden"; };
-  const meta = document.createElement("div");
-  meta.className = "online-meta";
-  meta.textContent = (it.duration && it.duration !== "00:00:00" ? it.duration + " · " : "") + (it.username || "");
-  const load = document.createElement("button");
-  load.type = "button"; load.className = "online-load"; load.textContent = "Load";
-  load.onclick = () => onlineLoadVideo(it.id, load);
-  bottom.appendChild(img); bottom.appendChild(meta); bottom.appendChild(load);
-  row.appendChild(title); row.appendChild(bottom);
-  return row;
-}
-
-async function onlineResolveVideo(links) {
-  for (const link of links) {
-    if (!link) continue;
-    if (/\.(mp4|m3u8|webm|m4v|mov)([?#]|$)/i.test(link)) return link;
-    const g = String(link).match(/gofile\.io\/d\/([A-Za-z0-9]+)/i);
-    if (g) {
-      const base = workerBaseUrl();
-      if (!base) continue;
-      try {
-        const r = await fetch(base + "?gofile=" + encodeURIComponent(g[1]));
-        const res = await r.json().catch(() => ({}));
-        if (res && res.files && res.files.length) {
-          const f = res.files.find(x => /\.(mp4|m3u8|webm|m4v|mov)([?#]|$)/i.test(x.link || x.name || ""));
-          if (f && f.link) return f.link;
-        }
-      } catch (e) {}
-    }
-  }
-  return null;
-}
-
-async function onlineLoadVideo(id, btn) {
-  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; btn._t = (btn._t || 0) + 1; }
-  funLog("Loading Funscripthub entry…");
-  const done = (label) => {
-    if (!btn) return;
-    btn.textContent = label;
-    btn.disabled = false;
-    const t = btn._t || 0;
-    setTimeout(() => { if (btn && (btn._t || 0) === t && !btn.disabled) btn.textContent = "Load"; }, 3000);
-  };
-  try {
-    const d = await onlineFetch({ hub: "getDetail", id: String(id) });
-    if (!d || !d.title) throw new Error("detail unavailable");
-    const scriptUrl = (d.scripts && d.scripts[0] && d.scripts[0].url) || null;
-    const links = (d.videos || []).map(v => v.url);
-    const video = await onlineResolveVideo(links);
-    if (appMode === "fun") {
-      let scriptLoaded = false;
-      if (scriptUrl) scriptLoaded = await loadFunscriptUrl(scriptUrl);
-      if (video) {
-        const inp = $("funPhId");
-        if (inp) inp.value = video;
-        await loadVideoUrl(video);
-        done(scriptLoaded ? "Script + video ✓" : "Video ✓");
-      } else if (scriptLoaded) {
-        funLog("Funscript loaded — no playable video (gofile link expired). Paste a video URL above if you have one.");
-        done("Script ✓");
-      } else if (scriptUrl) {
-        downloadScript(scriptUrl);
-        funLog("Script saved to Downloads — no playable video (gofile link expired). Tap 'Load Funscript' to open the script, and paste a video URL above if you have one.");
-        done("Saved ⤓");
-      } else {
-        funLog("No playable video link and no script available.");
-        done("No video");
-      }
-    } else {
-      if (video) {
-        setWatchVideo(video, d.title, null);
-        log("Video loaded — watch it here, or press Cast to TV.");
-        done("Loaded ✓");
-      } else {
-        log("No playable video link (gofile expired/Premium).");
-        done("No video");
-      }
-    }
-  } catch (e) {
-    funLog("Online load failed: " + (e && e.message ? e.message : e));
-    done("Failed");
-  }
-}
-
-function downloadScript(url) {
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } catch (e) {
-    try { window.open(url, "_blank"); } catch (e2) {}
-  }
-}
 
 async function loadFunscriptUrl(url) {
   const isScript = (t) => !!t && t.trim().startsWith("{") && t.indexOf('"actions"') >= 0;
@@ -8579,20 +8320,12 @@ async function stashPickerLoad(reset) {
 })();
 
 (function wireOnlineVideos() {
-  const f = $("onlineTagFilter");
-  const sel = $("onlineTagSelect");
   const more = $("onlineMoreBtn");
   const ov = $("onlineVideos");
-  const hubBtn = $("srcHubBtn");
-  const stashBtn = $("srcStashBtn");
   const stashUrl = $("stashUrl");
   const stashKey = $("stashKey");
   const stashSearch = $("stashSearch");
   const stashSearchBtn = $("stashSearchBtn");
-  if (f) f.addEventListener("input", renderOnlineTagSelect);
-  if (sel) sel.addEventListener("change", () => { onlineSelectedTag = sel.value; onlineLoadResults(true); });
-  if (hubBtn) hubBtn.onclick = () => setOnlineSource("hub");
-  if (stashBtn) stashBtn.onclick = () => setOnlineSource("stash");
   try { if (stashUrl) stashUrl.value = localStorage.getItem("ossm-stash-url") || ""; } catch (e) {}
   try { if (stashKey) stashKey.value = localStorage.getItem("ossm-stash-key") || ""; } catch (e) {}
   if (stashUrl) stashUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-stash-url", stashUrl.value.trim()); } catch (e) {} stashMixedContentWarning(); });
@@ -8600,14 +8333,13 @@ async function stashPickerLoad(reset) {
   stashMixedContentWarning();
   if (stashSearch) stashSearch.addEventListener("keydown", (e) => { if (e.key === "Enter") stashLoadResults(true); });
   if (stashSearchBtn) stashSearchBtn.onclick = () => stashLoadResults(true);
-  if (more) more.onclick = () => { if (onlineSource === "stash") stashLoadResults(false); else onlineLoadResults(false); };
+  if (more) more.onclick = () => stashLoadResults(false);
   if (ov) ov.addEventListener("toggle", () => {
     if (ov.open && !onlineStarted) {
       onlineStarted = true;
-      if (onlineSource === "stash") stashLoadResults(true); else onlineLoadResults(true);
+      stashLoadResults(true);
     }
   });
-  if (ov && ov.style.display !== "none") onlineLoadTags();
 })();
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
 window.addEventListener("orientationchange", () => { setTimeout(() => { if (appMode === "fun") buildFunVideo(); }, 300); });
