@@ -8415,7 +8415,10 @@ async function stashLoadVideo(id, name, btn) {
     const sc = data.findScene;
     if (!sc) throw new Error("scene not found");
     const streams = (sc.sceneStreams || []).filter(x => x && x.url);
-    const direct = streams.find(x => /\.(mp4|webm|m4v|mov)([?#]|$)/i.test(x.url || ""));
+    // Prefer the direct-file stream ("/scene/<id>/stream" — supports seeking),
+    // then a direct mp4/webm endpoint, then anything else.
+    const direct = streams.find(x => /\/stream(?:[?#]|$)/i.test(x.url || ""))
+      || streams.find(x => /\.(mp4|webm|m4v|mov)([?#]|$)/i.test(x.url || ""));
     let video = direct ? direct.url : (streams.length ? streams[0].url : ((sc.paths && sc.paths.stream) || ""));
     video = stashAbs(video);
     const scriptUrl = stashAbs((sc.paths && sc.paths.funscript) || "");
