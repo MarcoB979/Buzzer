@@ -8334,7 +8334,7 @@ async function stashLoadResults(reset) {
   note.className = "online-note"; note.textContent = "Searching Stash…";
   box.appendChild(note);
   try {
-    const data = await stashGql(`query FindScenes($q: String, $page: Int!, $per: Int!) { findScenes(filter: { q: $q, page: $page, per_page: $per, sort: "date", direction: "DESC" }) { count scenes { id title date interactive paths { screenshot funscript stream } files { duration } performers { name } tags { name } studio { name } } } }`, { q: q || null, page: stashPage, per: 24 });
+    const data = await stashGql(`query FindScenes($q: String, $page: Int!, $per: Int!) { findScenes(filter: { q: $q, page: $page, per_page: $per, sort: "date", direction: DESC }) { count scenes { id title date interactive paths { screenshot funscript stream } files { duration } performers { name } tags { name } studio { name } } } }`, { q: q || null, page: stashPage, per: 24 });
     note.remove();
     const scenes = (data.findScenes && data.findScenes.scenes) || [];
     if (!scenes.length) {
