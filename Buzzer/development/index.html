@@ -5354,7 +5354,7 @@ function aiExtractJson(text) {
   if (j.avatar && typeof j.avatar === "object" && !Array.isArray(j.avatar)) avatar = j.avatar;
   let video = null;
   if (typeof j.video === "string" && j.video.trim()) video = { url: j.video.trim() };
-  else if (j.video && typeof j.video === "object" && !Array.isArray(j.video) && (typeof j.video.url === "string" || typeof j.video.local === "string")) video = j.video;
+  else if (j.video && typeof j.video === "object" && !Array.isArray(j.video) && (typeof j.video.url === "string" || typeof j.video.local === "string" || (j.video.stash !== undefined && j.video.stash !== null && String(j.video.stash) !== ""))) video = j.video;
   let search = null;
   if (typeof j.search === "string" && j.search.trim()) search = { query: j.search.trim() };
   else if (j.search && typeof j.search === "object" && !Array.isArray(j.search) && typeof j.search.query === "string") search = j.search;
