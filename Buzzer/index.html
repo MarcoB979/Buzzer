@@ -213,6 +213,31 @@
   body.force-fun .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   body.force-fun .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
   body.force-fun .phone-container.fun .fun-stage { flex: 1 1 auto; min-height: 0; }
+  /* Force landscape: render the wide layout even when the device stays portrait
+     (foldables/tablets where the browser ignores orientation lock). Only on wide
+     viewports so it never squeezes a narrow phone. */
+  @media (min-width: 500px) {
+    body.force-landscape { padding: 4px; }
+    body.force-landscape .phone-container {
+      max-width: 100%; border-radius: 0; border-width: 2px; padding: 8px;
+      display: grid;
+      grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr) 230px;
+      grid-template-areas: "header header header" "left center right";
+      grid-template-rows: auto minmax(0, 1fr);
+      height: calc(var(--app-vh) - 8px); min-height: calc(var(--app-vh) - 8px);
+      gap: 8px; align-items: stretch;
+    }
+    body.force-landscape .phone-container > .header-row { grid-area: header; margin-bottom: 0; }
+    body.force-landscape .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    body.force-landscape .col-left { grid-area: left; max-height: calc(var(--app-vh) - 20px); }
+    body.force-landscape .col-center { grid-area: center; }
+    body.force-landscape .col-right { grid-area: right; max-height: calc(var(--app-vh) - 20px); overflow-y: auto; }
+    body.force-landscape .col > * { margin: 0; }
+    body.force-landscape #col-left > *, body.force-landscape #col-center > *, body.force-landscape #col-right > * { order: 0; }
+    body.force-landscape .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; }
+    body.force-landscape .col-title { display: block; }
+    body.force-landscape .start-stop-row { position: static; }
+  }
   .fun-status { font-size: .72rem; color: #fbbf24; margin-top: 8px; min-height: 1em; word-break: break-word; }
   .kofi-toggle { display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 7px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; }
   .fun-preview-wrap { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
@@ -4957,7 +4982,13 @@ function updateFullscreenButton() {
   if (!b) return;
   const on = !!(document.fullscreenElement || document.webkitFullscreenElement);
   b.textContent = on ? "Exit fullscreen" : "⛶ Fullscreen";
-  if (on) syncOrientationLock(); // entering fullscreen lets the browser lock landscape
+  if (on) {
+    // entering fullscreen lets the browser lock landscape; retry in case the
+    // fullscreen state isn't fully settled yet (needed on some Android devices).
+    syncOrientationLock();
+    setTimeout(syncOrientationLock, 200);
+    setTimeout(syncOrientationLock, 700);
+  }
 }
 // ---- Orientation (force landscape) ----
 function forceLandscapeEnabled() { try { return localStorage.getItem("ossm-force-landscape") !== "0"; } catch (e) { return true; } }
@@ -4968,8 +4999,25 @@ function unlockOrientation() {
   try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
 }
 function syncOrientationLock() {
+  document.body.classList.toggle("force-landscape", forceLandscapeEnabled());
   if (forceLandscapeEnabled()) lockLandscape(); else unlockOrientation();
 }
+// Android only honours orientation lock in fullscreen, so on the first tap (a
+// real user gesture) we request fullscreen to make Force landscape work.
+let autoFsAttempted = false;
+function maybeAutoFullscreen() {
+  if (!forceLandscapeEnabled() || autoFsAttempted) return;
+  if (document.fullscreenElement || document.webkitFullscreenElement) return;
+  autoFsAttempted = true;
+  const el = document.documentElement;
+  try {
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => { autoFsAttempted = false; });
+    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    else autoFsAttempted = false;
+  } catch (e) { autoFsAttempted = false; }
+}
+document.addEventListener("pointerdown", maybeAutoFullscreen, { capture: true });
+document.addEventListener("keydown", maybeAutoFullscreen);
 // ---- Keep the screen awake while the app is in use (wake lock) ----
 let wakeLockObj = null;
 function wakeLockEnabled() { try { return localStorage.getItem("ossm-wake-lock") !== "0"; } catch (e) { return true; } }
@@ -5010,7 +5058,11 @@ if (wlToggle) {
 const flToggle = $("forceLandscapeToggle");
 if (flToggle) {
   flToggle.checked = forceLandscapeEnabled();
-  flToggle.addEventListener("change", () => { try { localStorage.setItem("ossm-force-landscape", flToggle.checked ? "1" : "0"); } catch (e) {} syncOrientationLock(); });
+  flToggle.addEventListener("change", () => {
+    try { localStorage.setItem("ossm-force-landscape", flToggle.checked ? "1" : "0"); } catch (e) {}
+    if (flToggle.checked) { autoFsAttempted = false; maybeAutoFullscreen(); }
+    else syncOrientationLock();
+  });
 }
 syncWakeLock();
 syncOrientationLock();
