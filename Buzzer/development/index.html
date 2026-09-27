@@ -5712,12 +5712,23 @@ function aiPickVoice(lang) {
 function aiSpeak(text) {
   aiSpeakBrowser(text);
 }
+function aiSpeechLang() {
+  // Prefer the language of the TTS voice the user chose (that's how they want to
+  // HEAR replies), then the last language the AI used, then the device language.
+  const name = aiTtsVoiceName();
+  if (name) {
+    try { const sl = (localStorage.getItem("ossm-ai-tts-voice-lang") || "").trim(); if (sl) return sl.toLowerCase().split(/[-_]/)[0]; } catch (e) {}
+    const vs = aiVoicesCache.length ? aiVoicesCache : (window.speechSynthesis ? speechSynthesis.getVoices() : []);
+    const v = vs.find(x => x.name === name);
+    if (v && v.lang) return String(v.lang).toLowerCase().split(/[-_]/)[0];
+  }
+  try { const l = (localStorage.getItem("ossm-ai-lang") || "").toLowerCase(); if (l) return l.split(/[-_]/)[0]; } catch (e) {}
+  try { return ((navigator.language || "en").toLowerCase().split(/[-_]/)[0]); } catch (e) { return "en"; }
+}
 function aiTtsLangCode() {
-  let l = "";
-  try { l = (localStorage.getItem("ossm-ai-lang") || "").toLowerCase(); } catch (e) {}
-  if (!l) { try { l = (navigator.language || "en").toLowerCase(); } catch (e) {} }
+  const l = aiSpeechLang();
   const map = { en: "en-US", nl: "nl-NL", de: "de-DE", fr: "fr-FR" };
-  return map[l] || map[l.split(/[-_]/)[0]] || "en-US";
+  return map[l] || l || "en-US";
 }
 function aiSpeakBrowser(text) {
   try {
@@ -5765,11 +5776,14 @@ function aiPosConfirmText(phase) {
   return L.generic;
 }
 function aiStoredLang() {
-  let l = "";
-  try { l = (localStorage.getItem("ossm-ai-lang") || "").toLowerCase(); } catch (e) {}
-  if (AI_ASK_LIMITS[l]) return l;
-  const nav = ((navigator.language || "en").toLowerCase().split(/[-_]/)[0]);
-  return AI_ASK_LIMITS[nav] ? nav : "en";
+  const l = aiSpeechLang();
+  return AI_ASK_LIMITS[l] ? l : "en";
+}
+function aiLangLine() {
+  const l = aiSpeechLang();
+  const names = { en: "English", nl: "Dutch", de: "German", fr: "French", es: "Spanish", it: "Italian", pt: "Portuguese", pl: "Polish", ru: "Russian" };
+  const nm = names[l] || l.toUpperCase();
+  return "\n\nREPLY LANGUAGE (important): the user's speech/voice is set to " + nm + " (" + l + "), so write your \"reply\" in " + nm + " and set \"lang\":\"" + l + "\". Only switch to a different language if the user writes to you in one.";
 }
 function aiNewSession(confirmFirst) {
   if (confirmFirst && (aiMessages.length || compMessages.length)) {
@@ -7430,7 +7444,7 @@ async function compSend() {
     compMessages.push({ role: "user", content: text, ts: Date.now() });
     aiDebugPersistSoon();
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -7659,7 +7673,7 @@ async function aiSend(opts) {
       ? (mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "")
       : "\n\nMEMORY IS DISABLED by the user — do not output the \"memory\" field.";
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + memLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + aiLangLine() + memLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
@@ -8134,7 +8148,14 @@ function aiDebugRestore() {
   const voiceSel = $("aiTtsVoice");
   if (voiceSel) {
     aiPopulateVoiceList();
-    voiceSel.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-tts-voice", voiceSel.value); } catch (e) {} });
+    voiceSel.addEventListener("change", () => {
+      try { localStorage.setItem("ossm-ai-tts-voice", voiceSel.value); } catch (e) {}
+      try {
+        const v = aiVoicesCache.find(x => x.name === voiceSel.value);
+        if (v && v.lang) localStorage.setItem("ossm-ai-tts-voice-lang", v.lang);
+        else localStorage.removeItem("ossm-ai-tts-voice-lang");
+      } catch (e) {}
+    });
   }
   const aiSetPanel = $("aiSettings");
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) { aiLoadVoices(); if (aiWhisperEnabled()) aiPopulateMicList(); } });
