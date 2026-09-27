@@ -4992,10 +4992,17 @@ function updateFullscreenButton() {
 }
 // ---- Orientation (force landscape) ----
 function forceLandscapeEnabled() { try { return localStorage.getItem("ossm-force-landscape") !== "0"; } catch (e) { return true; } }
+let lockRetryTimers = [];
 function lockLandscape() {
-  try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock("landscape").catch(() => {}); } catch (e) {}
+  if (!(screen.orientation && screen.orientation.lock)) return;
+  lockRetryTimers.forEach(t => clearTimeout(t)); lockRetryTimers = [];
+  const tryLock = () => { try { screen.orientation.lock("landscape").catch(() => {}); } catch (e) {} };
+  tryLock();
+  // Some devices only accept the lock once fullscreen has fully settled — retry.
+  [150, 400, 1000].forEach(ms => lockRetryTimers.push(setTimeout(tryLock, ms)));
 }
 function unlockOrientation() {
+  lockRetryTimers.forEach(t => clearTimeout(t)); lockRetryTimers = [];
   try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {}
 }
 function syncOrientationLock() {
@@ -5007,16 +5014,18 @@ function syncOrientationLock() {
 let autoFsAttempted = false;
 function maybeAutoFullscreen() {
   if (!forceLandscapeEnabled() || autoFsAttempted) return;
-  if (document.fullscreenElement || document.webkitFullscreenElement) return;
+  if (document.fullscreenElement || document.webkitFullscreenElement) { syncOrientationLock(); return; }
   autoFsAttempted = true;
   const el = document.documentElement;
+  const done = () => { autoFsAttempted = false; syncOrientationLock(); };
   try {
-    if (el.requestFullscreen) el.requestFullscreen().catch(() => { autoFsAttempted = false; });
-    else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-    else autoFsAttempted = false;
-  } catch (e) { autoFsAttempted = false; }
+    if (el.requestFullscreen) el.requestFullscreen().then(syncOrientationLock).catch(done);
+    else if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); syncOrientationLock(); }
+    else done();
+  } catch (e) { done(); }
 }
 document.addEventListener("pointerdown", maybeAutoFullscreen, { capture: true });
+document.addEventListener("touchend", maybeAutoFullscreen, { capture: true });
 document.addEventListener("keydown", maybeAutoFullscreen);
 // ---- Keep the screen awake while the app is in use (wake lock) ----
 let wakeLockObj = null;
@@ -5060,12 +5069,14 @@ if (flToggle) {
   flToggle.checked = forceLandscapeEnabled();
   flToggle.addEventListener("change", () => {
     try { localStorage.setItem("ossm-force-landscape", flToggle.checked ? "1" : "0"); } catch (e) {}
+    syncOrientationLock();
     if (flToggle.checked) { autoFsAttempted = false; maybeAutoFullscreen(); }
-    else syncOrientationLock();
   });
 }
 syncWakeLock();
 syncOrientationLock();
+setTimeout(syncOrientationLock, 300);
+setTimeout(syncOrientationLock, 1000);
 $("header-disconnect").onclick = disconnect;
 $("header-stop").onclick = emergencyStop;
 const kofiToggleBtn = $("kofiToggle");
