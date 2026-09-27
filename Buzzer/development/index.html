@@ -64,9 +64,9 @@
   .visualizer-area { order: 5; }
   #speed-control { order: 6; }
   #sliders-wrapper { order: 7; }
-  #reset-row { order: 8; }
+  #reset-row { order: 9; }
   #kofi-wrap { order: 13; }
-  #presets-panel { order: 20; }
+  #presets-panel { order: 8; }
   #generalSettings { order: 21; }
   #aiSettings { order: 22; }
   #watch-panel { order: 23; }
@@ -744,6 +744,15 @@
   <div class="col col-left" id="col-left">
     <div class="fun-controls" id="fun-controls" style="display:none;"></div>
     <div class="sliders-panel" id="sliders-wrapper"></div>
+    <details class="presets-panel" id="presets-panel">
+      <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
+      <div id="presetList"></div>
+      <div class="preset-row">
+        <input type="text" id="presetName" placeholder="New preset name" />
+        <button id="btnSavePreset">Save</button>
+        <button id="btnFactoryReset" class="danger">Reset</button>
+      </div>
+    </details>
     <div class="start-stop-row">
       <button id="btnStart">Start</button>
     </div>
@@ -933,16 +942,6 @@
       <span class="ble-status" id="ble-text">OSSM: Disconnected</span>
       <button class="ble-btn" id="ble-button">Connect</button>
     </div>
-
-    <details class="presets-panel" id="presets-panel">
-      <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
-      <div id="presetList"></div>
-      <div class="preset-row">
-        <input type="text" id="presetName" placeholder="New preset name" />
-        <button id="btnSavePreset">Save</button>
-        <button id="btnFactoryReset" class="danger">Reset</button>
-      </div>
-    </details>
 
     <details class="presets-panel" id="generalSettings">
       <summary><span class="summary-left">⚙ General settings</span></summary>
@@ -4747,7 +4746,7 @@ function setCastOverlay(show) {
 function placeWatchPanel() {
   const wp = $("watch-panel");
   if (!wp) return;
-  const anchor = $("onlineVideos") || $("presets-panel") || $("ble-panel");
+  const anchor = $("onlineVideos") || $("ble-panel");
   if (anchor && anchor.parentNode) {
     if (wp.parentNode !== anchor.parentNode || wp.nextElementSibling !== anchor) anchor.parentNode.insertBefore(wp, anchor);
   }
