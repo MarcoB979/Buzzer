@@ -2540,6 +2540,7 @@ function renderPresets() {
   del.className = "danger";
   del.onclick = async () => {
     if (!sel.value) return;
+    if (!confirm("Delete preset \"" + sel.value + "\" from the OSSM? This can't be undone.")) return;
     await writePreset("<" + sel.value);
     setTimeout(refreshPresets, 800);
   };
@@ -8639,6 +8640,7 @@ $("btnSavePreset").onclick = () => {
   renderPresets();
 };
 $("btnFactoryReset").onclick = () => {
+  if (!confirm("Factory-reset ALL presets on the OSSM? Every saved preset — including the standard ones — will be deleted, and this can't be undone.")) return;
   presetNames = [];
   writePreset("^").catch(() => {});
   renderPresets();
