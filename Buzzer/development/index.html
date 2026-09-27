@@ -824,6 +824,20 @@
       </div>
     </div>
 
+    <div class="photo-modal" id="stashPicker" style="display:none;">
+      <div class="photo-modal-card" style="max-width:620px;">
+        <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>📚 Stash videos</span>
+          <button class="ble-btn small" id="stashPickerClose" type="button">✕</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:10px;">
+          <input type="text" id="stashPickerSearch" placeholder="Search scenes…" style="flex:1;min-width:0;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;">
+          <button class="ble-btn small" id="stashPickerSearchBtn" type="button">Search</button>
+        </div>
+        <div id="stashPickerList" style="max-height:60vh;overflow-y:auto;"></div>
+      </div>
+    </div>
+
     <div class="visualizer-area">
       <div class="meter-col"><div class="meter-label">Max</div><div class="meter-bar"><div class="meter-fill" id="left-meter" style="background-color: var(--color-top);"></div></div></div>
       <canvas id="graphCanvas" width="280" height="132"></canvas>
@@ -3080,9 +3094,13 @@ function buildFunControls() {
   const bv = document.createElement("button");
   bv.type = "button"; bv.className = "fun-btn"; bv.textContent = "Load Video";
   bv.onclick = () => $("funVideoInput").click();
+  const stashBtn = document.createElement("button");
+  stashBtn.type = "button"; stashBtn.className = "fun-btn"; stashBtn.textContent = "📚 Stash";
+  stashBtn.title = "Browse your Stash library and load a scene";
+  stashBtn.onclick = stashPickerOpen;
   const nv = document.createElement("span");
   nv.className = "fun-file"; nv.id = "funVideoName"; nv.textContent = funState.videoName || "no video";
-  row1.appendChild(bv); row1.appendChild(nv);
+  row1.appendChild(bv); row1.appendChild(stashBtn); row1.appendChild(nv);
   settings.appendChild(row1);
 
   const row2 = document.createElement("div");
@@ -8023,6 +8041,7 @@ let onlineHasMore = true;
 let onlineStarted = false;
 let onlineSource = "hub";
 let stashPage = 1;
+let stashPickerPage = 1;
 
 function jinaExtractJson(text) {
   let raw = text;
@@ -8355,7 +8374,7 @@ async function stashLoadResults(reset) {
   }
   onlineBusy = false;
 }
-function stashItemEl(s) {
+function stashItemEl(s, onLoad) {
   const row = document.createElement("div");
   row.className = "online-item";
   const title = document.createElement("div");
@@ -8378,7 +8397,7 @@ function stashItemEl(s) {
   ].filter(Boolean).join(" · ");
   const load = document.createElement("button");
   load.type = "button"; load.className = "online-load"; load.textContent = "Load";
-  load.onclick = () => stashLoadVideo(s.id, s.title || ("Scene " + s.id), load);
+  load.onclick = () => { stashLoadVideo(s.id, s.title || ("Scene " + s.id), load); if (onLoad) onLoad(); };
   bottom.appendChild(img); bottom.appendChild(meta); bottom.appendChild(load);
   row.appendChild(title); row.appendChild(bottom);
   return row;
@@ -8428,6 +8447,65 @@ async function stashLoadVideo(id, name, btn) {
     done("Failed");
   }
 }
+
+// ---- Stash picker (browse + load directly from Funscript mode) ----
+function stashPickerOpen() {
+  const m = $("stashPicker");
+  if (!m) return;
+  if (!stashBase()) {
+    funLog("Enter your Stash URL first (🌐 Video library → Stash).");
+    return;
+  }
+  m.style.display = "flex";
+  const q = $("stashPickerSearch");
+  if (q) q.value = "";
+  stashPickerLoad(true);
+  if (q) { try { q.focus(); } catch (e) {} }
+}
+function stashPickerClose() {
+  const m = $("stashPicker");
+  if (m) m.style.display = "none";
+}
+async function stashPickerLoad(reset) {
+  const box = $("stashPickerList");
+  if (!box) return;
+  const q = ($("stashPickerSearch") ? $("stashPickerSearch").value : "").trim();
+  if (reset) { stashPickerPage = 1; box.innerHTML = ""; }
+  const note = document.createElement("div");
+  note.className = "online-note"; note.textContent = "Searching Stash…";
+  box.appendChild(note);
+  try {
+    const data = await stashGql(`query FindScenes($q: String, $page: Int!, $per: Int!) { findScenes(filter: { q: $q, page: $page, per_page: $per, sort: "date", direction: DESC }) { count scenes { id title date interactive paths { screenshot funscript stream } files { duration } performers { name } tags { name } studio { name } } } }`, { q: q || null, page: stashPickerPage, per: 24 });
+    note.remove();
+    const scenes = (data.findScenes && data.findScenes.scenes) || [];
+    if (!scenes.length) {
+      const e = document.createElement("div");
+      e.className = "online-note"; e.textContent = "No scenes found.";
+      box.appendChild(e);
+    } else {
+      for (const s of scenes) box.appendChild(stashItemEl(s, stashPickerClose));
+      stashPickerPage++;
+      const more = document.createElement("button");
+      more.type = "button"; more.className = "ble-btn small"; more.textContent = "More…";
+      more.style.marginTop = "8px";
+      more.onclick = () => stashPickerLoad(false);
+      box.appendChild(more);
+    }
+  } catch (e) {
+    note.remove();
+    const err = document.createElement("div");
+    err.className = "online-note"; err.textContent = "Stash: " + ((e && e.message) || e);
+    box.appendChild(err);
+  }
+}
+(function wireStashPicker() {
+  const close = $("stashPickerClose");
+  const search = $("stashPickerSearch");
+  const searchBtn = $("stashPickerSearchBtn");
+  if (close) close.onclick = stashPickerClose;
+  if (search) search.addEventListener("keydown", (e) => { if (e.key === "Enter") stashPickerLoad(true); });
+  if (searchBtn) searchBtn.onclick = () => stashPickerLoad(true);
+})();
 
 (function wireOnlineVideos() {
   const f = $("onlineTagFilter");
