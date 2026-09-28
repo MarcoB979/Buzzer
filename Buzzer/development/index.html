@@ -8421,9 +8421,13 @@ function stashCastBase() {
 }
 function stashCastAbs(u) {
   if (!u) return "";
-  if (/^https?:\/\//i.test(u)) return u;
-  const base = stashCastBase();
-  return base + (u.charAt(0) === "/" ? "" : "/") + u;
+  const castBase = stashCastBase().replace(/\/+$/, "");
+  try {
+    const pu = new URL(u, castBase);
+    return castBase + pu.pathname + pu.search;
+  } catch (e) {}
+  const path = String(u).replace(/^https?:\/\/[^/]+/i, "");
+  return castBase + (path.charAt(0) === "/" ? path : "/" + path);
 }
 function stashMixedContentWarning() {
   const el = $("stashMixedWarning");
