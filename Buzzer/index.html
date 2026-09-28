@@ -1146,16 +1146,19 @@ const STD_STATE_UUID      = "522b443a-4f53-534d-2000-420badbabe69";
 const STD_PATTERNS_UUID   = "522b443a-4f53-534d-3000-420badbabe69";
 const STD_SENPTL_UUID     = "4f53534d-456e-6769-6e65-5061744c7374";
 const STREAM_UUID         = "4f53534d-436f-6d6d-6f6e-53747265616D";
-const STD_PATTERN_FALLBACK = ["Simple Stroke", "Teasing Pounding", "Robo Stroke", "Half'n'Half", "Deeper", "Stop'n'Go", "Insist", "Progressive Stroke", "Random Stroke", "Go to Point"];
+const STD_PATTERN_FALLBACK = ["Simple Stroke", "Teasing Pounding", "Robo Stroke", "Half'n'Half", "Half'n'Out", "Deeper", "Stop'n'Go", "Insist", "Progressive Stroke", "Knot Stroke", "Slap Stroke", "Random Stroke", "Go to Point"];
 const STD_PATTERN_DESC_FALLBACK = [
   "Acceleration, coasting, deceleration equally split; sensation adds randomness in stroke.",
   "Speed shifts with sensation; balances faster strokes.",
   "Sensation varies acceleration; from robotic to gradual.",
   "Full and half depth strokes alternate; sensation affects speed.",
+  "Full and half depth strokes alternate on pull out; sensation affects speed.",
   "Stroke depth increases per cycle; sensation sets count.",
   "Pauses between strokes; sensation adjusts length.",
   "Stroke length decreases per cycle; sensation sets count.",
   "Strokes are made of substrokes controlled by sensation.",
+  "Splits stroke into three parts by sensation.",
+  "Slapping style stroke with a delay determined by sensation.",
   "Random stroke; sensation controls maximum randomness from current location.",
   "Moves to a point between depth and stroke based on sensation."
 ];
@@ -6524,8 +6527,12 @@ function aiPosWaitStd() {
   });
 }
 function aiPosPointIndex() {
+  // "Go to Point" (PointStroke) has a fixed firmware index: 12 on OSSM-Lite,
+  // 9 on legacy OSSM. Trust firmwareKind — the app's pattern-name list can be
+  // misaligned (its fallback used to omit Half'n'Out / Knot / Slap).
+  if (firmwareKind === "lite") return 12;
   const p = stdPatterns.find(x => /go to point|point stroke|point/i.test((x.name || "").toLowerCase()));
-  return p ? p.idx : -1;
+  return (p && typeof p.idx === "number" && p.idx >= 0) ? p.idx : 9;
 }
 function aiPosSimplePatternIndex() {
   const p = stdPatterns.find(x => /simple/i.test((x.name || "").toLowerCase()));
