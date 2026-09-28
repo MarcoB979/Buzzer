@@ -7717,6 +7717,7 @@ async function compSend() {
   const inp = $("compInput");
   const text = (inp ? inp.value : "").trim();
   if (!text || compBusy) return;
+  if (inp) inp.blur(); // hide the phone keyboard after sending
   const link = aiExtractLink(text);
   if (link) {
     if (inp) inp.value = "";
@@ -7950,6 +7951,7 @@ async function aiSend(opts) {
   const inp = $("aiInput");
   const text = (inp ? inp.value : "").trim();
   if (!text || aiBusy) return;
+  if (inp) inp.blur(); // hide the phone keyboard after sending
   const link = aiExtractLink(text);
   if (link) {
     if (inp) inp.value = "";
