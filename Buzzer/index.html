@@ -75,6 +75,7 @@
   .start-stop-row { order: 12; }
   #pad-debug { order: 26; }
   #monitorPanel { order: 27; }
+  #privacySettings { order: 28; }
   .ble-panel {
     display: flex; justify-content: space-between; align-items: center;
     background-color: #111827; padding: 10px; border-radius: 12px;
@@ -976,10 +977,6 @@
             <button type="button" class="ai-help" id="aiMemoryHelp" title="What does this do?">?</button>
           </div>
           <div class="ai-set-hint" id="aiMemoryHelpText" style="display:none;">If you turn this on, the AI remembers what you voluntarily tell it about yourself (your name, role, preferences) — stored only on this device. It never asks for personal details, and “Forget me” erases it all.</div>
-          <div id="aiForgetRow" style="display:none;">
-            <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
-            <div class="ai-set-hint">The AI remembers what you tell it about yourself (name, role, preferences) — stored only on this device. “Forget me” erases all of it so the AI starts fresh.</div>
-          </div>
         </div>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
         <label class="ai-set-label" for="aiProvider">Provider</label>
@@ -988,6 +985,7 @@
           <option value="deepseek">DeepSeek (your key)</option>
           <option value="openai">OpenAI (compatible)</option>
         </select>
+        <div class="ai-set-hint" id="aiFreeWarning" style="display:none;color:#fbbf24;">⚠ Free (Pollinations) is a shared, unauthenticated public service with no privacy guarantee. For private use, choose DeepSeek or OpenAI (compatible) and add your own key.</div>
         <div id="aiKeyRow" style="display:none;">
           <label class="ai-set-label" for="aiKey" id="aiKeyLabel">DeepSeek API key</label>
           <input type="password" id="aiKey" placeholder="sk-…" autocomplete="off">
@@ -1065,6 +1063,15 @@
         <div id="log" style="margin-top:0;">Open this in Chrome or Edge to control the OSSM over Bluetooth.</div>
       </div>
     </details>
+
+    <details class="presets-panel" id="privacySettings">
+      <summary><span class="summary-left">🔒 Privacy</span></summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:2px;">
+        <button class="ble-btn small" id="privacyNoticeBtn" type="button">📄 Privacy notice</button>
+        <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
+        <div class="ai-set-hint">"Forget me" erases what the AI has learned about you and resets your companion. Your settings and API keys are kept.</div>
+      </div>
+    </details>
   </div>
 
   <div class="wizard-overlay" id="helpOverlay" style="display:none;">
@@ -1073,6 +1080,22 @@
       <div class="help-body" id="helpBody"></div>
       <div class="wizard-row" style="margin-top:14px;">
         <button class="wizard-btn" id="helpClose">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="wizard-overlay" id="privacyOverlay" style="display:none;">
+    <div class="wizard-box" style="max-width:540px;">
+      <div class="wizard-title">🔒 Privacy</div>
+      <div class="help-body" style="max-height:70vh;overflow-y:auto;text-align:left;padding-right:4px;">
+        <p><b>Where your data lives</b><br>Buzzer has no server, no accounts and no analytics. Everything is stored only in this browser on this device (local storage): what the AI has learned about you, your settings, your API keys, your favorite video links, and the names of local videos you've picked.</p>
+        <p><b>What leaves your device</b><br>• Your messages and profile context (what the AI remembers, plus your video library titles/tags) are sent to the AI provider you chose — Free (Pollinations), DeepSeek, or an OpenAI-compatible server.<br>• If you enable cloud speech-to-text (Whisper), your voice is sent to the OpenAI-compatible endpoint for transcription.<br>• If you use Stash, requests go to your own Stash server.<br>• Casting uses Google's Cast framework.</p>
+        <p><b>About the free AI service</b><br>⚠ The free option (Pollinations) is a shared, unauthenticated public endpoint with no privacy guarantee. For private conversations, choose DeepSeek or OpenAI (compatible) with your own key. Note that DeepSeek processes data in China.</p>
+        <p><b>What we never do</b><br>Buzzer cannot sell or share your data — there is no server. Your API keys are never included in the "Export developer info" file.</p>
+        <p><b>Your control</b><br>"Forget me" (Settings → Privacy) erases what the AI has learned and resets your companion. Clearing this site's data in your browser removes everything on this device.</p>
+      </div>
+      <div class="wizard-row" style="margin-top:14px;">
+        <button class="wizard-btn" id="privacyClose">Got it</button>
       </div>
     </div>
   </div>
@@ -8037,6 +8060,7 @@ function aiDebugRestore() {
   const keyInp = $("aiKey");
   const keyRow = $("aiKeyRow");
   const provLabel = $("aiProviderLabel");
+  const freeWarn = $("aiFreeWarning");
   const extrasRow = $("aiExtrasRow");
   const keyLabel = $("aiKeyLabel");
   const keyHint = $("aiKeyHint");
@@ -8076,11 +8100,9 @@ function aiDebugRestore() {
     speakBox.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-speak", speakBox.checked ? "1" : "0"); } catch (e) {} compSpeakSync(); });
   }
   const memBox = $("aiMemoryEnabled");
-  const forgetRow = $("aiForgetRow");
   const syncMemoryUI = () => {
     const on = aiMemoryEnabled();
     if (memBox) memBox.checked = on;
-    if (forgetRow) forgetRow.style.display = on ? "" : "none";
   };
   if (memBox) {
     memBox.addEventListener("change", () => {
@@ -8188,6 +8210,7 @@ function aiDebugRestore() {
     if (baseInp) baseInp.value = s.baseUrl;
     if (modelInp) modelInp.value = s.model;
     if (extrasRow) extrasRow.style.display = (isDs || isOa) ? "" : "none";
+    if (freeWarn) freeWarn.style.display = (s.provider === "free") ? "" : "none";
     if (provLabel) provLabel.textContent = isDs ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : isOa ? (s.key ? "OpenAI ✓" : "OpenAI (add key)") : "Free";
   };
   if (prov) prov.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {} syncAiSettingsUI(); });
@@ -8278,7 +8301,13 @@ async function loadFunscriptUrl(url) {
   const isScript = (t) => !!t && t.trim().startsWith("{") && t.indexOf('"actions"') >= 0;
   const fetchText = async (u) => {
     const signal = (typeof AbortSignal !== "undefined" && AbortSignal.timeout) ? AbortSignal.timeout(7000) : undefined;
-    const r = await fetch(u, signal ? { signal } : {});
+    const headers = {};
+    const base = stashBase();
+    if (base && u.indexOf(base) === 0) {
+      const { key } = stashRead();
+      if (key) headers["ApiKey"] = key;
+    }
+    const r = await fetch(u, signal ? { signal, headers } : { headers });
     if (!r.ok) throw new Error("http " + r.status);
     return await r.text();
   };
@@ -8334,10 +8363,7 @@ function stashMixedContentWarning() {
 }
 function stashAbs(u) {
   if (!u) return "";
-  let out = /^https?:\/\//i.test(u) ? u : (stashBase() + (u.charAt(0) === "/" ? "" : "/") + u);
-  const { key } = stashRead();
-  if (key && out.indexOf("apikey=") < 0) out += (out.indexOf("?") >= 0 ? "&" : "?") + "apikey=" + encodeURIComponent(key);
-  return out;
+  return /^https?:\/\//i.test(u) ? u : (stashBase() + (u.charAt(0) === "/" ? "" : "/") + u);
 }
 async function stashGql(query, variables) {
   const { key } = stashRead();
@@ -9472,6 +9498,9 @@ const wsk = $("wizard-skip"); if (wsk) wsk.onclick = wizardSkip;
 const wcn = $("wizard-cancel"); if (wcn) wcn.onclick = wizardCancel;
 const hc = $("helpClose"); if (hc) hc.onclick = hideExtractorHelp;
 const hov = $("helpOverlay"); if (hov) hov.addEventListener("click", e => { if (e.target === hov) hideExtractorHelp(); });
+const pcBtn = $("privacyNoticeBtn"); if (pcBtn) pcBtn.onclick = () => { const ov = $("privacyOverlay"); if (ov) ov.style.display = "flex"; };
+const pcClose = $("privacyClose"); if (pcClose) pcClose.onclick = () => { const ov = $("privacyOverlay"); if (ov) ov.style.display = "none"; };
+const pov = $("privacyOverlay"); if (pov) pov.addEventListener("click", e => { if (e.target === pov) pov.style.display = "none"; });
 const wvp2 = $("wizardViewPad");
 if (wvp2) wvp2.onclick = () => { wizard.slot = "pad"; if (listeningFor) listeningFor.slot = "pad"; wizardRender(); };
 const wvk2 = $("wizardViewKb");
