@@ -958,6 +958,10 @@
           <span>Enable AI</span>
           <span class="switch"><input type="checkbox" id="aiEnabled" checked><span class="slider"></span></span>
         </label>
+        <label class="inline-toggle" style="font-size:.75rem;gap:8px;">
+          <span>Enable Stash</span>
+          <span class="switch"><input type="checkbox" id="stashEnabledToggle" checked><span class="slider"></span></span>
+        </label>
       </div>
     </details>
 
@@ -3145,6 +3149,7 @@ function buildFunControls() {
   stashBtn.type = "button"; stashBtn.className = "fun-btn"; stashBtn.textContent = "📚 Stash";
   stashBtn.title = "Browse your Stash library and load a scene";
   stashBtn.onclick = stashPickerOpen;
+  if (!stashEnabled()) stashBtn.style.display = "none";
   const nv = document.createElement("span");
   nv.className = "fun-file"; nv.id = "funVideoName"; nv.textContent = funState.videoName || "no video";
   row1.appendChild(bv); row1.appendChild(stashBtn); row1.appendChild(nv);
@@ -6510,7 +6515,17 @@ function aiRecordMic(onText) {
 }
 // ---------- Stash library awareness for the AI ----------
 let stashLibraryCache = { scenes: [], at: 0 };
+function stashEnabled() { try { return localStorage.getItem("ossm-stash-enabled") !== "0"; } catch (e) { return true; } }
+function syncStashVisibility() {
+  const on = stashEnabled();
+  const panel = $("onlineVideos");
+  if (panel) panel.style.display = on ? "" : "none";
+  const btn = $("watchStashBtn");
+  if (btn) btn.style.display = on ? "" : "none";
+  if (!on) { const m = $("stashPicker"); if (m) m.style.display = "none"; }
+}
 async function refreshStashLibrary() {
+  if (!stashEnabled()) { stashLibraryCache = { scenes: [], at: 0 }; return; }
   const base = stashBase();
   if (!base) { stashLibraryCache = { scenes: [], at: 0 }; return; }
   try {
@@ -6521,6 +6536,7 @@ async function refreshStashLibrary() {
   }
 }
 function stashVideoContext() {
+  if (!stashEnabled()) return "";
   if (!stashBase()) return "";
   const scenes = stashLibraryCache.scenes || [];
   if (!scenes.length) return "\n\nSTASH LIBRARY: not loaded yet. If the user asks for something from their Stash, tell them to open the 📚 Stash library panel and try again in a moment.";
@@ -6543,6 +6559,7 @@ function aiApplyVideo(v) {
       return;
     }
     if (v.stash !== undefined && v.stash !== null && String(v.stash) !== "") {
+      if (!stashEnabled()) { funLog("Stash is disabled."); return; }
       const id = String(v.stash);
       const scene = (stashLibraryCache.scenes || []).find(s => String(s.id) === id);
       const name = scene ? (scene.title || ("Scene " + id)) : ("Scene " + id);
@@ -8450,6 +8467,7 @@ async function stashLoadVideo(id, name, btn) {
 
 // ---- Stash picker (browse + load directly from Funscript mode) ----
 function stashPickerOpen() {
+  if (!stashEnabled()) { funLog("Stash is disabled — enable it under ⚙ General settings."); return; }
   const m = $("stashPicker");
   if (!m) return;
   if (!stashBase()) {
@@ -8528,6 +8546,17 @@ async function stashPickerLoad(reset) {
       stashLoadResults(true);
     }
   });
+  const stashToggle = $("stashEnabledToggle");
+  if (stashToggle) {
+    stashToggle.checked = stashEnabled();
+    stashToggle.addEventListener("change", () => {
+      try { localStorage.setItem("ossm-stash-enabled", stashToggle.checked ? "1" : "0"); } catch (e) {}
+      syncStashVisibility();
+      refreshStashLibrary();
+      if (appMode === "fun") buildFunControls();
+    });
+  }
+  syncStashVisibility();
   refreshStashLibrary();
 })();
 window.addEventListener("resize", () => { if (appMode === "fun") buildFunVideo(); });
