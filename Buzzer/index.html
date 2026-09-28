@@ -713,12 +713,12 @@
   <input type="file" id="funVideoInput" accept=".mp4,.mkv,.webm,.mov,.m4v,.avi,.mpg,.mpeg,application/octet-stream" style="display:none;">
   <input type="file" id="funScriptInput" accept=".funscript,.json,application/json" style="display:none;">
   <div class="header-row">
-    <button class="col-toggle" id="toggleColLeft" title="Show / hide sliders column">◀</button>
+    <button class="col-toggle" id="toggleColLeft" title="Show / hide sliders column" data-action="colLeft">◀</button>
     <div class="screen-header">
       <div class="title-row">
         <span class="brand-label">OSSM</span>
         <div class="mode-dropdown" id="modeDropdown">
-          <button type="button" class="mode-btn-current" id="modeBtnCurrent" title="Change mode" aria-haspopup="true" aria-expanded="false">
+          <button type="button" class="mode-btn-current" id="modeBtnCurrent" title="Change mode" aria-haspopup="true" aria-expanded="false" data-action="mode">
             <span id="modeCurrentLabel">Standard</span>
             <span class="mode-chevron">▾</span>
           </button>
@@ -733,14 +733,14 @@
       </div>
       <div class="build-info" id="buildInfo" style="font-size:.62rem;color:#64748b;font-weight:normal;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
     </div>
-    <button id="btnStartHeader" type="button" title="Start / stop">Start</button>
+    <button id="btnStartHeader" type="button" title="Start / stop" data-action="start">Start</button>
     <span class="conn-status" id="conn-status"></span>
     <button class="ble-btn small" id="header-connect" style="display:none;">Connect</button>
     <button class="ble-btn small danger" id="header-disconnect" style="display:none;">Disconnect</button>
-    <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;">STOP</button>
+    <button class="ble-btn small danger" id="header-stop" title="Emergency stop" style="display:none;" data-action="estop">STOP</button>
     <button class="kofi-toggle" id="kofiToggle" title="Show Support on Ko-fi" aria-label="Show Support on Ko-fi" style="display:none;">☕</button>
     <button class="ble-btn small" id="aiBtn" title="Describe a movement in words" style="display:none;">✨ AI</button>
-    <button class="col-toggle" id="toggleColRight" title="Show / hide settings column">▶</button>
+    <button class="col-toggle" id="toggleColRight" title="Show / hide settings column" data-action="colRight">▶</button>
   </div>
   <div class="col col-left" id="col-left">
     <div class="fun-controls" id="fun-controls" style="display:none;"></div>
@@ -755,10 +755,10 @@
       </div>
     </details>
     <div class="start-stop-row">
-      <button id="btnStart">Start</button>
+      <button id="btnStart" data-action="start">Start</button>
     </div>
     <div class="reset-row" id="reset-row">
-      <button id="btnResetValues">Reset all values</button>
+      <button id="btnResetValues" data-action="resetValues">Reset all values</button>
     </div>
   </div>
 
@@ -887,7 +887,7 @@
 
     <div class="fun-stage" id="fun-stage" style="display:none;">
       <div class="fun-video" id="fun-video"></div>
-      <button class="fun-preview-toggle" id="funPreviewToggle" title="Show funscript preview">▴</button>
+      <button class="fun-preview-toggle" id="funPreviewToggle" title="Show funscript preview" data-action="previewToggle">▴</button>
     </div>
 
     <div class="fun-stage" id="watch-stage" style="display:none;">
@@ -963,6 +963,11 @@
           <span>Enable Stash</span>
           <span class="switch"><input type="checkbox" id="stashEnabledToggle" checked><span class="slider"></span></span>
         </label>
+        <label class="inline-toggle" style="font-size:.75rem;gap:8px;">
+          <span>Disable touch</span>
+          <span class="switch"><input type="checkbox" id="disableTouchToggle"><span class="slider"></span></span>
+        </label>
+        <div class="ai-set-hint">When on, buttons that have a controller/keyboard mapping ignore taps — control them with the gamepad or keyboard instead. Buttons without a mapping still work by touch.</div>
       </div>
     </details>
 
@@ -3243,6 +3248,7 @@ function buildFunControls() {
   castRow.className = "fun-row";
   const castBtn = document.createElement("button");
   castBtn.type = "button"; castBtn.className = "fun-btn"; castBtn.id = "funCastBtn";
+  castBtn.dataset.action = "castToggle";
   castBtn.textContent = "Cast";
   castBtn.onclick = toggleCast;
   castRow.appendChild(castBtn);
@@ -3326,6 +3332,7 @@ function buildFunControls() {
   testRow.appendChild(testBtn);
   const demoBtn = document.createElement("button");
   demoBtn.type = "button"; demoBtn.className = "fun-btn"; demoBtn.id = "funDemoBtn";
+  demoBtn.dataset.action = "demoToggle";
   demoBtn.textContent = demoMode ? "Demo ✓" : "Demo";
   demoBtn.title = "Demo mode: test loading/playing without an OSSM connected.";
   demoBtn.style.background = demoMode ? "#16a34a" : "";
@@ -3398,6 +3405,8 @@ function buildFunControls() {
   const bufMinus = bufG.querySelector("#funBufferMinus");
   const bufPlus = bufG.querySelector("#funBufferPlus");
   bufRange.addEventListener("input", () => setFunBuffer(parseInt(bufRange.value, 10)));
+  bufMinus.dataset.action = "bufferDown";
+  bufPlus.dataset.action = "bufferUp";
   bufMinus.onclick = () => setFunBuffer(funState.buffer - 25);
   bufPlus.onclick = () => setFunBuffer(funState.buffer + 25);
 
@@ -3417,6 +3426,8 @@ function buildFunControls() {
   const offMinus = offG.querySelector("#funOffsetMinus");
   const offPlus = offG.querySelector("#funOffsetPlus");
   offRange.addEventListener("input", () => setFunOffset(parseInt(offRange.value, 10)));
+  offMinus.dataset.action = "offsetDown";
+  offPlus.dataset.action = "offsetUp";
   offMinus.onclick = () => setFunOffset(funState.offsetMs - 100);
   offPlus.onclick = () => setFunOffset(funState.offsetMs + 100);
   updateOffsetUI();
@@ -4728,17 +4739,17 @@ function setCastOverlay(show) {
           "<span id=\"castDurLabel\" style=\"font-size:.7rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap;\">0:00</span>" +
         "</div>" +
         "<div style=\"display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px;width:100%;max-width:420px;margin-top:12px;padding:0 12px;box-sizing:border-box;\">" +
-          "<button id=\"castBackBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">⏪ 10s</button>" +
-          "<button id=\"castPlayPauseBtn\" type=\"button\" style=\"background:#2563eb;border:none;color:#fff;border-radius:6px;padding:6px 10px;font-size:.78rem;font-weight:bold;cursor:pointer;\">▶ Play</button>" +
-          "<button id=\"castReplayBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">↺</button>" +
-          "<button id=\"castFwdBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">10s ⏩</button>" +
+          "<button id=\"castBackBtn\" type=\"button\" data-action=\"castSeekBack\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">⏪ 10s</button>" +
+          "<button id=\"castPlayPauseBtn\" type=\"button\" data-action=\"castPlayPause\" style=\"background:#2563eb;border:none;color:#fff;border-radius:6px;padding:6px 10px;font-size:.78rem;font-weight:bold;cursor:pointer;\">▶ Play</button>" +
+          "<button id=\"castReplayBtn\" type=\"button\" data-action=\"castReplay\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">↺</button>" +
+          "<button id=\"castFwdBtn\" type=\"button\" data-action=\"castSeekFwd\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">10s ⏩</button>" +
           "<span style=\"width:1px;height:16px;background:#334155;\"></span>" +
-          "<button id=\"castVolDownBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">−</button>" +
-          "<button id=\"castMuteBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">🔊</button>" +
+          "<button id=\"castVolDownBtn\" type=\"button\" data-action=\"castVolumeDown\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">−</button>" +
+          "<button id=\"castMuteBtn\" type=\"button\" data-action=\"castMute\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">🔊</button>" +
           "<span id=\"castVolLabel\" style=\"font-size:.72rem;color:#94a3b8;font-variant-numeric:tabular-nums;min-width:32px;text-align:center;\">100%</span>" +
-          "<button id=\"castVolUpBtn\" type=\"button\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">+</button>" +
+          "<button id=\"castVolUpBtn\" type=\"button\" data-action=\"castVolumeUp\" style=\"background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:6px 8px;font-size:.78rem;cursor:pointer;\">+</button>" +
         "</div>" +
-        "<button id=\"castStopBtn\" type=\"button\" style=\"background:#dc2626;border:none;color:#fff;border-radius:8px;padding:10px 20px;font-size:.85rem;font-weight:bold;cursor:pointer;margin-top:14px;\">Stop casting</button>";
+        "<button id=\"castStopBtn\" type=\"button\" data-action=\"castStop\" style=\"background:#dc2626;border:none;color:#fff;border-radius:8px;padding:10px 20px;font-size:.85rem;font-weight:bold;cursor:pointer;margin-top:14px;\">Stop casting</button>";
       wrap.appendChild(ov);
       const vn = ov.querySelector("#castVideoName");
       if (vn) vn.textContent = funState.videoName || "OSSM video";
@@ -5079,6 +5090,16 @@ function syncWakeLock() {
 }
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else { syncWakeLock(); syncOrientationLock(); } });
 
+// ---- Disable touch: mapped buttons only respond to their controller/keyboard input ----
+function disableTouchEnabled() { try { return localStorage.getItem("ossm-disable-touch") === "1"; } catch (e) { return false; } }
+function isActionMapped(id) { return !!(bindings[id] || kbBindings[id]); }
+function syncDisableTouch() { document.body.classList.toggle("disable-touch", disableTouchEnabled()); }
+document.addEventListener("click", (e) => {
+  if (!disableTouchEnabled()) return;
+  const el = e.target && e.target.closest ? e.target.closest("[data-action]") : null;
+  if (el && isActionMapped(el.getAttribute("data-action"))) { e.preventDefault(); e.stopPropagation(); }
+}, true);
+
 // ---------- Events ----------
 $("ble-button").onclick = connect;
 const fsBtn = $("fullscreen-button");
@@ -5107,6 +5128,15 @@ if (flToggle) {
     if (flToggle.checked) { autoFsAttempted = false; maybeAutoFullscreen(); }
   });
 }
+const dtToggle = $("disableTouchToggle");
+if (dtToggle) {
+  dtToggle.checked = disableTouchEnabled();
+  dtToggle.addEventListener("change", () => {
+    try { localStorage.setItem("ossm-disable-touch", dtToggle.checked ? "1" : "0"); } catch (e) {}
+    syncDisableTouch();
+  });
+}
+syncDisableTouch();
 syncWakeLock();
 syncOrientationLock();
 setTimeout(syncOrientationLock, 300);
