@@ -6449,6 +6449,7 @@ const AI_POS_AUTO_STEP = 5;   // auto-advance chunk size while finding points
 const AI_POS_AUTO_INTERVAL = 3000; // ms between auto-advance chunks (move + brief pause)
 let aiPosSettleTimer = null;
 let aiPosAutoTimer = null;
+let aiPosMoveGen = 0;    // incremented on stop to invalidate in-flight aiPosMoveTo calls
 let aiPosReturnAp = false; // position setup used the stroke engine in the background; restore the firmware to AP after
 let aiPos = {
   active: false,
@@ -6544,6 +6545,7 @@ async function aiPosMoveTo(pos) {
   if (!connected || !stdCmd) return;
   const idx = aiPosPointIndex();
   if (idx < 0) return;
+  const gen = aiPosMoveGen;
   // Even if the AI forgot to send "start", make sure the client knows we are positioning
   // so "stop"/"here" stay gentle and only the safe word is a full emergency stop.
   if (!aiPos.active) {
@@ -6554,6 +6556,7 @@ async function aiPosMoveTo(pos) {
   // Background: make sure the FIRMWARE is in the stroke engine (the visible app
   // mode stays exactly as it is), then command the point.
   await aiPosEnterStd();
+  if (gen !== aiPosMoveGen) return; // a stop happened while switching mode
   // PointStroke: sensation = position between Min Pos and Max Pos.
   // Fix Min=0, Max=100 so sensation equals the absolute rail position (0-100).
   const spd = Math.min(AI_POS_MAX_SPEED, Math.max(1, Math.round(aiPos.speed)));
@@ -6565,6 +6568,7 @@ async function aiPosMoveTo(pos) {
     await stdWriteReliable("set:speed:" + spd);
   };
   await send();
+  if (gen !== aiPosMoveGen) return; // the user stopped mid-move — don't mark moving
   aiPos.speed = spd;
   aiPos.current = p;
   aiPos.moving = true;
@@ -6573,7 +6577,7 @@ async function aiPosMoveTo(pos) {
   // safe max and makes the rail barely move. Re-assert the full-range mapping once
   // it has settled — but only if the user hasn't stopped or moved to a new target.
   setTimeout(() => {
-    if (!aiPos.active || !aiPos.moving || aiPos.current !== p) return;
+    if (gen !== aiPosMoveGen || !aiPos.active || !aiPos.moving || aiPos.current !== p) return;
     send();
   }, 500);
 }
@@ -6598,10 +6602,18 @@ function aiPosStopAuto() {
   if (aiPosAutoTimer) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; }
 }
 function aiPosStop() {
+  aiPosMoveGen++; // invalidate any in-flight aiPosMoveTo
   if (aiPos.moving) {
     if (connected && stdCmd) stdWriteReliable("set:speed:0");   // gentle stop — no re-home
     aiPos.moving = false;
   }
+  // Re-assert the stop shortly after, so an in-flight move's speed command can't
+  // restart the rail (only while still finding the min/max points).
+  setTimeout(() => {
+    if (connected && stdCmd && !aiPos.moving && aiPos.active && (aiPos.phase === "min" || aiPos.phase === "max")) {
+      stdWriteReliable("set:speed:0");
+    }
+  }, 700);
 }
 async function aiPosFinishReturn() {
   aiPosStopAuto();
@@ -6705,8 +6717,9 @@ function aiPosHandleInput(text, inp) {
     return true;
   }
   // 2b) the app asked "is this your point?" and the user just confirmed → save it locally
-  if (!aiPos.moving && aiPos.awaitingConfirm && aiPosIsConfirm(tl)) {
+  if (aiPos.awaitingConfirm && aiPosIsConfirm(tl)) {
     if (inp) inp.value = "";
+    if (aiPos.moving) { aiPosStopAuto(); aiPosStop(); }
     monitor("local: confirm point — " + text, "ai");
     aiAddMsg("user", escapeHtml(text));
     aiPosRecordCurrent(false);
