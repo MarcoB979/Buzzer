@@ -3043,7 +3043,7 @@ function resizeCanvas() {
 // ---------- Funscript mode (video + streaming over BLE) ----------
 const funState = {
   videoUrl: null, videoName: "", scriptName: "",
-  castUrl: null, uploading: false, localFile: null, fileMeta: null, hls: null,
+  castUrl: null, castRelay: null, uploading: false, localFile: null, fileMeta: null, hls: null,
   rawActions: [], actions: [],
   maxSpeed: 100, maxDepth: 20, minDepth: 0, buffer: 100, sensation: 50,
   reverse: false, simplify: true,
@@ -3701,6 +3701,7 @@ function setFunVideo(url, name) {
   funState.videoUrl = url;
   funState.videoName = name;
   funState.castUrl = null;
+  funState.castRelay = null;
   funState.uploading = false;
   funState.localFile = null;
   const nv = $("funVideoName"); if (nv) nv.textContent = name;
@@ -3989,6 +3990,7 @@ let castMode = "media";
 let webrtcPc = null, webrtcChannel = null, webrtcIntentionalClose = false;
 let webrtcDuration = 0, webrtcPlaying = false;
 let localCastFile = null, castMsgListener = null;
+let castRelay = null; // { url, name, mime, size, meta } — phone→TV relay for Stash/URL videos
 let webrtcRetryTimer = null, webrtcGotAnswer = false;
 let castVolume = 1, castMuted = false;
 let castRemotePlayer = null, castRemoteController = null;
@@ -4095,11 +4097,14 @@ function cleanupWebrtc() {
   if (webrtcChannel) { try { webrtcChannel.close(); } catch (e) {} }
   if (webrtcPc) { try { webrtcPc.close(); } catch (e) {} }
   webrtcChannel = null; webrtcPc = null;
-  webrtcDuration = 0; webrtcPlaying = false; localCastFile = null; webrtcGotAnswer = false;
+  webrtcDuration = 0; webrtcPlaying = false; localCastFile = null; castRelay = null; webrtcGotAnswer = false;
 }
 function startWebrtcCast() {
   const session = castContext.getCurrentSession();
-  if (!session || !localCastFile) { funLog("No local video to cast."); return; }
+  if (!session) return;
+  // Pick up any stream metadata probed after the Cast button was pressed.
+  if (funState.castRelay) castRelay = funState.castRelay;
+  if (!localCastFile && !castRelay) { funLog("No video to cast."); return; }
   detachCastListener();
   castMsgListener = session.addMessageListener(CAST_NS, onCastMessage);
   funLog("Connecting to TV…");
@@ -4166,9 +4171,15 @@ function waitIceComplete(pc, timeoutMs) {
     setTimeout(finish, timeoutMs);
   });
 }
+function castSource() {
+  if (castRelay) return { name: castRelay.name || "video", size: castRelay.size || 0, mime: castRelay.mime || "", meta: castRelay.meta || null };
+  if (localCastFile) return { name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type), meta: funState.fileMeta };
+  return null;
+}
 function beginWebrtcSignaling() {
-  if (webrtcPc || !localCastFile) return;
-  sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type), meta: funState.fileMeta });
+  const src = castSource();
+  if (webrtcPc || !src) return;
+  sendCastMsg({ type: "hello", name: src.name, size: src.size, mime: src.mime, meta: src.meta });
   try {
     webrtcPc = new RTCPeerConnection({ iceServers: [] });
   } catch (e) {
@@ -4193,9 +4204,11 @@ function beginWebrtcSignaling() {
     webrtcChannel.bufferedAmountLowThreshold = 256 * 1024;
     webrtcChannel.onopen = () => {
       funLog("Streaming to TV…");
-      if (funState.fileMeta && funState.fileMeta.remux && window.MP4Box && window.MP4Box.createFile && localCastFile && localCastFile.size <= 1.5 * 1024 * 1024 * 1024) {
+      if (castRelay) {
+        streamRelayUrl(castRelay);
+      } else if (funState.fileMeta && funState.fileMeta.remux && window.MP4Box && window.MP4Box.createFile && localCastFile && localCastFile.size <= 1.5 * 1024 * 1024 * 1024) {
         streamRemuxedFile(localCastFile);
-      } else {
+      } else if (localCastFile) {
         sendFileOverChannel(localCastFile);
       }
     };
@@ -4217,7 +4230,8 @@ function beginWebrtcSignaling() {
   if (webrtcRetryTimer) clearInterval(webrtcRetryTimer);
   webrtcRetryTimer = setInterval(() => {
     if (webrtcGotAnswer) { clearInterval(webrtcRetryTimer); webrtcRetryTimer = null; return; }
-    sendCastMsg({ type: "hello", name: localCastFile.name, size: localCastFile.size, mime: guessMime(localCastFile.name, localCastFile.type), meta: funState.fileMeta });
+    const src2 = castSource();
+    if (src2) sendCastMsg({ type: "hello", name: src2.name, size: src2.size, mime: src2.mime, meta: src2.meta });
     sendOffer();
   }, 800);
 }
@@ -4415,6 +4429,207 @@ async function streamRemuxedFile(file) {
     try { ch.close(); } catch (e) {}
   }
   funLog(failed ? "Remux stream stopped early." : "Casting to TV…");
+}
+
+// ---------- Stash / URL relay: phone fetches the stream and pipes it to the TV ----------
+function probeStashHead(head) {
+  const meta = { container: "unknown", moovFront: false, fragmented: false, remux: false, codecs: "" };
+  try {
+    if (head.length >= 4 && head[0] === 0x1A && head[1] === 0x45 && head[2] === 0xDF && head[3] === 0xA3) {
+      meta.container = "webm";
+      meta.moovFront = true;
+      const vp9 = findBytes(head, [0x56, 0x50, 0x39]) >= 0;
+      const vp8 = findBytes(head, [0x56, 0x50, 0x38]) >= 0;
+      meta.codecs = vp9 ? "vp9" : (vp8 ? "vp8" : "");
+      return meta;
+    }
+    if (findBytes(head, [0x66, 0x74, 0x79, 0x70]) >= 0) {
+      meta.container = "mp4";
+      const moovIdx = findBytes(head, [0x6D, 0x6F, 0x6F, 0x76]);
+      const mdatIdx = findBytes(head, [0x6D, 0x64, 0x61, 0x74]);
+      meta.moovFront = moovIdx >= 0 && (mdatIdx < 0 || moovIdx < mdatIdx);
+      meta.fragmented = findBytes(head, [0x6D, 0x6F, 0x6F, 0x66]) >= 0;
+      meta.codecs = parseMp4Codecs(head);
+      meta.remux = meta.moovFront && !meta.fragmented;
+      return meta;
+    }
+  } catch (e) {}
+  return meta;
+}
+async function prepareRelayInfo(url, name, mime) {
+  const info = { url, name, size: 0, mime: mime || "", meta: null };
+  try {
+    const resp = await fetch(url, { headers: { Range: "bytes=0-6291455" } });
+    if (!resp.ok && resp.status !== 206) return info;
+    const ct = (resp.headers.get("Content-Type") || "").split(";")[0].trim();
+    if (ct && /^(video|application)\//i.test(ct) && !info.mime) info.mime = ct;
+    const cr = (resp.headers.get("Content-Range") || "");
+    const mm = cr.match(/\/(\d+)\s*$/);
+    if (mm) info.size = parseInt(mm[1], 10);
+    else if (resp.status === 200) {
+      const cl = resp.headers.get("Content-Length");
+      if (cl) info.size = parseInt(cl, 10);
+    }
+    // Read only the first ~6 MB (covers ftyp/moov + codec box) — never the whole file.
+    const MAX = 6 * 1024 * 1024;
+    let collected = new Uint8Array(0);
+    if (resp.body && resp.body.getReader) {
+      const reader = resp.body.getReader();
+      try {
+        while (collected.length < MAX) {
+          const part = await reader.read();
+          if (part.done) break;
+          const keep = Math.min(part.value.byteLength, MAX - collected.length);
+          const merged = new Uint8Array(collected.length + keep);
+          merged.set(collected, 0);
+          merged.set(part.value.subarray(0, keep), collected.length);
+          collected = merged;
+          if (keep < part.value.byteLength) break;
+        }
+      } finally { try { reader.cancel(); } catch (e) {} }
+    } else {
+      const buf = new Uint8Array(await resp.arrayBuffer());
+      collected = buf.length > MAX ? buf.subarray(0, MAX) : buf;
+    }
+    info.meta = probeStashHead(collected);
+  } catch (e) {}
+  return info;
+}
+async function sendUrlOverChannel(info) {
+  const ch = webrtcChannel;
+  if (!ch || !info || !info.url) return;
+  const CHUNK = 16 * 1024;
+  const waitLow = () => new Promise(r => {
+    if (!ch || ch.readyState !== "open") return r();
+    if (ch.bufferedAmount <= 256 * 1024) return r();
+    const h = () => { ch.removeEventListener("bufferedamountlow", h); r(); };
+    ch.addEventListener("bufferedamountlow", h);
+  });
+  let sent = 0, lastProg = 0;
+  try {
+    const resp = await fetch(info.url);
+    if (!resp.ok) { funLog("Relay fetch failed: HTTP " + resp.status); return; }
+    const reader = resp.body.getReader();
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (!ch || ch.readyState !== "open") break;
+      for (let i = 0; i < part.value.byteLength; i += CHUNK) {
+        if (!ch || ch.readyState !== "open") break;
+        await waitLow();
+        const piece = part.value.slice(i, Math.min(i + CHUNK, part.value.byteLength));
+        ch.send(piece);
+        sent += piece.byteLength;
+        const now = Date.now();
+        if (now - lastProg >= 1000) { lastProg = now; funLog("Sending… " + Math.round(sent / 1048576) + " MB"); }
+      }
+    }
+    if (ch && ch.readyState === "open") {
+      const deadline = Date.now() + 60000;
+      while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) await new Promise(r => setTimeout(r, 100));
+      webrtcIntentionalClose = true;
+      try { ch.close(); } catch (e) {}
+    }
+    funLog("Casting to TV…");
+  } catch (e) {
+    funLog("Relay send failed: " + (e && ((e.name ? e.name + ": " : "") + e.message)));
+  }
+}
+async function streamRemuxUrl(info) {
+  const ch = webrtcChannel;
+  if (!ch || !window.MP4Box || !window.MP4Box.createFile) { await sendUrlOverChannel(info); return; }
+  let fileBox = null;
+  try { fileBox = MP4Box.createFile(); } catch (e) { await sendUrlOverChannel(info); return; }
+  const segQueue = [];
+  let pumping = false, failed = false, readyInfo = null, sentStreamInfo = false, sentBytes = 0, fedBytes = 0;
+  const pump = async () => {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (segQueue.length && !failed) {
+        const seg = segQueue.shift();
+        if (ch && ch.readyState === "open") { try { ch.send("T:" + seg.id); } catch (e) {} }
+        sentBytes += await sendBufferOverChannel(ch, seg.buffer);
+      }
+    } finally { pumping = false; }
+  };
+  const enqueue = (id, buffer) => { segQueue.push({ id, buffer }); pump(); };
+  fileBox.onError = (e) => { if (!sentStreamInfo) failed = true; else funLog("Remux error: " + e); };
+  fileBox.onReady = (inf) => { readyInfo = inf; };
+  fileBox.onSegment = (id, user, buffer) => { if (!failed) enqueue(id, buffer); };
+
+  let setupDone = false;
+  const setupSegmentation = () => {
+    if (setupDone || !readyInfo) return;
+    setupDone = true;
+    const trackList = []; let hasVideo = false;
+    for (const t of (readyInfo.tracks || [])) {
+      if ((t.video || t.audio) && t.codec) {
+        if (t.video) hasVideo = true;
+        trackList.push({ id: t.id, codec: String(t.codec).replace(/\s/g, "") });
+      }
+    }
+    if (!trackList.length || !hasVideo) { failed = true; funLog("No playable tracks — buffering full file…"); return; }
+    try {
+      for (const tr of trackList) fileBox.setSegmentOptions(tr.id, fileBox, { nbSamples: 200 });
+      const init = fileBox.initializeSegmentation("per-track");
+      const initSegs = Array.isArray(init) ? init : [];
+      sendCastMsg({ type: "stream-info", tracks: trackList });
+      sentStreamInfo = true;
+      for (const s of initSegs) if (s && s.buffer) enqueue(s.id, s.buffer);
+      fileBox.start();
+      funLog("Remux streaming started…");
+    } catch (e) {
+      failed = true;
+      funLog("Remux setup failed — buffering full file…");
+    }
+  };
+
+  try {
+    const resp = await fetch(info.url);
+    if (!resp.ok) { funLog("Relay fetch failed: HTTP " + resp.status); return; }
+    const reader = resp.body.getReader();
+    let lastProg = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      if (!castConnected || !ch || ch.readyState !== "open") { failed = true; break; }
+      const ab = part.value.buffer.slice(part.value.byteOffset, part.value.byteOffset + part.value.byteLength);
+      ab.fileStart = fedBytes; fedBytes += ab.byteLength;
+      try { fileBox.appendBuffer(ab); fileBox.flush(); } catch (e) { failed = true; break; }
+      setupSegmentation();
+      const now = Date.now();
+      if (now - lastProg >= 2000) {
+        lastProg = now;
+        if (info.size > 0) funLog("Sending… " + Math.min(99, Math.round(sentBytes / info.size * 100)) + "%");
+        else funLog("Sending… " + Math.round(sentBytes / 1048576) + " MB");
+      }
+      while (segQueue.length > 6 && !failed && castConnected) await sleepMs(100);
+      await sleepMs(0);
+    }
+  } catch (e) {
+    funLog("Relay stream failed: " + (e && ((e.name ? e.name + ": " : "") + e.message)));
+    failed = true;
+  }
+  if (failed && !sentStreamInfo) {
+    // Never switched the TV into MSE mode — fall back to whole-file buffering.
+    if (ch && ch.readyState === "open") { funLog("Remux not possible — buffering full file…"); await sendUrlOverChannel(info); }
+    return;
+  }
+  if (!failed) { try { fileBox.flush(); } catch (e) {} }
+  while (segQueue.length || pumping) await sleepMs(100);
+  if (ch && ch.readyState === "open") {
+    const deadline = Date.now() + 60000;
+    while (ch.bufferedAmount > 0 && ch.readyState === "open" && Date.now() < deadline) await sleepMs(100);
+    webrtcIntentionalClose = true;
+    try { ch.close(); } catch (e) {}
+  }
+  funLog(failed ? "Relay stream stopped early." : "Casting to TV…");
+}
+function streamRelayUrl(info) {
+  const meta = info && info.meta;
+  if (meta && meta.remux && window.MP4Box && window.MP4Box.createFile) streamRemuxUrl(info);
+  else sendUrlOverChannel(info);
 }
 function pollCastTime() {
   if (!castConnected) return;
@@ -4874,13 +5089,17 @@ function watchCast() {
   if (!castContext || castConnected) return;
   castRemoteTime = 0; castClockBaseMs = 0; castEnded = false; castWasPlaying = false;
   const localFile = funState.localFile;
+  const relay = funState.castRelay;
   const appId = getCastAppId();
-  if (localFile && appId) {
+  if ((relay || localFile) && appId) {
     castMode = "webrtc";
-    localCastFile = localFile;
+    localCastFile = relay ? null : localFile;
+    castRelay = relay || null;
     setReceiverApp(appId);
   } else {
     castMode = "media";
+    localCastFile = null;
+    castRelay = null;
     setReceiverApp(chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID);
   }
   castContext.requestSession().catch(e => {
@@ -4892,6 +5111,7 @@ function setWatchVideo(url, name, localFile) {
   funState.videoUrl = url;
   funState.videoName = name;
   funState.castUrl = null;
+  funState.castRelay = null;
   funState.uploading = false;
   funState.localFile = localFile || null;
   funState.fileMeta = null;
@@ -4965,13 +5185,17 @@ function toggleCast() {
   if (!castContext) return;
   if (castConnected) { castContext.endCurrentSession(true); return; }
   const localFile = funState.localFile;
+  const relay = funState.castRelay;
   const appId = getCastAppId();
-  if (localFile && appId) {
+  if ((relay || localFile) && appId) {
     castMode = "webrtc";
-    localCastFile = localFile;
+    localCastFile = relay ? null : localFile;
+    castRelay = relay || null;
     setReceiverApp(appId);
   } else {
     castMode = "media";
+    localCastFile = null;
+    castRelay = null;
     setReceiverApp(chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID);
   }
   castContext.requestSession().catch(e => {
@@ -5004,8 +5228,9 @@ function updateCastButton() {
   const row = b.parentElement;
   const castable = castableUrl();
   const localFile = funState.localFile;
-  const canWebrtc = localFile && !!getCastAppId();
-  if (!castable && !canWebrtc && !localFile) { if (row) row.style.display = "none"; return; }
+  const relay = funState.castRelay;
+  const canWebrtc = (localFile || relay) && !!getCastAppId();
+  if (!castable && !canWebrtc && !localFile && !relay) { if (row) row.style.display = "none"; return; }
   if (row) row.style.display = "";
   if (!castAvailable) {
     b.disabled = true; b.textContent = "Cast";
@@ -8537,6 +8762,7 @@ async function stashLoadVideo(id, name, btn) {
     const rawStream = direct ? direct.url : (streams.length ? streams[0].url : ((sc.paths && sc.paths.stream) || ""));
     const video = stashAbs(rawStream);
     const castVideo = stashCastAbs(rawStream);
+    const streamMime = (direct && direct.mime_type) || "";
     const scriptUrl = stashAbs((sc.paths && sc.paths.funscript) || "");
     if (!video) throw new Error("no stream URL");
     if (appMode === "fun") {
@@ -8546,7 +8772,7 @@ async function stashLoadVideo(id, name, btn) {
         if (typeof Hls === "undefined") { funLog("HLS streams need internet (hls.js)."); done("HLS"); return; }
         funState.videoUrl = video;
         funState.videoName = name;
-        funState.castUrl = castVideo; funState.uploading = false; funState.localFile = null;
+        funState.castUrl = castVideo; funState.castRelay = null; funState.uploading = false; funState.localFile = null;
         const nv = $("funVideoName"); if (nv) nv.textContent = name;
         buildFunVideo(); updateCastButton(); updateStartButton();
         funState.offsetMs = 0; applyRememberedOffset();
@@ -8554,12 +8780,20 @@ async function stashLoadVideo(id, name, btn) {
         if (v) { if (funState.hls) funState.hls.destroy(); funState.hls = new Hls(); funState.hls.loadSource(video); funState.hls.attachMedia(v); }
       } else {
         setFunVideo(video, name);
-        funState.castUrl = castVideo;
+        funState.castUrl = null;
+        funState.castRelay = { url: video, name: name, mime: streamMime, size: 0, meta: null };
+        prepareRelayInfo(video, name, streamMime).then(ri => {
+          if (funState.castRelay && funState.castRelay.url === ri.url) funState.castRelay = ri;
+        });
       }
       done(scriptLoaded ? "Script + video ✓" : "Video ✓");
     } else {
       setWatchVideo(video, name, null);
-      funState.castUrl = castVideo;
+      funState.castUrl = null;
+      funState.castRelay = { url: video, name: name, mime: streamMime, size: 0, meta: null };
+      prepareRelayInfo(video, name, streamMime).then(ri => {
+        if (funState.castRelay && funState.castRelay.url === ri.url) funState.castRelay = ri;
+      });
       log("Stash video loaded — playing locally; press Cast to TV to watch on the big screen.");
       done("Loaded ✓");
     }
