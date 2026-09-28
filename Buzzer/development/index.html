@@ -2281,6 +2281,12 @@ function buildSpeed() {
   wrap.appendChild(plus);
   attachStepButton(minus, -1, input, num, lo, hi, onSet);
   attachStepButton(plus, +1, input, num, lo, hi, onSet);
+  input.setAttribute("data-action-up", "speedUp");
+  input.setAttribute("data-action-down", "speedDown");
+  num.setAttribute("data-action-up", "speedUp");
+  num.setAttribute("data-action-down", "speedDown");
+  minus.setAttribute("data-action", "speedDown");
+  plus.setAttribute("data-action", "speedUp");
 }
 
 function buildSliders() {
@@ -2313,7 +2319,7 @@ function buildSliders() {
     if (viewMode === "main") {
       for (let i = 0; i < BASE_NAMES.length; i++) {
         const r = baseRange(i);
-        const el = sliderEl(BASE_NAMES[i], r.min, r.max, Math.round(settingValue(BASE_NAMES[i])), BASE_COLORS[i], (v) => setBase(i, v));
+        const el = sliderEl(BASE_NAMES[i], r.min, r.max, Math.round(settingValue(BASE_NAMES[i])), BASE_COLORS[i], (v) => setBase(i, v), { up:"valueUp", down:"valueDown" });
         el.dataset.role = "base"; el.dataset.index = i;
         wrap.appendChild(el);
       }
@@ -2334,7 +2340,7 @@ function buildSliders() {
 
       MODIFIER_NAMES.forEach((name, mi) => {
         const s = getSetting(BASE_NAMES[bi] + name);
-        const el = sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v));
+        const el = sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v), { up:"valueUp", down:"valueDown" });
         el.dataset.role = "mod"; el.dataset.index = mi;
         wrap.appendChild(el);
       });
@@ -2342,12 +2348,12 @@ function buildSliders() {
   } else {
     if (viewMode === "main") {
       const r = baseRange(bi);
-      wrap.appendChild(sliderEl(BASE_NAMES[bi], r.min, r.max, Math.round(settingValue(BASE_NAMES[bi])), BASE_COLORS[bi], (v) => setBase(bi, v)));
+      wrap.appendChild(sliderEl(BASE_NAMES[bi], r.min, r.max, Math.round(settingValue(BASE_NAMES[bi])), BASE_COLORS[bi], (v) => setBase(bi, v), { up:"valueUp", down:"valueDown" }));
     } else {
       const mi = clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1);
       const name = MODIFIER_NAMES[mi];
       const s = getSetting(BASE_NAMES[bi] + name);
-      wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v)));
+      wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), modColor(mi), (v) => setModifier(bi, mi, v), { up:"valueUp", down:"valueDown" }));
     }
   }
 }
@@ -2358,12 +2364,12 @@ function buildFocusedSliders() {
   wrap.innerHTML = "";
   const bi = clamp(activeBaseIndex, 0, BASE_NAMES.length - 1);
   const r = baseRange(bi);
-  wrap.appendChild(sliderEl(BASE_NAMES[bi], r.min, r.max, Math.round(settingValue(BASE_NAMES[bi])), BASE_COLORS[bi], (v) => setBase(bi, v)));
+  wrap.appendChild(sliderEl(BASE_NAMES[bi], r.min, r.max, Math.round(settingValue(BASE_NAMES[bi])), BASE_COLORS[bi], (v) => setBase(bi, v), { up:"valueUp", down:"valueDown" }));
   if (viewMode === "mod") {
     const mi = clamp(activeModifierIndex, 0, MODIFIER_NAMES.length - 1);
     const name = MODIFIER_NAMES[mi];
     const s = getSetting(BASE_NAMES[bi] + name);
-    wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), BASE_COLORS[bi], (v) => setModifier(bi, mi, v)));
+    wrap.appendChild(sliderEl(name, s.min, s.max, Math.round(s.value), BASE_COLORS[bi], (v) => setModifier(bi, mi, v), { up:"valueUp", down:"valueDown" }));
   }
 }
 
@@ -2402,19 +2408,19 @@ function buildStdSliders() {
     stdWrite("set:max:" + v);
     saveStdValues();
     drawGraph();
-  }));
+  }, { up:"maxUp", down:"maxDown" }));
   wrap.appendChild(sliderEl("Min Pos", 0, 100, stdValues.min, BASE_COLORS[1], (v) => {
     stdValues.min = v;
     stdWrite("set:min:" + stdValues.min);
     saveStdValues();
     drawGraph();
-  }));
+  }, { up:"minUp", down:"minDown" }));
   wrap.appendChild(sliderEl("Sensation", 0, 100, stdValues.sensation, "#c084fc", (v) => {
     stdValues.sensation = v;
     stdWrite("set:sensation:" + v);
     saveStdValues();
     drawGraph();
-  }));
+  }, { up:"sensationUp", down:"sensationDown" }));
 
   const pg = document.createElement("div");
   pg.className = "slider-group";
@@ -2517,7 +2523,7 @@ function makeEditable(el, min, max, onSet) {
   return el;
 }
 
-function sliderEl(name, min, max, value, color, onSet) {
+function sliderEl(name, min, max, value, color, onSet, actions) {
   const g = document.createElement("div");
   g.className = "slider-group";
   g.innerHTML = `
@@ -2542,6 +2548,14 @@ function sliderEl(name, min, max, value, color, onSet) {
   const plus = g.querySelector(".step-btn.plus");
   attachStepButton(minus, -1, input, valNum, min, max, onSet);
   attachStepButton(plus, +1, input, valNum, min, max, onSet);
+  if (actions && actions.up && actions.down) {
+    input.setAttribute("data-action-up", actions.up);
+    input.setAttribute("data-action-down", actions.down);
+    valNum.setAttribute("data-action-up", actions.up);
+    valNum.setAttribute("data-action-down", actions.down);
+    minus.setAttribute("data-action", actions.down);
+    plus.setAttribute("data-action", actions.up);
+  }
   g.setValue = (v) => { input.value = v; valNum.textContent = v; };
   return g;
 }
@@ -3378,21 +3392,21 @@ function buildFunControls() {
   slidersBox.className = "fun-panel";
   wrap.appendChild(slidersBox);
 
-  slidersBox.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }));
+  slidersBox.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }, { up:"speedUp", down:"speedDown" }));
   funMaxDepthSlider = sliderEl("Max Pos", 1, 100, funState.maxDepth, "#ff0c00", v => {
     funState.maxDepth = v;
     if (funState.minDepth > v) { funState.minDepth = v; if (funMinDepthSlider) funMinDepthSlider.setValue(v); }
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
     funPrePosition();
-  });
+  }, { up:"maxUp", down:"maxDown" });
   funMinDepthSlider = sliderEl("Min Pos", 0, 99, funState.minDepth, "#ff8100", v => {
     const clamped = Math.min(v, funState.maxDepth);
     funState.minDepth = clamped;
     if (clamped !== v) funMinDepthSlider.setValue(clamped);
     stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
-  });
+  }, { up:"minUp", down:"minDown" });
   slidersBox.appendChild(funMaxDepthSlider);
   slidersBox.appendChild(funMinDepthSlider);
 
@@ -3405,6 +3419,8 @@ function buildFunControls() {
   const bufMinus = bufG.querySelector("#funBufferMinus");
   const bufPlus = bufG.querySelector("#funBufferPlus");
   bufRange.addEventListener("input", () => setFunBuffer(parseInt(bufRange.value, 10)));
+  bufRange.setAttribute("data-action-up", "bufferUp");
+  bufRange.setAttribute("data-action-down", "bufferDown");
   bufMinus.dataset.action = "bufferDown";
   bufPlus.dataset.action = "bufferUp";
   bufMinus.onclick = () => setFunBuffer(funState.buffer - 25);
@@ -3414,7 +3430,7 @@ function buildFunControls() {
     funState.sensation = v;
     try { localStorage.setItem("ossm-fun-sensation", String(v)); } catch (e) {}
     stdWrite("set:sensation:" + v);
-  });
+  }, { up:"smoothnessUp", down:"smoothnessDown" });
   slidersBox.appendChild(funSmoothSlider);
 
   const offG = document.createElement("div");
@@ -3426,6 +3442,8 @@ function buildFunControls() {
   const offMinus = offG.querySelector("#funOffsetMinus");
   const offPlus = offG.querySelector("#funOffsetPlus");
   offRange.addEventListener("input", () => setFunOffset(parseInt(offRange.value, 10)));
+  offRange.setAttribute("data-action-up", "offsetUp");
+  offRange.setAttribute("data-action-down", "offsetDown");
   offMinus.dataset.action = "offsetDown";
   offPlus.dataset.action = "offsetUp";
   offMinus.onclick = () => setFunOffset(funState.offsetMs - 100);
@@ -5090,15 +5108,21 @@ function syncWakeLock() {
 }
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else { syncWakeLock(); syncOrientationLock(); } });
 
-// ---- Disable touch: mapped buttons only respond to their controller/keyboard input ----
+// ---- Disable touch: mapped controls only respond to their controller input ----
 function disableTouchEnabled() { try { return localStorage.getItem("ossm-disable-touch") === "1"; } catch (e) { return false; } }
-function isActionMapped(id) { return !!(bindings[id] || kbBindings[id]); }
+function isPadMapped(id) { return !!(id && bindings[id]); }
 function syncDisableTouch() { document.body.classList.toggle("disable-touch", disableTouchEnabled()); }
-document.addEventListener("click", (e) => {
-  if (!disableTouchEnabled()) return;
-  const el = e.target && e.target.closest ? e.target.closest("[data-action]") : null;
-  if (el && isActionMapped(el.getAttribute("data-action"))) { e.preventDefault(); e.stopPropagation(); }
-}, true);
+function touchBlocked(target) {
+  if (!disableTouchEnabled()) return false;
+  if (!target || !target.closest) return false;
+  const el = target.closest("[data-action],[data-action-up],[data-action-down]");
+  if (!el) return false;
+  if (el.hasAttribute("data-action")) return isPadMapped(el.getAttribute("data-action"));
+  return isPadMapped(el.getAttribute("data-action-up")) || isPadMapped(el.getAttribute("data-action-down"));
+}
+document.addEventListener("click", (e) => { if (touchBlocked(e.target)) { e.preventDefault(); e.stopPropagation(); } }, true);
+document.addEventListener("pointerdown", (e) => { if (touchBlocked(e.target)) { e.preventDefault(); e.stopPropagation(); } }, true);
+document.addEventListener("touchstart", (e) => { if (touchBlocked(e.target)) { e.preventDefault(); e.stopPropagation(); } }, true);
 
 // ---------- Events ----------
 $("ble-button").onclick = connect;
