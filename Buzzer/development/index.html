@@ -5487,6 +5487,7 @@ function enterStreamingMode() {
 }
 function applyStdSafeValues() {
   stdPendingSafeSync = false;
+  if (aiPos.active || aiPos.moving) return; // position setup owns min/max — never clobber it
   stopSpeedRamp();
   stdValues.speed = 0;
   stdValues.max = STD_SAFE_MAX;
@@ -5575,7 +5576,7 @@ HOW TO CONVERSE:
   - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm.
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
   - MEMORY: only store what the user VOLUNTARILY shares about themselves (their name, role, what they like to be called, pronouns, orientation, boundaries, preferences). NEVER ask for personal details — do not quiz them about their name, orientation, pronouns or preferences, as that would be offensive. When they share something lasting on their own, note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts, and never store anything they didn't choose to share.
-  - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): a SAFE WORD must be set before any movement (that word alone triggers a full emergency stop). If your context says a safe word is already stored, tell the user what it is (e.g. "your safe word is knuckles — say \"change the safe word to …\" to pick a new one") and move on — do NOT make them re-confirm it every time. If they ask to change it (e.g. "change the safe word to xxx"), extract the new word and send {"action":"safeWord","word":"<new word>"}, and restate the saved word in your reply. Only ask them to choose one if none is stored yet. Also make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if your context says it is already confirmed OFF, do NOT ask again, just skip to moving; otherwise ask, and when they confirm send {"action":"rehomeDone"} (that is what saves it to memory). Then guide them: move the rail in steps of at most 10 at a time using {"action":"move","to":<0-100>}, and ask "a little more?" between steps. When the user asks for only a tiny adjustment ("a little more", "just a bit", "a little deeper", "a tiny bit further"), move just 2-3 units — never the full 10. Their "stop"/"here"/"good" already stops the rail — then ask them to confirm that position. When they confirm the DEEPEST point, send {"action":"record"} (that saves Max), then move back out and repeat for the shallowest point (saves Min), then agree the speed (a number, or "twice as fast" via {"action":"speedNote","speed":<n>}). Finish with {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}. If several actions are needed at once (e.g. safe word AND rehome confirmed), send "pos" as an ARRAY, e.g. [{"action":"safeWord","word":"..."},{"action":"rehomeDone"}]. After you send "done", ask the user how the word "stop" should behave during play: (a) only the safe word is a full emergency stop and "stop" gently stops the machine (ramp down, like the Start/Stop button), or (b) "stop" is also a full emergency stop. When they answer, send {"action":"stopMode","mode":"gentle"} for (a) or {"action":"stopMode","mode":"emergency"} for (b), and save it. Then confirm the safe word once more and state clearly what "stop" will now do. Finally send {"action":"ready"} — the app then slowly returns the rail to your Min position, restores the Simple Stroke pattern and announces you're ready to play. Keep your reply very short when you send "ready". Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
+  - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): a SAFE WORD must be set before any movement (that word alone triggers a full emergency stop). If your context says a safe word is already stored, tell the user what it is (e.g. "your safe word is knuckles — say \"change the safe word to …\" to pick a new one") and move on — do NOT make them re-confirm it every time. If they ask to change it (e.g. "change the safe word to xxx"), extract the new word and send {"action":"safeWord","word":"<new word>"}, and restate the saved word in your reply. Only ask them to choose one if none is stored yet. Also make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if your context says it is already confirmed OFF, do NOT ask again, just skip to moving; otherwise ask, and when they confirm send {"action":"rehomeDone"} (that is what saves it to memory). Then guide them: first send {"action":"start"} — the rail automatically moves all the way OUT to 0, so wait for it to arrive before the first move. Then slide deeper step by step using {"action":"move","to":<0-100>}, and ask "a little more?" between steps. Scale every step to their words: "a little"/"just a bit" = 1-2 units, "a little more"/"a bit more" = 2-3 units, plain "more"/"deeper" = 4-6 units, "much more"/"a lot deeper" = 8-10 units — never more than 10 in one move. Their "stop"/"here"/"good" already stops the rail — the app then asks "is this your deepest point?" (deepest/Max) or "is this your start point?" (shallowest/Min), and when they say yes the APP SAVES THE POINT AUTOMATICALLY — so do NOT send {"action":"record"} again and do NOT re-ask; just briefly acknowledge. Find the DEEPEST point first (slide in to bigger numbers), then move back OUT to smaller numbers to find the shallowest/START point. Then agree the speed (a number, or "twice as fast" via {"action":"speedNote","speed":<n>}). Finish with {"action":"done","speed":<n>} — the app applies the saved min/max automatically. If several actions are needed at once (e.g. safe word AND rehome confirmed), send "pos" as an ARRAY, e.g. [{"action":"safeWord","word":"..."},{"action":"rehomeDone"}]. After you send "done", ask the user how the word "stop" should behave during play: (a) only the safe word is a full emergency stop and "stop" gently stops the machine (ramp down, like the Start/Stop button), or (b) "stop" is also a full emergency stop. When they answer, send {"action":"stopMode","mode":"gentle"} for (a) or {"action":"stopMode","mode":"emergency"} for (b), and save it. Then confirm the safe word once more and state clearly what "stop" will now do. Finally send {"action":"ready"} — the app then slowly returns the rail to your Min position, restores the Simple Stroke pattern and announces you're ready to play. Keep your reply very short when you send "ready". Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
   - At the very start of position setup (right when you send {"action":"start"}), give ONE concise explanation of what will happen and how to work together (safe word, you move the rail in small steps, they say "stop" when it feels right, you save the points, then set the speed). After that, while the rail is moving, keep every reply to a few words at most — e.g. "ok", "a little deeper", "stopped", "is this the spot?" — never full sentences. Stay focused on the user's cues and keep listening; don't explain or chat.
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their deepest and shallowest points, then agree the speed — and ask if they want to begin.
 - SAFE WORD (global): the user's safe word triggers a FULL emergency stop at any time — during position setup AND during active play. The app catches the spoken/typed word itself instantly, so you never react to it and never treat it as a normal instruction. If the user says "change the safe word to …", extract the new word and send {"action":"safeWord","word":"<new word>"} — this works even outside position setup. The word "stop" during active play follows the user's stored preference (shown in your context): it either triggers a full emergency stop too, or it gently stops the machine (ramp down, like the Start/Stop button). The app handles "stop" itself — you never react to it.
@@ -5799,13 +5800,13 @@ function aiPosContext() {
   const rehome = "\"Home between modes\" (firmware re-home on mode switch) confirmed OFF by the user: " + (aiPosRehomeConfirmed() ? "yes" : "no") + ".";
   const stopTxt = " Stop-word behavior: \"stop\" during play = " + (aiStopMode() === "gentle" ? "gentle stop (ramp down like the Start/Stop button; only the safe word is a full emergency stop)" : "full emergency stop (same as the safe word)") + ".";
   if (!aiPos.active) return rehome + (sw ? " Safe word stored: \"" + sw + "\"." : " No safe word stored yet.") + stopTxt
-    + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} to begin, {\"action\":\"move\",\"to\":<0-100>} to move the rail in steps of at most " + AI_POS_STEP + " (just 2-3 units for \"a little more\"), {\"action\":\"record\"} to save the current spot (deepest/Max first, then shallowest/Min), {\"action\":\"speedNote\",\"speed\":<n>} for the agreed speed, and {\"action\":\"done\",\"min\":<shallowest>,\"max\":<deepest>,\"speed\":<n>} to APPLY the limits. Also {\"action\":\"safeWord\",\"word\":\"...\"} and {\"action\":\"rehomeDone\"}. Only say the rail moved when you actually just sent {\"action\":\"move\"}.";
+    + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} to begin — the rail then automatically moves all the way OUT to 0, so WAIT for it to arrive before your first move. Then {\"action\":\"move\",\"to\":<0-100>} to slide deeper step by step, {\"action\":\"record\"} to save a point, {\"action\":\"speedNote\",\"speed\":<n>} for the agreed speed, and {\"action\":\"done\"} to APPLY the saved limits. Also {\"action\":\"safeWord\",\"word\":\"...\"} and {\"action\":\"rehomeDone\"}. Only say the rail moved when you actually just sent {\"action\":\"move\"}.";
   if (aiPos.phase === "return") return "POSITION SETUP — the rail is slowly returning to the Min position and will then be ready to play. Do NOT send more moves; just wait, or answer the user briefly.";
-  return "POSITION SETUP ACTIVE — guiding the user to set their deepest (Max) and shallowest (Min) points, then speed, by feel. Phase: " + aiPos.phase + " (max = deepest point, min = shallowest point)."
+  return "POSITION SETUP ACTIVE — guiding the user to set their deepest (Max) and shallowest/start (Min) points, then speed, by feel. Phase: " + aiPos.phase + " (max = deepest point, min = shallowest START point)."
     + " Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed + " (max " + AI_POS_MAX_SPEED + " — keep it gentle)"
     + ". Safe word: " + (aiPos.safeWord ? "\"" + aiPos.safeWord + "\"" : "none yet")
     + ". " + rehome + stopTxt
-    + " Move the rail in steps of max " + AI_POS_STEP + " — but when the user asks for only a tiny adjustment (\"a little more\", \"just a bit\", \"a little deeper\"), move just 2-3 units, never the full " + AI_POS_STEP + ". Find the DEEPEST point first, then back out to the shallowest. After each move, briefly ask \"a little more?\". When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\"), the rail has ALREADY stopped and the app asks \"is this the spot?\" for you — so do NOT move again; just briefly echo the confirmation in one short line and wait. When they clearly confirm (\"yes\", \"that's the spot\", \"perfect\"), send {\"action\":\"record\"} to save that point (deepest/Max first, then shallowest/Min). After BOTH points are saved and the speed is agreed, send {\"action\":\"done\",\"min\":<shallowest>,\"max\":<deepest>,\"speed\":<n>} — that APPLIES the limits to the screen (without it, nothing shows up). Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
+    + " Scale every move to the user's wording: \"a little\"/\"just a bit\" = 1-2 units, \"a little more\"/\"a bit more\" = 2-3 units, plain \"more\"/\"deeper\" = 4-6 units, \"much more\"/\"a lot deeper\" = 8-10 units — NEVER more than 10 in one move. Find the DEEPEST point first (slide in, bigger numbers), then back OUT (smaller numbers) to find the shallowest/START point. After each move, briefly ask \"a little more?\". When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\"), the rail has ALREADY stopped and the app asks \"is this your deepest point?\" / \"is this your start point?\" — when they answer yes, the APP SAVES THE POINT AUTOMATICALLY, so do NOT send {\"action\":\"record\"} again and do NOT re-ask; just briefly acknowledge in a few words. After BOTH points are saved and the speed is agreed, send {\"action\":\"done\"} — that APPLIES the saved limits to the screen (without it, nothing shows up). Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
 }
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
@@ -6074,16 +6075,53 @@ const AI_REMIND_SAFEWORD = {
   fr: (w) => " Ton mot de sécurité est toujours \"" + w + "\" — dis \"change le mot de sécurité en …\" si tu en veux un nouveau."
 };
 const AI_POS_CONFIRM = {
-  en: { min: "Is this the spot you want as your shallowest point?", max: "Is this deep enough?", generic: "Is this the spot?" },
-  nl: { min: "Is dit je ondiepste punt?", max: "Is dit diep genoeg?", generic: "Is dit de goede plek?" },
-  de: { min: "Ist das dein flachster Punkt?", max: "Ist das tief genug?", generic: "Ist das die richtige Stelle?" },
-  fr: { min: "C'est ton point le moins profond ?", max: "C'est assez profond ?", generic: "C'est le bon endroit ?" }
+  en: { min: "Is this your START point — the shallowest spot, where each stroke should begin?", max: "Is this your DEEPEST point?", generic: "Is this the spot?" },
+  nl: { min: "Is dit je STARTPUNT — het ondiepste punt, waar elke slag begint?", max: "Is dit je DIEPSTE punt?", generic: "Is dit de goede plek?" },
+  de: { min: "Ist das dein STARTPUNKT — die flachste Stelle, an der jeder Stoß beginnt?", max: "Ist das dein TIEFSTER Punkt?", generic: "Ist das die richtige Stelle?" },
+  fr: { min: "C'est ton POINT DE DÉPART — le moins profond, là où chaque va-et-vient commence ?", max: "C'est ton point le PLUS PROFOND ?", generic: "C'est le bon endroit ?" }
 };
 function aiPosConfirmText(phase) {
   const L = AI_POS_CONFIRM[aiStoredLang()] || AI_POS_CONFIRM.en;
   if (phase === "max") return L.max;
   if (phase === "min") return L.min;
   return L.generic;
+}
+const AI_POS_SAVED = {
+  en: { max: "Saved — that's your deepest point. Say \"back out\" and we'll find your start point.", min: "Saved — that's your start point. What speed feels right?" },
+  nl: { max: "Opgeslagen — dat is je diepste punt. Zeg \"terug\" en we zoeken je startpunt.", min: "Opgeslagen — dat is je startpunt. Welke snelheid voelt goed?" },
+  de: { max: "Gespeichert — das ist dein tiefster Punkt. Sag \"zurück\" und wir suchen deinen Startpunkt.", min: "Gespeichert — das ist dein Startpunkt. Welche Geschwindigkeit passt?" },
+  fr: { max: "Enregistré — c'est ton point le plus profond. Dis \"reculer\" et on cherche ton point de départ.", min: "Enregistré — c'est ton point de départ. Quelle vitesse te convient ?" }
+};
+function aiPosIsConfirm(t) {
+  const short = t.trim().split(/\s+/).length <= 4;
+  if (!short) return false;
+  return /\b(yes|yeah|yep|yup|ya|perfect|correct|exactly|right|good|this is it|that'?s (it|the spot|good|right|perfect)|save it|keep it|ja|oui|si|da|precies|klopt|goed|dat is het|dat klopt|goed zo|genau|passt|stimmt|das ist es|c'?est bon|ça va|voila|voilà)\b/i.test(t);
+}
+function aiPosRecordCurrent(silent) {
+  const M = AI_POS_SAVED[aiStoredLang()] || AI_POS_SAVED.en;
+  if (aiPos.phase === "max" && aiPos.max === null) {
+    aiPos.max = aiPos.current;
+    aiPos.phase = "min";
+    aiPos.awaitingConfirm = null;
+    monitor("AI pos: recorded deepest (max) point " + aiPos.max, "ai");
+    if (!silent) {
+      aiAddMsg("assistant", M.max);
+      if (aiSpeakEnabled()) aiSpeak(M.max);
+    }
+    return true;
+  }
+  if (aiPos.phase === "min" && aiPos.min === null) {
+    aiPos.min = aiPos.current;
+    aiPos.phase = "speed";
+    aiPos.awaitingConfirm = null;
+    monitor("AI pos: recorded shallowest (min/start) point " + aiPos.min, "ai");
+    if (!silent) {
+      aiAddMsg("assistant", M.min);
+      if (aiSpeakEnabled()) aiSpeak(M.min);
+    }
+    return true;
+  }
+  return false;
 }
 function aiStoredLang() {
   const l = aiSpeechLang();
@@ -6416,7 +6454,8 @@ let aiPos = {
   speed: 5,               // positioning speed
   safeWord: "",
   min: null,
-  max: null
+  max: null,
+  awaitingConfirm: null   // "max" | "min" while the app waits for a yes/no on the current point
 };
 function aiPosSpeed() {
   try { const n = parseInt(localStorage.getItem("ossm-ai-pos-speed"), 10); return (isNaN(n) || n < 1) ? AI_POS_MAX_SPEED : clamp(n, 1, AI_POS_MAX_SPEED); } catch (e) { return AI_POS_MAX_SPEED; }
@@ -6444,7 +6483,7 @@ function aiSetStopMode(m) {
 }
 function aiPosReset() {
   if (aiPosSettleTimer) { clearTimeout(aiPosSettleTimer); aiPosSettleTimer = null; }
-  aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null };
+  aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null, awaitingConfirm:null };
 }
 function aiPosRestoreMode() {
   const back = aiPosReturnAp;
@@ -6463,6 +6502,7 @@ function aiPosRestoreMode() {
 // Switch the FIRMWARE into the stroke engine in the background (for position
 // setup) without changing the visible app mode.
 function aiPosEnterStd() {
+  stdPendingSafeSync = false; // cancel any pending safe-value sync — positioning sets its own min/max
   if (!connected || !stdCmd) return Promise.resolve(false);
   if ((stdStateName || "").indexOf("strokeEngine") === 0) return Promise.resolve(true);
   stdStateName = "";
@@ -6509,14 +6549,25 @@ async function aiPosMoveTo(pos) {
   // PointStroke: sensation = position between Min Pos and Max Pos.
   // Fix Min=0, Max=100 so sensation equals the absolute rail position (0-100).
   const spd = Math.min(AI_POS_MAX_SPEED, Math.max(1, Math.round(aiPos.speed)));
-  stdWriteReliable("set:min:0");
-  stdWriteReliable("set:max:100");
-  stdWriteReliable("set:pattern:" + idx);
-  stdWriteReliable("set:sensation:" + p);
-  stdWriteReliable("set:speed:" + spd);
+  const send = async () => {
+    await stdWriteReliable("set:min:0");
+    await stdWriteReliable("set:max:100");
+    await stdWriteReliable("set:pattern:" + idx);
+    await stdWriteReliable("set:sensation:" + p);
+    await stdWriteReliable("set:speed:" + spd);
+  };
+  await send();
   aiPos.speed = spd;
   aiPos.current = p;
   aiPos.moving = true;
+  // The firmware can (re)load its persisted safe stroke values right after it
+  // reports entering the stroke engine, which clobbers max=100 back to the old
+  // safe max and makes the rail barely move. Re-assert the full-range mapping once
+  // it has settled — but only if the user hasn't stopped or moved to a new target.
+  setTimeout(() => {
+    if (!aiPos.active || !aiPos.moving || aiPos.current !== p) return;
+    send();
+  }, 500);
 }
 function aiPosStop() {
   if (aiPos.moving) {
@@ -6619,9 +6670,18 @@ function aiPosHandleInput(text, inp) {
     aiPosStop();
     monitor("local: gentle stop — " + text, "ai");
     aiAddMsg("user", escapeHtml(text));
+    aiPos.awaitingConfirm = aiPos.phase; // wait for a yes/no on THIS specific point
     const q = aiPosConfirmText(aiPos.phase);
     aiAddMsg("assistant", q);
     if (aiSpeakEnabled()) aiSpeak(q);
+    return true;
+  }
+  // 2b) the app asked "is this your point?" and the user just confirmed → save it locally
+  if (!aiPos.moving && aiPos.awaitingConfirm && aiPosIsConfirm(tl)) {
+    if (inp) inp.value = "";
+    monitor("local: confirm point — " + text, "ai");
+    aiAddMsg("user", escapeHtml(text));
+    aiPosRecordCurrent(false);
     return true;
   }
   // 3) cancel the whole setup
@@ -6634,6 +6694,7 @@ function aiPosHandleInput(text, inp) {
     aiAddMsg("assistant", "Setup cancelled.");
     return true;
   }
+  aiPos.awaitingConfirm = null; // said something else — stop waiting for a yes
   return false;
 }
 function aiPosApplyEnvelope(P, canRun) {
@@ -6656,9 +6717,10 @@ function aiPosApplyEnvelope(P, canRun) {
   }
   if (a === "start") {
     aiPosReturnAp = (appMode === "ap");
-    aiPosEnterStd();   // background: switch the FIRMWARE to the stroke engine — screen stays as-is
     aiPosReset(); aiPos.active = true;
     aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "max" : "rehome") : "safeWord";
+    // Always begin fully retracted: move the rail out to 0 first, then slide in.
+    aiPosMoveTo(0);
   } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
     aiPos.safeWord = String(P.word).trim().toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
     aiPosSetSafeWord(aiPos.safeWord);
@@ -6671,10 +6733,7 @@ function aiPosApplyEnvelope(P, canRun) {
   } else if (a === "stop") {
     aiPosStop();
   } else if (a === "record") {
-    // Deepest (Max) point first, then shallowest (Min) — the user naturally
-    // starts going deeper, then backs out.
-    if (aiPos.phase === "max" && aiPos.max === null) { aiPos.max = aiPos.current; aiPos.phase = "min"; }
-    else if (aiPos.phase === "min" && aiPos.min === null) { aiPos.min = aiPos.current; aiPos.phase = "speed"; }
+    aiPosRecordCurrent(true); // silent — the AI is replying with its own message
   } else if (a === "speedNote") {
     if (typeof P.speed === "number") { aiPos.speed = clamp(Math.round(P.speed), 1, AI_POS_MAX_SPEED); aiPosSetSpeed(aiPos.speed); }
   } else if (a === "stopMode") {
@@ -6682,9 +6741,11 @@ function aiPosApplyEnvelope(P, canRun) {
   } else if (a === "ready") {
     aiPosFinishReturn();
   } else if (a === "done") {
-    const mn = clamp(Math.round(Number(P.min)), 0, 100);
-    const mx = clamp(Math.round(Number(P.max)), 0, 100);
-    const sp = clamp(Math.round(Number(P.speed)), 0, 100);
+    const haveRecorded = aiPos.min !== null && aiPos.max !== null && aiPos.min <= aiPos.max;
+    const mn = haveRecorded ? aiPos.min : clamp(Math.round(Number(P.min)), 0, 100);
+    const mx = haveRecorded ? aiPos.max : clamp(Math.round(Number(P.max)), 0, 100);
+    const rawSp = Number(P.speed);
+    const sp = (isFinite(rawSp) && rawSp >= 0) ? clamp(Math.round(rawSp), 0, 100) : 30;
     aiPosStop();
     if (mn <= mx) {
       aiApplyLimits({ minDepth: mn, maxDepth: mx, maxSpeed: sp });
