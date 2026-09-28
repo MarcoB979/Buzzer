@@ -5576,8 +5576,8 @@ HOW TO CONVERSE:
   - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm.
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
   - MEMORY: only store what the user VOLUNTARILY shares about themselves (their name, role, what they like to be called, pronouns, orientation, boundaries, preferences). NEVER ask for personal details — do not quiz them about their name, orientation, pronouns or preferences, as that would be offensive. When they share something lasting on their own, note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts, and never store anything they didn't choose to share.
-  - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): a SAFE WORD must be set before any movement (that word alone triggers a full emergency stop). If your context says a safe word is already stored, tell the user what it is (e.g. "your safe word is knuckles — say \"change the safe word to …\" to pick a new one") and move on — do NOT make them re-confirm it every time. If they ask to change it (e.g. "change the safe word to xxx"), extract the new word and send {"action":"safeWord","word":"<new word>"}, and restate the saved word in your reply. Only ask them to choose one if none is stored yet. Also make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if your context says it is already confirmed OFF, do NOT ask again, just skip to moving; otherwise ask, and when they confirm send {"action":"rehomeDone"} (that is what saves it to memory). Then guide them: first send {"action":"start"} — the rail automatically moves all the way OUT to 0, so wait for it to arrive before the first move. Then slide deeper step by step using {"action":"deeper","amount":<n>} (or {"action":"move","to":<absolute>} to go to an exact position), and ask "a little more?" between steps. To pull back out, use {"action":"out","amount":<n>}. Scale every step to their words: "a little"/"just a bit" = 1-2 units, "a little more"/"a bit more" = 2-3 units, plain "more"/"deeper" = 4-6 units, "much more"/"a lot deeper" = 8-10 units — never more than 10 in one move. Their "stop"/"here"/"good" already stops the rail — the app then asks "is this your start point?" (shallowest/Min) FIRST and later "is this your deepest point?" (deepest/Max); when they say yes the APP SAVES THE POINT AUTOMATICALLY — so do NOT send {"action":"record"} again and do NOT re-ask; just briefly acknowledge. Find the START (shallowest/Min) point FIRST (slide in and stop), then keep going DEEPER (bigger numbers) to find the deepest/Max point. Then agree the speed (a number, or "twice as fast" via {"action":"speedNote","speed":<n>}). Finish with {"action":"done","speed":<n>} — the app applies the saved min/max, moves the rail back to the start point, and returns to the play mode. Then confirm you're ready in YOUR ROLE and MOOD (e.g. "now I can fuck you good", "my cock is ready for you", "want to feel me inside you?") — never a robotic "we are ready to play". If several actions are needed at once (e.g. safe word AND rehome confirmed), send "pos" as an ARRAY, e.g. [{"action":"safeWord","word":"..."},{"action":"rehomeDone"}]. After you send "done", ask the user how the word "stop" should behave during play: (a) only the safe word is a full emergency stop and "stop" gently stops the machine (ramp down, like the Start/Stop button), or (b) "stop" is also a full emergency stop. When they answer, send {"action":"stopMode","mode":"gentle"} for (a) or {"action":"stopMode","mode":"emergency"} for (b), and save it. Then confirm the safe word once more and state clearly what "stop" will now do. Finally send {"action":"ready"} — the app then slowly returns the rail to your Min position, restores the Simple Stroke pattern and announces you're ready to play. Keep your reply very short when you send "ready". Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
-  - At the very start of position setup (right when you send {"action":"start"}), give ONE concise explanation of what will happen and how to work together (safe word, you move the rail in small steps, they say "stop" when it feels right, you save the points, then set the speed). After that, while the rail is moving, keep every reply to a few words at most — e.g. "ok", "a little deeper", "stopped", "is this the spot?" — never full sentences. Stay focused on the user's cues and keep listening; don't explain or chat.
+  - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): a SAFE WORD must be set before any movement (that word alone triggers a full emergency stop). If your context says a safe word is already stored, tell the user what it is (e.g. "your safe word is knuckles — say \"change the safe word to …\" to pick a new one") and move on — do NOT make them re-confirm it every time. If they ask to change it (e.g. "change the safe word to xxx"), extract the new word and send {"action":"safeWord","word":"<new word>"}, and restate the saved word in your reply. Only ask them to choose one if none is stored yet. Also make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if your context says it is already confirmed OFF, do NOT ask again, just skip to moving; otherwise ask, and when they confirm send {"action":"rehomeDone"} (that is what saves it to memory). Then guide them: send {"action":"start"} and in "reply" playfully announce (in your role) that you're starting to move — e.g. "lie still, I'm going to slide in slowly…". After "start" the APP drives the rail automatically: it slides deeper in gentle steps of 5 with a short pause between steps, while you LISTEN — do NOT send "move"/"deeper"/"out" during this, the app moves on its own. When the user says a stop word ("stop", "that's it", "here", "right there", "yes", "that's the point"), the rail stops and the app asks "is this your start point?" (shallowest/Min) FIRST; when they say yes the APP SAVES THE POINT AUTOMATICALLY and then keeps sliding DEEPER to find the deepest/Max point — so do NOT send {"action":"record"} again and do NOT re-ask; just briefly acknowledge and keep listening. The START (shallowest/Min) point is found first, then the rail keeps going DEEPER (bigger numbers) to find the deepest/Max point. When the deepest point is saved, ask for the speed (a number, or "twice as fast"). Finish with {"action":"done","speed":<n>} — the app applies the saved min/max, moves the rail back to the start point, and returns to the play mode. Then confirm you're ready in YOUR ROLE and MOOD (e.g. "now I can fuck you good", "my cock is ready for you", "want to feel me inside you?") — never a robotic "we are ready to play". Only use "move"/"deeper"/"out" for a tiny manual nudge the user asks for AFTER the rail has already stopped. If several actions are needed at once (e.g. safe word AND rehome confirmed), send "pos" as an ARRAY, e.g. [{"action":"safeWord","word":"..."},{"action":"rehomeDone"}]. After you send "done", ask the user how the word "stop" should behave during play: (a) only the safe word is a full emergency stop and "stop" gently stops the machine (ramp down, like the Start/Stop button), or (b) "stop" is also a full emergency stop. When they answer, send {"action":"stopMode","mode":"gentle"} for (a) or {"action":"stopMode","mode":"emergency"} for (b), and save it. Then confirm the safe word once more and state clearly what "stop" will now do. Finally send {"action":"ready"} — the app then slowly returns the rail to your Min position, restores the Simple Stroke pattern and announces you're ready to play. Keep your reply very short when you send "ready". Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
+  - At the very start of position setup (right when you send {"action":"start"}), give ONE short playful announcement in your role. After that, while the rail auto-moves, keep every reply to a few words at most — e.g. "ok", "keep going", "stopped" — never full sentences. Stay focused on the user's cues and keep listening; don't explain or chat.
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their deepest and shallowest points, then agree the speed — and ask if they want to begin.
 - SAFE WORD (global): the user's safe word triggers a FULL emergency stop at any time — during position setup AND during active play. The app catches the spoken/typed word itself instantly, so you never react to it and never treat it as a normal instruction. If the user says "change the safe word to …", extract the new word and send {"action":"safeWord","word":"<new word>"} — this works even outside position setup. The word "stop" during active play follows the user's stored preference (shown in your context): it either triggers a full emergency stop too, or it gently stops the machine (ramp down, like the Start/Stop button). The app handles "stop" itself — you never react to it.
 - GO TO MIN before play (numbers mode): right after the user has confirmed their numbers (and "limits" is applied), ask: "Should I send the OSSM to your Min position first so it starts from the shallow end?" If they say yes, use "set" to choose Pattern "Go to Point", Min Pos <their min>, Max Pos <their max>, Sensation 0 (Sensation 0 = Min, 100 = Max), and tell them to press Start to move there. When they say it has arrived, use "set" to restore Pattern "Simple Stroke", Sensation 50 and Speed 0, and tell them it's ready to play. Never start the machine yourself unless your context says you may.
@@ -5590,7 +5590,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
 - "run" (optional, ONLY when your context says you are allowed to start/pause): "start", "pause", or "home" (to force a full homing procedure). Otherwise leave it null.
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
-- "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin; {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; a move as {"action":"move","to":<0-100>} (absolute position) or {"action":"deeper","amount":<n>}/{"action":"increase","amount":<n>} (move in by n) or {"action":"out","amount":<n>}/{"action":"decrease","amount":<n>} (move out by n); {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
+- "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin (the app then auto-moves the rail — you just listen); {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; a manual nudge (ONLY AFTER the rail has stopped) as {"action":"move","to":<0-100>} (absolute position) or {"action":"deeper","amount":<n>}/{"action":"increase","amount":<n>} (move in by n) or {"action":"out","amount":<n>}/{"action":"decrease","amount":<n>} (move out by n); {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to prompt the user to connect (you can't pair Bluetooth yourself). Otherwise null.
 - "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
 - "video" (optional): play one of the user's videos — {"url":"<the exact url from your FAVORITE VIDEOS context>"}, a local one {"local":"<the exact file name from your LOCAL VIDEOS context>"}, or a Stash scene {"stash":<the id from your STASH LIBRARY context>}. Use it when the user asks to watch porn or put something on: match their mood/kinks to the STASH LIBRARY tags and performers when possible; otherwise pick a favorite or local file at random, or ask which they want (translating the title into the language you're replying in). Playing it switches the app to the Funscript screen automatically, so just tell them it's playing — never ask them to find the video or cast it. Otherwise null.
@@ -5806,7 +5806,7 @@ function aiPosContext() {
     + " Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed + " (max " + AI_POS_MAX_SPEED + " — keep it gentle)"
     + ". Safe word: " + (aiPos.safeWord ? "\"" + aiPos.safeWord + "\"" : "none yet")
     + ". " + rehome + stopTxt
-    + " Scale every move to the user's wording: \"a little\"/\"just a bit\" = 1-2 units, \"a little more\"/\"a bit more\" = 2-3 units, plain \"more\"/\"deeper\" = 4-6 units, \"much more\"/\"a lot deeper\" = 8-10 units — NEVER more than 10 in one move. Find the START (shallowest/Min) point FIRST (slide in and stop), then keep going DEEPER (bigger numbers) to find the deepest/Max point. After each move, briefly ask \"a little more?\". When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\"), the rail has ALREADY stopped and the app asks \"is this your start point?\" first, then \"is this your deepest point?\" — when they answer yes, the APP SAVES THE POINT AUTOMATICALLY, so do NOT send {\"action\":\"record\"} again and do NOT re-ask; just briefly acknowledge in a few words. After BOTH points are saved and the speed is agreed, send {\"action\":\"done\"} — that APPLIES the saved limits, moves the rail back to the start point, and returns to the play mode (the app handles this silently; you just confirm in your role). Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
+    + " THE APP NOW MOVES THE RAIL AUTOMATICALLY in gentle steps of 5 (with a short pause between steps) — do NOT send move actions; just listen and react in a few words. Find the START (shallowest/Min) point FIRST (sliding in), then keep going DEEPER (bigger numbers) to find the deepest/Max point. When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\", \"yes\"), the rail has ALREADY stopped and the app asks \"is this your start point?\" first, then \"is this your deepest point?\" — when they answer yes, the APP SAVES THE POINT AUTOMATICALLY and keeps moving, so do NOT send {\"action\":\"record\"} again and do NOT re-ask; just briefly acknowledge in a few words. After BOTH points are saved and the speed is agreed, send {\"action\":\"done\"} — that APPLIES the saved limits, moves the rail back to the start point, and returns to the play mode (the app handles this silently; you just confirm in your role). Only use \"move\"/\"deeper\"/\"out\" for a tiny manual nudge AFTER the rail has stopped. Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
 }
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
@@ -6108,6 +6108,7 @@ function aiPosRecordCurrent(silent) {
       aiAddMsg("assistant", M.min);
       if (aiSpeakEnabled()) aiSpeak(M.min);
     }
+    aiPosStartAuto(); // keep advancing deeper to find the deepest point
     return true;
   }
   if (aiPos.phase === "max" && aiPos.max === null) {
@@ -6442,9 +6443,12 @@ function aiLocalInterpret(text) {
 }
 
 // ---------- AI-guided position setup (set Min/Max by feel) ----------
-const AI_POS_STEP = 10;   // max move per step
+const AI_POS_STEP = 10;   // max move per step (manual moves)
 const AI_POS_MAX_SPEED = 5; // positioning is always gentle — never faster than this
+const AI_POS_AUTO_STEP = 5;   // auto-advance chunk size while finding points
+const AI_POS_AUTO_INTERVAL = 3000; // ms between auto-advance chunks (move + brief pause)
 let aiPosSettleTimer = null;
+let aiPosAutoTimer = null;
 let aiPosReturnAp = false; // position setup used the stroke engine in the background; restore the firmware to AP after
 let aiPos = {
   active: false,
@@ -6455,7 +6459,8 @@ let aiPos = {
   safeWord: "",
   min: null,
   max: null,
-  awaitingConfirm: null   // "max" | "min" while the app waits for a yes/no on the current point
+  awaitingConfirm: null,  // "max" | "min" while the app waits for a yes/no on the current point
+  autoMoving: false       // rail auto-advances in chunks while finding min/max
 };
 function aiPosSpeed() {
   try { const n = parseInt(localStorage.getItem("ossm-ai-pos-speed"), 10); return (isNaN(n) || n < 1) ? AI_POS_MAX_SPEED : clamp(n, 1, AI_POS_MAX_SPEED); } catch (e) { return AI_POS_MAX_SPEED; }
@@ -6483,7 +6488,8 @@ function aiSetStopMode(m) {
 }
 function aiPosReset() {
   if (aiPosSettleTimer) { clearTimeout(aiPosSettleTimer); aiPosSettleTimer = null; }
-  aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null, awaitingConfirm:null };
+  if (aiPosAutoTimer) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; }
+  aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null, awaitingConfirm:null, autoMoving:false };
 }
 function aiPosRestoreMode() {
   const back = aiPosReturnAp;
@@ -6574,6 +6580,23 @@ async function aiPosMoveTo(pos) {
 function aiPosMoveBy(delta) {
   aiPosMoveTo(Math.round((aiPos.current || 0) + delta));
 }
+function aiPosStartAuto() {
+  if (aiPos.autoMoving) return;
+  aiPos.autoMoving = true;
+  if (aiPosAutoTimer) clearInterval(aiPosAutoTimer);
+  aiPosAutoTimer = setInterval(() => {
+    if (!aiPos.autoMoving || !aiPos.active) return;
+    if (aiPos.phase !== "min" && aiPos.phase !== "max") { aiPosStopAuto(); return; }
+    if (!connected || !stdCmd) return;
+    const next = Math.round((aiPos.current || 0) + AI_POS_AUTO_STEP);
+    if (next > 100) { aiPosStopAuto(); return; }
+    aiPosMoveTo(next);
+  }, AI_POS_AUTO_INTERVAL);
+}
+function aiPosStopAuto() {
+  aiPos.autoMoving = false;
+  if (aiPosAutoTimer) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; }
+}
 function aiPosStop() {
   if (aiPos.moving) {
     if (connected && stdCmd) stdWriteReliable("set:speed:0");   // gentle stop — no re-home
@@ -6581,6 +6604,7 @@ function aiPosStop() {
   }
 }
 async function aiPosFinishReturn() {
+  aiPosStopAuto();
   // If the AI recorded points by feel but never sent "done", apply them now so the
   // limits actually update on screen (defensive — "done" should normally do this).
   if (aiPos.min !== null && aiPos.max !== null && aiPos.min <= aiPos.max) {
@@ -6670,6 +6694,7 @@ function aiPosHandleInput(text, inp) {
   // 2) "stop"-like words while moving → gentle stop (instant, no emergency)
   if (aiPos.moving && aiPosIsGentleStop(tl)) {
     if (inp) inp.value = "";
+    aiPosStopAuto();
     aiPosStop();
     monitor("local: gentle stop — " + text, "ai");
     aiAddMsg("user", escapeHtml(text));
@@ -6722,8 +6747,9 @@ function aiPosApplyEnvelope(P, canRun) {
     aiPosReturnAp = (appMode === "ap");
     aiPosReset(); aiPos.active = true;
     aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
-    // Always begin fully retracted: move the rail out to 0 first, then slide in.
+    // Always begin fully retracted, then auto-advance deeper in chunks of 5.
     aiPosMoveTo(0);
+    aiPosStartAuto();
   } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
     aiPos.safeWord = String(P.word).trim().toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
     aiPosSetSafeWord(aiPos.safeWord);
@@ -6732,14 +6758,19 @@ function aiPosApplyEnvelope(P, canRun) {
     aiPosSetRehomeConfirmed();
     aiPos.phase = aiPos.safeWord ? ((aiPos.min === null) ? "min" : "max") : "safeWord";
   } else if (a === "move" && typeof P.to === "number") {
+    aiPosStopAuto();
     aiPosMoveTo(P.to);
   } else if ((a === "move_absolute" || a === "position" || a === "goto" || a === "go_to" || a === "absolute") && (typeof P.to === "number" || typeof P.position === "number")) {
+    aiPosStopAuto();
     aiPosMoveTo(typeof P.to === "number" ? P.to : P.position);
   } else if ((a === "increase" || a === "in" || a === "deeper" || a === "forward") && typeof P.amount === "number") {
+    aiPosStopAuto();
     aiPosMoveBy(P.amount);
   } else if ((a === "decrease" || a === "out" || a === "shallower" || a === "back" || a === "backward") && typeof P.amount === "number") {
+    aiPosStopAuto();
     aiPosMoveBy(-P.amount);
   } else if (a === "stop") {
+    aiPosStopAuto();
     aiPosStop();
   } else if (a === "record") {
     aiPosRecordCurrent(true); // silent — the AI is replying with its own message
