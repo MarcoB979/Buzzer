@@ -1166,23 +1166,20 @@ const STD_STATE_UUID      = "522b443a-4f53-534d-2000-420badbabe69";
 const STD_PATTERNS_UUID   = "522b443a-4f53-534d-3000-420badbabe69";
 const STD_SENPTL_UUID     = "4f53534d-456e-6769-6e65-5061744c7374";
 const STREAM_UUID         = "4f53534d-436f-6d6d-6f6e-53747265616D";
-const STD_PATTERN_FALLBACK = ["Simple Stroke", "Teasing Pounding", "Robo Stroke", "Half'n'Half", "Half'n'Out", "Deeper", "Stop'n'Go", "Insist", "Progressive Stroke", "Knot Stroke", "Slap Stroke", "Random Stroke", "Go to Point"];
+const STD_PATTERN_FALLBACK = ["Simple Stroke", "Teasing Pounding", "Robo Stroke", "Half'n'Half", "Deeper", "Stop'n'Go", "Insist", "Progressive Stroke", "Random Stroke", "Go to Point"];
 const STD_PATTERN_DESC_FALLBACK = [
   "Acceleration, coasting, deceleration equally split; sensation adds randomness in stroke.",
   "Speed shifts with sensation; balances faster strokes.",
   "Sensation varies acceleration; from robotic to gradual.",
   "Full and half depth strokes alternate; sensation affects speed.",
-  "Full and half depth strokes alternate on pull out; sensation affects speed.",
   "Stroke depth increases per cycle; sensation sets count.",
   "Pauses between strokes; sensation adjusts length.",
   "Stroke length decreases per cycle; sensation sets count.",
   "Strokes are made of substrokes controlled by sensation.",
-  "Splits stroke into three parts by sensation.",
-  "Slapping style stroke with a delay determined by sensation.",
   "Random stroke; sensation controls maximum randomness from current location.",
   "Moves to a point between depth and stroke based on sensation."
 ];
-const STD_KNOWN_PATTERN_COUNT = 13;  // matches the OSSM-Lite firmware's 13 stroke patterns
+const STD_KNOWN_PATTERN_COUNT = 10;  // indices 0..9 have graph renderers; newer ones show no line
 
 let device = null, server = null;
 let ctlChar = null, cfgChar = null, stsChar = null, prsChar = null;
@@ -1235,6 +1232,7 @@ function saveStdValues() {
 let stdPendingSafeSync = false;
 let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
 let stdStateName = "";
+let stdDepth = null;   // current rail position 0-100 (lite firmware reports "depth")
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
 let stdRunning = false;
 let lastNonZeroSpeed = 0;
@@ -1647,6 +1645,7 @@ function parseStdState(raw) {
   if (typeof j.speed === "number" && !speedRampActive) stdValues.speed = Math.round(j.speed);
   if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
+  if (typeof j.depth === "number") stdDepth = Math.round(j.depth);
   if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
   if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
   if (typeof j.state === "string") stdStateName = j.state;
@@ -2851,11 +2850,11 @@ function trapEase(t, x) {
 function stdPatternPeriod(pattern, sensation) {
   const rampN = Math.max(1, strokeRampCount(sensation));
   switch (pattern) {
-    case 0: case 1: case 2: case 6: case 12: return 2;   // Simple/Teasing/Robo/StopNGo/PointStroke
-    case 3: case 4: return 4;                            // HalfnHalf / HalfnOut
-    case 5: case 7: return 2 * rampN;                    // Deeper / Insist
-    case 8: return 2 * (2 * rampN - 1);                  // ProgressiveStroke
-    case 11: return 24;                                  // RandomStroke
+    case 0: case 1: case 2: case 5: case 9: return 2;
+    case 3: return 4;
+    case 4: case 6: return 2 * rampN;
+    case 7: return 2 * (2 * rampN - 1);
+    case 8: return 24;
     default: return 2;
   }
 }
@@ -2902,7 +2901,7 @@ function stdPatternTargets(pattern, depth, stroke, sensation, moves) {
       }
       case 1: // TeasingPounding
       case 2: // RoboStroke
-      case 6: // StopNGo (position envelope; pauses are timing-only)
+      case 5: // StopNGo (position envelope; pauses are timing-only)
         pos = (i % 2) ? depth - stroke : depth;
         break;
       case 3: { // HalfnHalf
@@ -2912,7 +2911,7 @@ function stdPatternTargets(pattern, depth, stroke, sensation, moves) {
         else pos = (depth - stroke) + s;
         break;
       }
-      case 5: { // Deeper
+      case 4: { // Deeper
         if (i % 2) pos = depth - stroke;
         else {
           const slope = Math.min(stroke, depth) / rampN;
@@ -2921,7 +2920,7 @@ function stdPatternTargets(pattern, depth, stroke, sensation, moves) {
         }
         break;
       }
-      case 7: { // Insist
+      case 6: { // Insist
         if (i % 2) pos = depth;
         else {
           const slope = Math.min(stroke, depth) / rampN;
@@ -2930,7 +2929,7 @@ function stdPatternTargets(pattern, depth, stroke, sensation, moves) {
         }
         break;
       }
-      case 8: { // ProgressiveStroke
+      case 7: { // ProgressiveStroke
         const segmentLength = Math.min(stroke, depth) / rampN;
         const fullCycleIndex = Math.floor(i / 2) % (rampN * 2 - 1);
         let position = fullCycleIndex % rampN;
@@ -2943,7 +2942,7 @@ function stdPatternTargets(pattern, depth, stroke, sensation, moves) {
         pos = depth - segmentLength * position;
         break;
       }
-      case 11: { // RandomStroke
+      case 8: { // RandomStroke
         const maxRange = Math.min(depth, stroke);
         const maxStroke = maxRange * (sensation / 250 + 0.5);
         let dist = maxRange;
@@ -2955,7 +2954,7 @@ function stdPatternTargets(pattern, depth, stroke, sensation, moves) {
         lastTarget = pos;
         break;
       }
-      case 12: { // PointStroke
+      case 9: { // PointStroke
         const offset = stroke * (1 - ((sensation + 100) / 200));
         pos = depth - offset;
         break;
@@ -2989,7 +2988,7 @@ function drawStdGraph() {
     ctx.strokeStyle = DOT_MAIN; ctx.lineWidth = 2; ctx.lineJoin = "round";
     ctx.beginPath();
 
-    if (pattern === 12) { // PointStroke: flat line at the point
+    if (pattern === 9) { // PointStroke: flat line at the point
       const offset = stroke * (1 - ((sensation + 100) / 200));
       const pos = clamp(depth - offset, 0, 100);
       const y = yMin + (1 - pos / 100) * ySpan;
@@ -6719,17 +6718,16 @@ function aiLocalInterpret(text) {
 const AI_POS_STEP = 10;   // max move per step (manual moves)
 const AI_POS_MAX_SPEED = 10; // positioning speed while finding points
 const AI_POS_AUTO_STEP = 1;   // auto-advance step size while finding points
+const AI_POS_AUTO_INTERVAL = 3000; // ms between auto-advance chunks (move + brief pause)
 const AI_POS_RETRACT_SPEED = 10; // faster retraction back to 0 at setup start
 const AI_POS_RETRACT_RAMP = 20;  // ramp up to this while retracting
 const AI_POS_ZERO_TIMEOUT = 10000; // ms to wait for the rail to reach 0 before proceeding
-const AI_POS_STEP_DELAY = 250;    // ms per auto-advance step (position is tracked deterministically)
-const AI_POS_GLIDE_SPEED = 5;    // gentle glide speed while finding points
-const AI_POS_GLIDE_TICK = 200;   // ms per 1-unit step while gliding (position is tracked deterministically)
+const AI_POS_ARRIVE_TOL = 1;      // the rail is "at" a step within this many units
+const AI_POS_STEP_DELAY = 250;    // ms between steps if the position can't be read (fluent fallback)
+const AI_POS_GLIDE_SPEED = 5;    // gentle continuous glide speed while finding points
 const AI_CHANGE_LIMIT = 10;       // max change per AI command while the machine is running
 let aiPosSettleTimer = null;
 let aiPosAutoTimer = null;
-let aiPosGlideTimer = null;      // stepped-glide timer (advances sensation = position)
-let aiPosRetractTimer = null;    // retract-to-zero settle timer
 let aiPosMoveGen = 0;    // incremented on stop to invalidate in-flight aiPosMoveTo calls
 let aiPosReturnAp = false; // position setup used the stroke engine in the background; restore the firmware to AP after
 let aiPos = {
@@ -6772,8 +6770,6 @@ function aiSetStopMode(m) {
 function aiPosReset() {
   if (aiPosSettleTimer) { clearTimeout(aiPosSettleTimer); aiPosSettleTimer = null; }
   if (aiPosAutoTimer) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; }
-  if (aiPosGlideTimer) { clearTimeout(aiPosGlideTimer); aiPosGlideTimer = null; }
-  if (aiPosRetractTimer) { clearTimeout(aiPosRetractTimer); aiPosRetractTimer = null; }
   aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null, awaitingConfirm:null, autoMoving:false, maxSpeed:null };
 }
 function aiPosRestoreMode() {
@@ -6815,10 +6811,10 @@ function aiPosWaitStd() {
   });
 }
 function aiPosPointIndex() {
-  // "Go to Point" pattern (StrokePatterns::PointStroke). Its index is looked up
-  // in the loaded pattern list; on the OSSM-Lite firmware it is enum index 12.
+  // "Go to Point" pattern. Its index is looked up in the loaded pattern list;
+  // the fallback list has 10 patterns (0-9), where "Go to Point" is index 9.
   const p = stdPatterns.find(x => /go to point|point stroke|point/i.test((x.name || "").toLowerCase()));
-  return (p && typeof p.idx === "number" && p.idx >= 0) ? p.idx : 12;
+  return (p && typeof p.idx === "number" && p.idx >= 0) ? p.idx : 9;
 }
 function aiPosSimplePatternIndex() {
   const p = stdPatterns.find(x => /simple/i.test((x.name || "").toLowerCase()));
@@ -6866,6 +6862,7 @@ function aiPosRetractToZero() {
   monitor("AI pos: retracting to 0…", "ai");
   aiPos.current = 0;
   aiPos.moving = false;
+  stdDepth = null; // ignore any stale position while we wait for a fresh reading
   const idx = aiPosPointIndex();
   const sendRetract = (spd) => {
     if (!connected || !stdCmd || idx < 0) return;
@@ -6879,69 +6876,72 @@ function aiPosRetractToZero() {
     sendRetract(AI_POS_RETRACT_SPEED);
     setTimeout(() => { if (aiPos.active && aiPos.phase === "retract") sendRetract(AI_POS_RETRACT_RAMP); }, 800);
   });
-  // The OSSM-Lite firmware does not report the actual rail position over BLE
-  // (its state JSON "depth" is the max-depth SETTING), so we wait a fixed
-  // retract time before sweeping inward instead of trying to read "0".
-  if (aiPosRetractTimer) clearTimeout(aiPosRetractTimer);
-  aiPosRetractTimer = setTimeout(() => {
-    aiPosRetractTimer = null;
-    if (!aiPos.active || aiPos.phase !== "retract") return;
-    monitor("AI pos: rail at 0 — gliding inward to find the start point", "ai");
-    aiPos.phase = "min";
-    aiPosGlide();
-  }, AI_POS_ZERO_TIMEOUT);
+  const t0 = Date.now();
+  const iv = setInterval(() => {
+    if (!aiPos.active || aiPos.phase !== "retract") { clearInterval(iv); return; }
+    const atZero = (typeof stdDepth === "number" && stdDepth <= 3);
+    if (atZero || (Date.now() - t0) >= AI_POS_ZERO_TIMEOUT) {
+      clearInterval(iv);
+      monitor("AI pos: rail at 0 — gliding inward to find the start point", "ai");
+      aiPos.phase = "min";
+      aiPosGlide();
+    }
+  }, 250);
 }
 function aiPosGlide() {
-  // Deterministic glide: PointStroke with min=0/max=100 moves the rail to
-  // "sensation" (0-100). We step the sensation by 1 unit per tick so
-  // aiPos.current always equals the rail position — the Lite firmware does not
-  // report actual position, so reading it back is impossible.
   const idx = aiPosPointIndex();
-  if (idx < 0) return;
-  aiPos.moving = true;
-  aiPosEnterStd().then(() => {
-    if (!connected || !stdCmd || !aiPos.active || !aiPos.moving) return;
+  const send = () => {
+    if (!connected || !stdCmd || idx < 0) return;
     stdWriteReliable("set:min:0");
     stdWriteReliable("set:max:100");
+    stdWriteReliable("set:sensation:100");
     stdWriteReliable("set:pattern:" + idx);
     stdWriteReliable("set:speed:" + AI_POS_GLIDE_SPEED);
-    aiPosGlideStep(aiPos.current || 0);
-  });
+  };
+  aiPosEnterStd().then(send);
+  aiPos.moving = true;
 }
-function aiPosGlideStep(pos) {
-  if (!aiPos.active || !aiPos.moving || (aiPos.phase !== "min" && aiPos.phase !== "max")) {
-    aiPosGlideTimer = null;
-    return;
+async function aiPosReadActual() {
+  if (connected && stdState) {
+    try {
+      const raw = await stdState.readValue();
+      const j = JSON.parse(decode(raw));
+      if (typeof j.depth === "number") return Math.round(clamp(j.depth, 0, 100));
+    } catch (e) {}
   }
-  const p = Math.min(100, Math.round(clamp(pos, 0, 100)));
-  aiPos.current = p;
-  if (p >= 100) { aiPosGlideTimer = null; return; } // reached full depth — hold here
-  if (connected && stdCmd) stdWriteReliable("set:sensation:" + p);
-  aiPosGlideTimer = setTimeout(() => aiPosGlideStep(p + AI_POS_AUTO_STEP), AI_POS_GLIDE_TICK);
+  return null;
 }
 function aiPosStopAndRecord() {
-  // The rail position is tracked deterministically (aiPos.current = the last
-  // commanded PointStroke sensation = the position). The Lite firmware exposes
-  // no actual-position field, so we record the commanded step.
-  if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
-  const cur = Math.round(clamp(aiPos.current || 0, 0, 100));
-  if (aiPos.phase === "min" && aiPos.min === null) {
-    aiPos.min = cur;
-    aiPos.phase = "max";
-    monitor("AI pos: recorded shallowest (min/start) point " + aiPos.min, "ai");
-    aiAddMsg("assistant", aiPosGotText("min", aiPos.min));
-    if (aiSpeakEnabled()) aiSpeak(aiPosGotText("min", aiPos.min));
-    aiPosGlide(); // glide deeper to find the deepest point
-  } else if (aiPos.phase === "max" && aiPos.max === null) {
-    aiPos.max = cur;
-    aiPos.phase = "speed";
-    monitor("AI pos: recorded deepest (max) point " + aiPos.max, "ai");
-    aiAddMsg("assistant", aiPosGotText("max", aiPos.max));
-    if (aiSpeakEnabled()) aiSpeak(aiPosGotText("max", aiPos.max));
-    const q = aiPosSpeedAskText();
-    aiAddMsg("assistant", q);
-    if (aiSpeakEnabled()) aiSpeak(q);
-  }
+  // Give the rail a moment to stop and the device to report its real position,
+  // then read and save the ACTUAL position (not the commanded target).
+  setTimeout(async () => {
+    if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
+    const pos = await aiPosReadActual();
+    if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
+    const got = (pos !== null) ? pos : ((typeof stdDepth === "number") ? stdDepth : null);
+    if (got === null) {
+      aiAddMsg("system", "I couldn't read the rail position — say stop again.");
+      return;
+    }
+    const cur = Math.round(clamp(got, 0, 100));
+    if (aiPos.phase === "min" && aiPos.min === null) {
+      aiPos.min = cur;
+      aiPos.phase = "max";
+      monitor("AI pos: recorded shallowest (min/start) point " + aiPos.min, "ai");
+      aiAddMsg("assistant", aiPosGotText("min", aiPos.min));
+      if (aiSpeakEnabled()) aiSpeak(aiPosGotText("min", aiPos.min));
+      aiPosGlide(); // glide deeper to find the deepest point
+    } else if (aiPos.phase === "max" && aiPos.max === null) {
+      aiPos.max = cur;
+      aiPos.phase = "speed";
+      monitor("AI pos: recorded deepest (max) point " + aiPos.max, "ai");
+      aiAddMsg("assistant", aiPosGotText("max", aiPos.max));
+      if (aiSpeakEnabled()) aiSpeak(aiPosGotText("max", aiPos.max));
+      const q = aiPosSpeedAskText();
+      aiAddMsg("assistant", q);
+      if (aiSpeakEnabled()) aiSpeak(q);
+    }
+  }, 400);
 }
 function aiPosStartAuto() {
   if (aiPos.autoMoving) return;
@@ -6954,18 +6954,22 @@ function aiPosAutoAdvance() {
   if (!connected || !stdCmd) { aiPosStopAuto(); return; }
   const target = Math.round((aiPos.current || 0) + AI_POS_AUTO_STEP);
   if (target > 100) { aiPosStopAuto(); return; }
+  stdDepth = null; // wait for a fresh position reading for this step
   aiPosMoveTo(target).then(() => {
     if (!aiPos.autoMoving || !aiPos.active) return;
     if (aiPos.phase !== "min" && aiPos.phase !== "max") { aiPosStopAuto(); return; }
+    const t0 = Date.now();
     if (aiPosAutoTimer) clearInterval(aiPosAutoTimer);
-    // No actual-position field exists on the Lite firmware, so advance on a
-    // fixed cadence; aiPos.current (the commanded step) is the position.
-    aiPosAutoTimer = setTimeout(() => {
-      aiPosAutoTimer = null;
-      if (!aiPos.autoMoving || !aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
-      monitor("AI pos: step " + target, "ai");
-      aiPosAutoAdvance();
-    }, AI_POS_STEP_DELAY);
+    aiPosAutoTimer = setInterval(() => {
+      if (!aiPos.autoMoving || !aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; return; }
+      const arrived = (typeof stdDepth === "number" && Math.abs(stdDepth - target) <= AI_POS_ARRIVE_TOL);
+      const delayElapsed = (Date.now() - t0) >= AI_POS_STEP_DELAY;
+      if (arrived || delayElapsed) {
+        clearInterval(aiPosAutoTimer); aiPosAutoTimer = null;
+        monitor("AI pos: step " + target + (typeof stdDepth === "number" ? " (rail at " + stdDepth + ")" : " (rail position unknown)"), "ai");
+        aiPosAutoAdvance();
+      }
+    }, 50);
   });
 }
 function aiPosStopAuto() {
@@ -6974,7 +6978,6 @@ function aiPosStopAuto() {
 }
 function aiPosStop() {
   aiPosMoveGen++; // invalidate any in-flight aiPosMoveTo
-  if (aiPosGlideTimer) { clearTimeout(aiPosGlideTimer); aiPosGlideTimer = null; }
   if (aiPos.moving) {
     if (connected && stdCmd) stdWriteReliable("set:speed:0");   // gentle stop — no re-home
     aiPos.moving = false;
