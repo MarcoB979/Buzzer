@@ -1003,12 +1003,26 @@
           <input type="text" id="aiModel" placeholder="gpt-4o-mini" autocomplete="off">
           <div class="ai-set-hint">Works with any OpenAI-compatible server: OpenAI, Groq, Together, OpenRouter, or a local model. For Ollama use base URL http://localhost:11434/v1 and the model name you have pulled. For LM Studio use http://localhost:1234/v1.</div>
         </div>
-        <label class="ai-set-label" for="aiTtsVoice">Voice</label>
-        <select id="aiTtsVoice"><option value="">Auto (best match)</option></select>
-        <label class="ai-set-label" for="aiTtsRate">Voice speed (0.5–2)</label>
-        <input type="number" id="aiTtsRate" min="0.5" max="2" step="0.1">
-        <label class="ai-set-label" for="aiTtsPitch">Voice pitch (0.5–2)</label>
-        <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
+        <label class="ai-set-label" for="aiTtsProvider">Voice (TTS)</label>
+        <select id="aiTtsProvider">
+          <option value="system">System voice (device)</option>
+          <option value="elevenlabs">ElevenLabs (your key)</option>
+        </select>
+        <div id="aiElevenLabsRow" style="display:none;">
+          <label class="ai-set-label" for="aiElevenLabsKey">ElevenLabs API key</label>
+          <input type="password" id="aiElevenLabsKey" placeholder="sk_…" autocomplete="off">
+          <label class="ai-set-label" for="aiElevenLabsVoiceId">Voice ID</label>
+          <input type="text" id="aiElevenLabsVoiceId" placeholder="21m00Tcm4TlvDq8ikWAM" autocomplete="off">
+          <div class="ai-set-hint">Your own key — replies are sent to ElevenLabs and billed to your account only. Find the Voice ID in ElevenLabs → Voices → your voice (the long ID in the URL or details).</div>
+        </div>
+        <div id="aiSystemTtsRow">
+          <label class="ai-set-label" for="aiTtsVoice">Voice</label>
+          <select id="aiTtsVoice"><option value="">Auto (best match)</option></select>
+          <label class="ai-set-label" for="aiTtsRate">Voice speed (0.5–2)</label>
+          <input type="number" id="aiTtsRate" min="0.5" max="2" step="0.1">
+          <label class="ai-set-label" for="aiTtsPitch">Voice pitch (0.5–2)</label>
+          <input type="number" id="aiTtsPitch" min="0.5" max="2" step="0.1">
+        </div>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiWhisper"> Cloud speech-to-text (Whisper)</label>
         <div id="aiMicRow" style="display:none;">
           <label class="ai-set-label" for="aiMicDevice">Microphone</label>
@@ -6029,17 +6043,25 @@ function aiPickVoice(lang) {
   return best;
 }
 function aiSpeak(text) {
-  aiSpeakBrowser(text);
+  if (aiTtsProvider() === "elevenlabs" && aiElevenLabsConfigured()) {
+    aiSpeakElevenLabs(text);
+  } else {
+    aiSpeakBrowser(text);
+  }
 }
 function aiSpeechLang() {
   // Prefer the language of the TTS voice the user chose (that's how they want to
   // HEAR replies), then the last language the AI used, then the device language.
-  const name = aiTtsVoiceName();
-  if (name) {
-    try { const sl = (localStorage.getItem("ossm-ai-tts-voice-lang") || "").trim(); if (sl) return sl.toLowerCase().split(/[-_]/)[0]; } catch (e) {}
-    const vs = aiVoicesCache.length ? aiVoicesCache : (window.speechSynthesis ? speechSynthesis.getVoices() : []);
-    const v = vs.find(x => x.name === name);
-    if (v && v.lang) return String(v.lang).toLowerCase().split(/[-_]/)[0];
+  // (ElevenLabs voices are multilingual, so there we rely on the AI's last language
+  // or the device language instead of a system voice.)
+  if (aiTtsProvider() !== "elevenlabs") {
+    const name = aiTtsVoiceName();
+    if (name) {
+      try { const sl = (localStorage.getItem("ossm-ai-tts-voice-lang") || "").trim(); if (sl) return sl.toLowerCase().split(/[-_]/)[0]; } catch (e) {}
+      const vs = aiVoicesCache.length ? aiVoicesCache : (window.speechSynthesis ? speechSynthesis.getVoices() : []);
+      const v = vs.find(x => x.name === name);
+      if (v && v.lang) return String(v.lang).toLowerCase().split(/[-_]/)[0];
+    }
   }
   try { const l = (localStorage.getItem("ossm-ai-lang") || "").toLowerCase(); if (l) return l.split(/[-_]/)[0]; } catch (e) {}
   try { return ((navigator.language || "en").toLowerCase().split(/[-_]/)[0]); } catch (e) { return "en"; }
@@ -6062,6 +6084,57 @@ function aiSpeakBrowser(text) {
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   } catch (e) {}
+}
+function aiTtsProvider() {
+  try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return p === "elevenlabs" ? "elevenlabs" : "system"; } catch (e) { return "system"; }
+}
+function aiElevenLabsSettings() {
+  let key = "", voiceId = "";
+  try { key = (localStorage.getItem("ossm-elevenlabs-key") || "").trim(); } catch (e) {}
+  try { voiceId = (localStorage.getItem("ossm-elevenlabs-voice-id") || "").trim(); } catch (e) {}
+  return { key, voiceId };
+}
+function aiElevenLabsConfigured() {
+  const s = aiElevenLabsSettings();
+  return !!(s.key && s.voiceId);
+}
+let aiAudio = null;
+function aiStopElevenLabs() {
+  if (!aiAudio) return;
+  try { aiAudio.pause(); } catch (e) {}
+  const u = aiAudio.src;
+  try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {}
+  try { if (u) URL.revokeObjectURL(u); } catch (e) {}
+}
+async function aiSpeakElevenLabs(text) {
+  const s = aiElevenLabsSettings();
+  if (!s.key || !s.voiceId) return;
+  aiStopElevenLabs();
+  try {
+    const resp = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(s.voiceId), {
+      method: "POST",
+      headers: { "xi-api-key": s.key, "Content-Type": "application/json", "Accept": "audio/mpeg" },
+      body: JSON.stringify({
+        text: text,
+        model_id: "eleven_flash_v2_5",
+        voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true }
+      })
+    });
+    if (!resp.ok) { aiSpeakBrowser(text); return; }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    if (!aiAudio) aiAudio = new Audio();
+    aiAudio.src = url;
+    aiAudio.onended = () => { const u = aiAudio.src; try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {} try { if (u) URL.revokeObjectURL(u); } catch (e) {} };
+    await aiAudio.play().catch(() => {});
+  } catch (e) {
+    aiSpeakBrowser(text);
+  }
+}
+function aiIsSpeaking() {
+  if (window.speechSynthesis && speechSynthesis.speaking) return true;
+  if (aiAudio && !aiAudio.paused && !aiAudio.ended) return true;
+  return false;
 }
 
 const AI_ASK_LIMITS = {
@@ -7644,7 +7717,7 @@ function companionLiveFrame(now) {
   const ty = (iy) => (iy - f.y) * s;
 
   const t = now / 1000;
-  const speaking = !!(window.speechSynthesis && speechSynthesis.speaking);
+  const speaking = aiIsSpeaking();
 
   // --- mouth openness ---
   let target = speaking ? 0.8 : 0;
@@ -8050,7 +8123,7 @@ function compLiveStart() {
   const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
   const refreshBtn = $("compRefresh"); if (refreshBtn) refreshBtn.onclick = companionRefresh;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
-  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = !!(window.speechSynthesis && speechSynthesis.speaking); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); }, 180);
+  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); }, 180);
   document.addEventListener("pointermove", (e) => {
     const av = $("companionAvatar"); if (!av || !companionState.shown) return;
     const r = av.getBoundingClientRect();
@@ -8597,6 +8670,24 @@ function aiDebugRestore() {
       } catch (e) {}
     });
   }
+  const ttsProv = $("aiTtsProvider");
+  const elRow = $("aiElevenLabsRow");
+  const elKey = $("aiElevenLabsKey");
+  const elVoiceId = $("aiElevenLabsVoiceId");
+  const sysTtsRow = $("aiSystemTtsRow");
+  const syncTtsUi = () => {
+    const isEl = aiTtsProvider() === "elevenlabs";
+    if (ttsProv) ttsProv.value = isEl ? "elevenlabs" : "system";
+    if (elRow) elRow.style.display = isEl ? "" : "none";
+    if (sysTtsRow) sysTtsRow.style.display = isEl ? "none" : "";
+    const s = aiElevenLabsSettings();
+    if (elKey) elKey.value = s.key;
+    if (elVoiceId) elVoiceId.value = s.voiceId;
+  };
+  if (ttsProv) ttsProv.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-provider", ttsProv.value); } catch (e) {} syncTtsUi(); });
+  if (elKey) elKey.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-key", elKey.value.trim()); } catch (e) {} });
+  if (elVoiceId) elVoiceId.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-voice-id", elVoiceId.value.trim()); } catch (e) {} });
+  syncTtsUi();
   const aiSetPanel = $("aiSettings");
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) { aiLoadVoices(); if (aiWhisperEnabled()) aiPopulateMicList(); } });
   const syncAiSettingsUI = () => {
