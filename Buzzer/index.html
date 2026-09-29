@@ -5929,7 +5929,7 @@ function aiModeContext(cur) {
     + "- Insist (stay deep, short hard thrusts): {\"Max Pos\":95,\"Min Pos\":70,\"In Speed\":80,\"Out Speed\":60,\"In Accel\":80,\"Out Accel\":40,\"Speed\":85}\n"
     + "MODIFIERS (optional, only for change OVER TIME; omit for a constant feel): \"<Base>Amplitude\" (0-100, how much the value swings — use for \"build up\" / \"alternate\" / \"keep me guessing\"), \"<Base>Steps to Max\" (strokes climbing up), \"<Base>Steps at Max\", \"<Base>Steps to Min\", \"<Base>Steps at Min\", \"<Base>Offset\". <Base> is Max Pos, Min Pos, In Speed, Out Speed, In Accel or Out Accel.\n"
     + "BUILD-UP EXAMPLE (\"slow, then faster, then pound me\"): {\"Max Pos\":40,\"Min Pos\":0,\"In Speed\":25,\"Out Speed\":30,\"In Accel\":30,\"Out Accel\":20,\"Speed\":60,\"Max PosAmplitude\":60,\"Max PosSteps to Max\":4,\"Max PosSteps at Max\":3,\"Max PosSteps to Min\":6,\"In SpeedAmplitude\":50,\"In SpeedSteps to Max\":4,\"In AccelAmplitude\":40,\"In AccelSteps to Max\":4}\n"
-    + "RULE: when the user asks for harder/faster/deeper, CHANGE the relevant values — never repeat the same numbers — and keep Min Pos <= Max Pos.\n"
+    + "RULE: when the user asks for harder/faster/deeper, CHANGE the relevant values — never repeat the same numbers — and keep Min Pos <= Max Pos. Move each value by a modest amount (about 5-10 per request); the app caps big jumps and ramps speed smoothly, so the effect builds over a few requests.\n"
     + aiLimitsText() + "\n"
     + aiRunContext(running) + "\n"
     + aiConnContext() + "\n"
@@ -5962,16 +5962,23 @@ function aiApplyStd(p) {
     const raw = p[k];
     if (raw === null || raw === undefined || raw === "") continue;
     if (k === "Max Pos") {
-      const v = clamp(Math.round(Number(raw)), 0, caps.maxDepth);
+      let v = clamp(Math.round(Number(raw)), 0, caps.maxDepth);
+      if (running) v = clamp(v, Math.round(stdValues.max) - AI_CHANGE_LIMIT, Math.round(stdValues.max) + AI_CHANGE_LIMIT);
       stdValues.max = v; stdWrite("set:max:" + v); put("Max Pos", v);
     } else if (k === "Min Pos") {
-      const v = clamp(Math.round(Number(raw)), caps.minDepth, caps.maxDepth);
+      let v = clamp(Math.round(Number(raw)), caps.minDepth, caps.maxDepth);
+      if (running) v = clamp(v, Math.round(stdValues.min) - AI_CHANGE_LIMIT, Math.round(stdValues.min) + AI_CHANGE_LIMIT);
       stdValues.min = v; stdWrite("set:min:" + v); put("Min Pos", v);
     } else if (k === "Speed") {
       const target = clamp(Math.round(Number(raw)), 0, caps.maxSpeed);
-      const v = running ? target : 0; // never auto-start
-      applySpeedInstant(v);
-      put("Speed", (!running && target > 0) ? "0 (press Start)" : v);
+      if (running) {
+        const capped = clamp(target, Math.round(stdValues.speed) - AI_CHANGE_LIMIT, Math.round(stdValues.speed) + AI_CHANGE_LIMIT);
+        rampSpeed(stdValues.speed, capped); // speed always ramps — never instant
+        put("Speed", capped);
+      } else {
+        applySpeedInstant(0); // never auto-start
+        put("Speed", (target > 0) ? "0 (press Start)" : 0);
+      }
     } else if (k === "Sensation") {
       const v = clamp(Math.round(Number(raw)), 0, 100);
       stdValues.sensation = v; stdWrite("set:sensation:" + v); put("Sensation", v);
@@ -6426,13 +6433,22 @@ function aiApplyParams(p) {
       if (k === "Max Pos") hi = Math.min(s.max, caps.maxDepth);
       else if (k === "Min Pos") { lo = Math.max(s.min, caps.minDepth); hi = Math.min(s.max, caps.maxDepth); }
       else if (k === "Speed" || k === "In Speed" || k === "Out Speed") hi = Math.min(s.max, caps.maxSpeed);
+      const running = speed() > 0;
+      const cur = Math.round(s.value);
       let val = clamp(Math.round(v), lo, hi);
-      if (k === "Speed" && val > 0 && speed() === 0) val = 0; // never auto-start
-      s.value = val;
-      settings[baseKey(i)] = s;
-      if (i === speedIndex()) writeControlReliable(`${i}:${val},`).catch(() => {});
-      else writeControl(`${i}:${val},`).catch(() => {});
-      applied.push(k + " " + val);
+      if (k === "Speed" && val > 0 && !running) val = 0; // never auto-start
+      // SAFETY: while playing, never jump a value by more than AI_CHANGE_LIMIT in one command.
+      if (running) val = clamp(val, cur - AI_CHANGE_LIMIT, cur + AI_CHANGE_LIMIT);
+      if (k === "Speed" && running && val !== cur) {
+        rampSpeed(speed(), val); // speed always ramps — never an instant jump
+        applied.push(k + " " + val + " (ramping)");
+      } else {
+        s.value = val;
+        settings[baseKey(i)] = s;
+        if (i === speedIndex()) writeControlReliable(`${i}:${val},`).catch(() => {});
+        else writeControl(`${i}:${val},`).catch(() => {});
+        applied.push(k + " " + val);
+      }
     } else {
       for (let bi = 0; bi < BASE_NAMES.length; bi++) {
         const bname = BASE_NAMES[bi];
@@ -6698,7 +6714,8 @@ const AI_POS_RETRACT_SPEED = 10; // faster retraction back to 0 at setup start
 const AI_POS_RETRACT_RAMP = 20;  // ramp up to this while retracting
 const AI_POS_ZERO_TIMEOUT = 10000; // ms to wait for the rail to reach 0 before proceeding
 const AI_POS_ARRIVE_TOL = 1;      // the rail is "at" a step within this many units
-const AI_POS_STEP_TIMEOUT = 8000; // per-step fallback wait if the position can't be read
+const AI_POS_STEP_DELAY = 1000;   // ms between steps if the position can't be read (fluent fallback)
+const AI_CHANGE_LIMIT = 10;       // max change per AI command while the machine is running
 let aiPosSettleTimer = null;
 let aiPosAutoTimer = null;
 let aiPosMoveGen = 0;    // incremented on stop to invalidate in-flight aiPosMoveTo calls
@@ -6827,14 +6844,6 @@ async function aiPosMoveTo(pos) {
   aiPos.speed = spd;
   aiPos.current = p;
   aiPos.moving = true;
-  // The firmware can (re)load its persisted safe stroke values right after it
-  // reports entering the stroke engine, which clobbers max=100 back to the old
-  // safe max and makes the rail barely move. Re-assert the full-range mapping once
-  // it has settled — but only if the user hasn't stopped or moved to a new target.
-  setTimeout(() => {
-    if (gen !== aiPosMoveGen || !aiPos.active || !aiPos.moving || aiPos.current !== p) return;
-    send();
-  }, 500);
 }
 function aiPosMoveBy(delta) {
   aiPosMoveTo(Math.round((aiPos.current || 0) + delta));
@@ -6891,11 +6900,13 @@ function aiPosAutoAdvance() {
     aiPosAutoTimer = setInterval(() => {
       if (!aiPos.autoMoving || !aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; return; }
       const arrived = (typeof stdDepth === "number" && Math.abs(stdDepth - target) <= AI_POS_ARRIVE_TOL);
-      if (arrived || (Date.now() - t0) >= AI_POS_STEP_TIMEOUT) {
+      const delayElapsed = (Date.now() - t0) >= AI_POS_STEP_DELAY;
+      if (arrived || delayElapsed) {
         clearInterval(aiPosAutoTimer); aiPosAutoTimer = null;
-        aiPosAutoAdvance(); // next step only after the rail is really there
+        monitor("AI pos: step " + target + (typeof stdDepth === "number" ? " (rail at " + stdDepth + ")" : " (rail position unknown)"), "ai");
+        aiPosAutoAdvance();
       }
-    }, 200);
+    }, 120);
   });
 }
 function aiPosStopAuto() {
