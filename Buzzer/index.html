@@ -6714,7 +6714,7 @@ const AI_POS_RETRACT_SPEED = 10; // faster retraction back to 0 at setup start
 const AI_POS_RETRACT_RAMP = 20;  // ramp up to this while retracting
 const AI_POS_ZERO_TIMEOUT = 10000; // ms to wait for the rail to reach 0 before proceeding
 const AI_POS_ARRIVE_TOL = 1;      // the rail is "at" a step within this many units
-const AI_POS_STEP_DELAY = 1000;   // ms between steps if the position can't be read (fluent fallback)
+const AI_POS_STEP_DELAY = 250;    // ms between steps if the position can't be read (fluent fallback)
 const AI_CHANGE_LIMIT = 10;       // max change per AI command while the machine is running
 let aiPosSettleTimer = null;
 let aiPosAutoTimer = null;
@@ -6906,7 +6906,7 @@ function aiPosAutoAdvance() {
         monitor("AI pos: step " + target + (typeof stdDepth === "number" ? " (rail at " + stdDepth + ")" : " (rail position unknown)"), "ai");
         aiPosAutoAdvance();
       }
-    }, 120);
+    }, 50);
   });
 }
 function aiPosStopAuto() {
