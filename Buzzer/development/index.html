@@ -5879,13 +5879,13 @@ function aiPosContext() {
   const rehome = "\"Home between modes\" (firmware re-home on mode switch) confirmed OFF by the user: " + (aiPosRehomeConfirmed() ? "yes" : "no") + ".";
   const stopTxt = " Stop-word behavior: \"stop\" during play = " + (aiStopMode() === "gentle" ? "gentle stop (ramp down like the Start/Stop button; only the safe word is a full emergency stop)" : "full emergency stop (same as the safe word)") + ".";
   if (!aiPos.active) return rehome + (sw ? " Safe word stored: \"" + sw + "\"." : " No safe word stored yet.") + stopTxt
-    + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} to begin — the rail then automatically moves all the way OUT to 0, so WAIT for it to arrive before your first move. Then {\"action\":\"move\",\"to\":<0-100>} to slide deeper step by step, {\"action\":\"record\"} to save a point, {\"action\":\"speedNote\",\"speed\":<n>} for the agreed speed, and {\"action\":\"done\"} to APPLY the saved limits. Also {\"action\":\"safeWord\",\"word\":\"...\"} and {\"action\":\"rehomeDone\"}. Only say the rail moved when you actually just sent {\"action\":\"move\"}.";
+    + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} ONCE to begin — the app then drives everything automatically: the rail retracts to 0 and advances in gentle steps of 5, the user says \"stop\" at their shallowest (start) point first, then again at their deepest point, and the app saves both and returns to the start point by itself. So after you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
   if (aiPos.phase === "return") return "POSITION SETUP — the rail is slowly returning to the Min position and will then be ready to play. Do NOT send more moves; just wait, or answer the user briefly.";
-  return "POSITION SETUP ACTIVE — guiding the user to set their shallowest/start (Min) point FIRST, then their deepest (Max) point, then speed, by feel. Phase: " + aiPos.phase + " (min = shallowest START point first, then max = deepest point)."
+  return "POSITION SETUP ACTIVE — guiding the user to set their shallowest/start (Min) point FIRST, then their deepest (Max) point, by feel. Phase: " + aiPos.phase + " (min = shallowest START point first, then max = deepest point)."
     + " Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed + " (max " + AI_POS_MAX_SPEED + " — keep it gentle)"
     + ". Safe word: " + (aiPos.safeWord ? "\"" + aiPos.safeWord + "\"" : "none yet")
     + ". " + rehome + stopTxt
-    + " THE APP NOW MOVES THE RAIL AUTOMATICALLY in gentle steps of 5 (with a short pause between steps) — do NOT send move actions; just listen and react in a few words. Find the START (shallowest/Min) point FIRST (sliding in), then keep going DEEPER (bigger numbers) to find the deepest/Max point. When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\", \"yes\"), the rail has ALREADY stopped and the app asks \"is this your start point?\" first, then \"is this your deepest point?\" — when they answer yes, the APP SAVES THE POINT AUTOMATICALLY and keeps moving, so do NOT send {\"action\":\"record\"} again and do NOT re-ask; just briefly acknowledge in a few words. After BOTH points are saved and the speed is agreed, send {\"action\":\"done\"} — that APPLIES the saved limits, moves the rail back to the start point, and returns to the play mode (the app handles this silently; you just confirm in your role). Only use \"move\"/\"deeper\"/\"out\" for a tiny manual nudge AFTER the rail has stopped. Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
+    + " THE APP NOW MOVES THE RAIL AUTOMATICALLY in gentle steps of 5 (with a short pause between steps) — do NOT send move actions; just listen and react in a few words. Find the START (shallowest/Min) point FIRST (sliding in), then keep going DEEPER (bigger numbers) to find the deepest/Max point. When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\", \"yes\"), the rail has ALREADY stopped and the app asks \"is this your start point?\" first, then \"is this your deepest point?\" — when they answer yes, the APP SAVES THE POINT AUTOMATICALLY and keeps moving, so do NOT send {\"action\":\"record\"} again and do NOT re-ask; just briefly acknowledge in a few words. After BOTH points are saved, the app APPLIES the limits and moves the rail back to the start point automatically — just confirm in your role in a few words; do NOT send {\"action\":\"done\"}. Only use \"move\"/\"deeper\"/\"out\" for a tiny manual nudge AFTER the rail has stopped. Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
 }
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
@@ -6286,10 +6286,10 @@ function aiPosConfirmText(phase) {
   return L.generic;
 }
 const AI_POS_SAVED = {
-  en: { min: "Saved — that's your start point. Let's keep going deeper to find your deepest point.", max: "Saved — that's your deepest point. What speed feels right?" },
-  nl: { min: "Opgeslagen — dat is je startpunt. We gaan dieper om je diepste punt te vinden.", max: "Opgeslagen — dat is je diepste punt. Welke snelheid voelt goed?" },
-  de: { min: "Gespeichert — das ist dein Startpunkt. Weiter tiefer, um deinen tiefsten Punkt zu finden.", max: "Gespeichert — das ist dein tiefster Punkt. Welche Geschwindigkeit passt?" },
-  fr: { min: "Enregistré — c'est ton point de départ. Continuons plus profond pour trouver ton point le plus profond.", max: "Enregistré — c'est ton point le plus profond. Quelle vitesse te convient ?" }
+  en: { min: "Saved — that's your start point. Let's keep going deeper to find your deepest point.", max: "Saved — that's your deepest point. Returning to your start point — ready when you are." },
+  nl: { min: "Opgeslagen — dat is je startpunt. We gaan dieper om je diepste punt te vinden.", max: "Opgeslagen — dat is je diepste punt. Ik ga terug naar je startpunt — klaar wanneer jij wilt." },
+  de: { min: "Gespeichert — das ist dein Startpunkt. Weiter tiefer, um deinen tiefsten Punkt zu finden.", max: "Gespeichert — das ist dein tiefster Punkt. Ich fahre zurück zu deinem Startpunkt — bereit, wenn du es bist." },
+  fr: { min: "Enregistré — c'est ton point de départ. Continuons plus profond pour trouver ton point le plus profond.", max: "Enregistré — c'est ton point le plus profond. Je reviens à ton point de départ — prêt quand tu veux." }
 };
 function aiPosIsConfirm(t) {
   const short = t.trim().split(/\s+/).length <= 4;
@@ -6319,6 +6319,7 @@ function aiPosRecordCurrent(silent) {
       aiAddMsg("assistant", M.max);
       if (aiSpeakEnabled()) aiSpeak(M.max);
     }
+    aiPosFinishReturn(); // apply the saved limits and return the rail to the Min point
     return true;
   }
   return false;
@@ -6750,7 +6751,7 @@ async function aiPosMoveTo(pos) {
   if (!aiPos.active) {
     aiPos.active = true;
     if (!aiPos.safeWord) aiPos.safeWord = aiPosSafeWord();
-    aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
+    aiPos.phase = "min";
   }
   // Background: make sure the FIRMWARE is in the stroke engine (the visible app
   // mode stays exactly as it is), then command the point.
@@ -6815,6 +6816,7 @@ function aiPosStop() {
   }, 700);
 }
 async function aiPosFinishReturn() {
+  if (aiPos.phase === "return" || aiPos.phase === "done") return; // already finishing
   aiPosStopAuto();
   // If the AI recorded points by feel but never sent "done", apply them now so the
   // limits actually update on screen (defensive — "done" should normally do this).
@@ -6958,8 +6960,8 @@ function aiPosApplyEnvelope(P, canRun) {
   if (a === "start") {
     aiPosReturnAp = (appMode === "ap");
     aiPosReset(); aiPos.active = true;
-    aiPos.phase = aiPos.safeWord ? (aiPosRehomeConfirmed() ? "min" : "rehome") : "safeWord";
-    // Always begin fully retracted, then auto-advance deeper in chunks of 5.
+    // Find the shallowest (Min/start) point FIRST, then keep going deeper for Max.
+    aiPos.phase = "min";
     aiPosMoveTo(0);
     aiPosStartAuto();
   } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
@@ -6993,6 +6995,7 @@ function aiPosApplyEnvelope(P, canRun) {
   } else if (a === "ready") {
     aiPosFinishReturn();
   } else if (a === "done") {
+    if (!aiPos.active) return;
     const haveRecorded = aiPos.min !== null && aiPos.max !== null && aiPos.min <= aiPos.max;
     const mn = haveRecorded ? aiPos.min : clamp(Math.round(Number(P.min)), 0, 100);
     const mx = haveRecorded ? aiPos.max : clamp(Math.round(Number(P.max)), 0, 100);
@@ -7333,6 +7336,7 @@ function companionOpen() {
   companionRender();
   companionApplyLayout();
   buildCompSliders();
+  syncCompSlidersVisibility();
   syncCompVideo();
   if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) { compSetupGreeted = true; compStartSetup(); }
   refreshStashLibrary();
@@ -7472,6 +7476,11 @@ function syncCompConnect() {
   if (!b) return;
   if (connected) { b.textContent = "🔌 Disconnect"; b.classList.add("on"); }
   else { b.textContent = demoMode ? "🔌 Demo" : "🔌 Connect"; b.classList.remove("on"); }
+}
+function syncCompSlidersVisibility() {
+  const wrap = $("compSliders");
+  if (!wrap) return;
+  wrap.style.display = (aiPos && (aiPos.active || aiPos.moving)) ? "none" : "";
 }
 function buildCompSliders() {
   const wrap = $("compSliders");
@@ -7999,7 +8008,7 @@ function companionLiveDrawFrown(ctx, img, f, iw, ih, s, tx, ty, amount) {
 
 let AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words. You may put ONE invisible emotion tag at the very start of "reply" to set your face: [smile], [blush], [frown] or [thinking] — the app strips it out, so the user never sees or hears it. Keep replies SHORT: usually one or two sentences (just a few words while guiding movement) — never long paragraphs; being concise keeps your voice sounding instant.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. YOUR REPLY MUST BE EXACTLY ONE VALID JSON OBJECT: "reply" is a properly double-quoted string, and every action goes in its own top-level field ("pos","set","run","ui",...) — NEVER put {"action":...} or any braces inside the "reply" text. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}, or a Stash scene {"stash":<id from your STASH LIBRARY list>}; playing it switches the app to the Funscript screen automatically, so just say it's playing. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move deeper to their deepest point while they say "stop", then back out to their shallowest point while they say "stop" again (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. YOUR REPLY MUST BE EXACTLY ONE VALID JSON OBJECT: "reply" is a properly double-quoted string, and every action goes in its own top-level field ("pos","set","run","ui",...) — NEVER put {"action":...} or any braces inside the "reply" text. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers); "memory" stores what they voluntarily share about themselves (name, desires, likes); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}, or a Stash scene {"stash":<id from your STASH LIBRARY list>}; playing it switches the app to the Funscript screen automatically, so just say it's playing. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say "stop" at their shallowest (start) point first, then it keeps sliding deeper and they say "stop" again at their deepest point (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
 
 // Optional override from companion-prompt.js — lets you edit your companion's
 // persona in one small file instead of inside index.html. If the file is missing
@@ -8078,7 +8087,7 @@ async function compSend() {
     const mem = aiMemory();
     const memLine = ((memOn || inSetup) && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const setupLine = inSetup ? ("\n\nFIRST-TIME SETUP (this is their first time — they haven't configured you yet): warmly ask a couple of short questions at a time (never a questionnaire) about (1) what they'd like you to be called and your role/dynamic, (2) what they're into and interested in, and (3) how they want you to look — hair color, skin tone, and a style: anime, cartoon, fantasy, or animal (animal ears, the closest to furry). Once you have enough, propose a look, set it with \"avatar\" ({\"style\":...,\"seed\":...,\"hair\":...,\"skin\":...}), and save what they shared about themselves with \"memory\". After you set an avatar, drop the setup tone and just be yourself.") : "";
-    const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical, in-character): the user has NOT confirmed their safety limits this session yet, so you must NEVER start the machine (\"run\":\"start\") until that is done. Only bring this up when they actually want to start playing — not at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — you slowly move deeper to their deepest point, they say \"stop\", then back out to their shallowest point, they say \"stop\" again (while moving, keep it to a few words — ok, a little more, is this the spot? — never full sentences). That flow is the \"pos\" (position setup) envelope. Alternatively they can just tell you the three numbers (min depth, max depth, max speed).");
+    const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical, in-character): the user has NOT confirmed their safety limits this session yet, so you must NEVER start the machine (\"run\":\"start\") until that is done. Only bring this up when they actually want to start playing — not at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say \"stop\" at their shallowest (start) point first, then it keeps sliding deeper and they say \"stop\" again at their deepest point (while moving, keep it to a few words — ok, a little more, is this the spot? — never full sentences). That flow is the \"pos\" (position setup) envelope. Alternatively they can just tell you the three numbers (min depth, max depth, max speed).");
     compMessages.push({ role: "user", content: text, ts: Date.now() });
     aiDebugPersistSoon();
     const msgs = [
@@ -8248,7 +8257,7 @@ function compLiveStart() {
   const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
   const refreshBtn = $("compRefresh"); if (refreshBtn) refreshBtn.onclick = companionRefresh;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
-  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); }, 180);
+  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); }, 180);
   document.addEventListener("pointermove", (e) => {
     const av = $("companionAvatar"); if (!av || !companionState.shown) return;
     const r = av.getBoundingClientRect();
