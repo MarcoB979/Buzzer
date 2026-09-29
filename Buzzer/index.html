@@ -6763,8 +6763,10 @@ async function aiPosMoveTo(pos) {
   const send = async () => {
     await stdWriteReliable("set:min:0");
     await stdWriteReliable("set:max:100");
-    await stdWriteReliable("set:pattern:" + idx);
+    // Sensation BEFORE pattern: PointStroke uses the current sensation as its
+    // target the moment it activates, so it must already be at the step.
     await stdWriteReliable("set:sensation:" + p);
+    await stdWriteReliable("set:pattern:" + idx);
     await stdWriteReliable("set:speed:" + spd);
   };
   await send();
@@ -6851,8 +6853,8 @@ async function aiPosFinishReturn() {
   const spd = Math.min(AI_POS_MAX_SPEED, Math.max(1, Math.round(aiPos.speed)));
   stdWriteReliable("set:min:" + mn);
   stdWriteReliable("set:max:" + mx);
-  stdWriteReliable("set:pattern:" + pointIdx);
   stdWriteReliable("set:sensation:0");
+  stdWriteReliable("set:pattern:" + pointIdx);
   stdWriteReliable("set:speed:" + spd);
   const range = Math.max(0, mx - mn);
   const delay = Math.min(15000, 1500 + range * 120);
@@ -7480,7 +7482,11 @@ function syncCompConnect() {
 function syncCompSlidersVisibility() {
   const wrap = $("compSliders");
   if (!wrap) return;
-  wrap.style.display = (aiPos && (aiPos.active || aiPos.moving)) ? "none" : "";
+  const busy = !!(aiPos && (aiPos.active || aiPos.moving));
+  // Only reveal the Advanced-Penetration sliders once we're truly ready to play
+  // (safety limits confirmed and positioning finished). Before and during
+  // positioning they stay hidden so the user can't switch the firmware out of setup.
+  wrap.style.display = (aiLimitsConfirmed() && !busy) ? "" : "none";
 }
 function buildCompSliders() {
   const wrap = $("compSliders");
