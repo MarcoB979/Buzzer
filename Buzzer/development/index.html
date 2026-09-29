@@ -1232,6 +1232,7 @@ function saveStdValues() {
 let stdPendingSafeSync = false;
 let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
 let stdStateName = "";
+let stdDepth = null;   // current rail position 0-100 (lite firmware reports "depth")
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
 let stdRunning = false;
 let lastNonZeroSpeed = 0;
@@ -1644,6 +1645,7 @@ function parseStdState(raw) {
   if (typeof j.speed === "number" && !speedRampActive) stdValues.speed = Math.round(j.speed);
   if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
+  if (typeof j.depth === "number") stdDepth = Math.round(j.depth);
   if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
   if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
   if (typeof j.state === "string") stdStateName = j.state;
@@ -5883,13 +5885,15 @@ function aiPosContext() {
   const rehome = "\"Home between modes\" (firmware re-home on mode switch) confirmed OFF by the user: " + (aiPosRehomeConfirmed() ? "yes" : "no") + ".";
   const stopTxt = " Stop-word behavior: \"stop\" during play = " + (aiStopMode() === "gentle" ? "gentle stop (ramp down like the Start/Stop button; only the safe word is a full emergency stop)" : "full emergency stop (same as the safe word)") + ".";
   if (!aiPos.active) return rehome + (sw ? " Safe word stored: \"" + sw + "\"." : " No safe word stored yet.") + stopTxt
-    + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} ONCE to begin — the app then drives everything automatically: the rail retracts to 0 and advances in gentle steps of 5, the user says \"stop\" at their shallowest (start) point first, then again at their deepest point, and the app saves both and returns to the start point by itself. So after you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
+    + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} ONCE to begin — the app then drives everything automatically: it retracts the rail to 0 (waiting until it is really there), advances in gentle steps of 5 while the user says \"stop\" at their shallowest (start) point first, then again at their deepest point, then asks the user for their max speed and returns to the start point by itself. So after you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
+  if (aiPos.phase === "retract") return "POSITION SETUP — the rail is retracting back to the start. Do NOT send moves; just wait, or answer briefly.";
+  if (aiPos.phase === "speed") return "POSITION SETUP — the app is asking the user for their max speed (1-100). Do NOT ask for it yourself and do NOT send {\"action\":\"done\"}; just wait, or answer briefly.";
   if (aiPos.phase === "return") return "POSITION SETUP — the rail is slowly returning to the Min position and will then be ready to play. Do NOT send more moves; just wait, or answer the user briefly.";
   return "POSITION SETUP ACTIVE — guiding the user to set their shallowest/start (Min) point FIRST, then their deepest (Max) point, by feel. Phase: " + aiPos.phase + " (min = shallowest START point first, then max = deepest point)."
     + " Rail position: " + aiPos.current + ". Positioning speed: " + aiPos.speed + " (max " + AI_POS_MAX_SPEED + " — keep it gentle)"
     + ". Safe word: " + (aiPos.safeWord ? "\"" + aiPos.safeWord + "\"" : "none yet")
     + ". " + rehome + stopTxt
-    + " THE APP NOW MOVES THE RAIL AUTOMATICALLY in gentle steps of 5 (with a short pause between steps) — do NOT send move actions; just listen and react in a few words. Find the START (shallowest/Min) point FIRST (sliding in), then keep going DEEPER (bigger numbers) to find the deepest/Max point. When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\", \"yes\"), the rail has ALREADY stopped and the app asks \"is this your start point?\" first, then \"is this your deepest point?\" — when they answer yes, the APP SAVES THE POINT AUTOMATICALLY and keeps moving, so do NOT send {\"action\":\"record\"} again and do NOT re-ask; just briefly acknowledge in a few words. After BOTH points are saved, the app APPLIES the limits and moves the rail back to the start point automatically — just confirm in your role in a few words; do NOT send {\"action\":\"done\"}. Only use \"move\"/\"deeper\"/\"out\" for a tiny manual nudge AFTER the rail has stopped. Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
+    + " THE APP NOW MOVES THE RAIL AUTOMATICALLY in gentle steps of 5 (with a short pause between steps) — do NOT send move actions; just listen and react in a few words. Find the START (shallowest/Min) point FIRST (sliding in), then keep going DEEPER (bigger numbers) to find the deepest/Max point. When the user says a stop word (\"stop\", \"that's it\", \"here\", \"right there\", \"yes\"), the rail has ALREADY stopped and the app asks \"is this your start point?\" first, then \"is this your deepest point?\" — when they answer yes, the APP SAVES THE POINT AUTOMATICALLY and keeps moving, so do NOT send {\"action\":\"record\"} again and do NOT re-ask; just briefly acknowledge in a few words. After BOTH points are saved, the app asks the user for their max speed, then APPLIES the limits and moves the rail back to the start point automatically — just confirm in your role; do NOT send {\"action\":\"done\"}. Only use \"move\"/\"deeper\"/\"out\" for a tiny manual nudge AFTER the rail has stopped. Keep every reply to a few words so the user can keep talking. Only the safe word is a full emergency stop.";
 }
 function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
@@ -6290,10 +6294,10 @@ function aiPosConfirmText(phase) {
   return L.generic;
 }
 const AI_POS_SAVED = {
-  en: { min: "Saved — that's your start point. Let's keep going deeper to find your deepest point.", max: "Saved — that's your deepest point. Returning to your start point — ready when you are." },
-  nl: { min: "Opgeslagen — dat is je startpunt. We gaan dieper om je diepste punt te vinden.", max: "Opgeslagen — dat is je diepste punt. Ik ga terug naar je startpunt — klaar wanneer jij wilt." },
-  de: { min: "Gespeichert — das ist dein Startpunkt. Weiter tiefer, um deinen tiefsten Punkt zu finden.", max: "Gespeichert — das ist dein tiefster Punkt. Ich fahre zurück zu deinem Startpunkt — bereit, wenn du es bist." },
-  fr: { min: "Enregistré — c'est ton point de départ. Continuons plus profond pour trouver ton point le plus profond.", max: "Enregistré — c'est ton point le plus profond. Je reviens à ton point de départ — prêt quand tu veux." }
+  en: { min: "Saved — that's your start point. Let's keep going deeper to find your deepest point.", max: "Saved — that's your deepest point." },
+  nl: { min: "Opgeslagen — dat is je startpunt. We gaan dieper om je diepste punt te vinden.", max: "Opgeslagen — dat is je diepste punt." },
+  de: { min: "Gespeichert — das ist dein Startpunkt. Weiter tiefer, um deinen tiefsten Punkt zu finden.", max: "Gespeichert — das ist dein tiefster Punkt." },
+  fr: { min: "Enregistré — c'est ton point de départ. Continuons plus profond pour trouver ton point le plus profond.", max: "Enregistré — c'est ton point le plus profond." }
 };
 function aiPosIsConfirm(t) {
   const short = t.trim().split(/\s+/).length <= 4;
@@ -6319,14 +6323,35 @@ function aiPosRecordCurrent(silent) {
     aiPos.phase = "speed";
     aiPos.awaitingConfirm = null;
     monitor("AI pos: recorded deepest (max) point " + aiPos.max, "ai");
+    aiPosStopAuto();
+    aiPosStop();
     if (!silent) {
       aiAddMsg("assistant", M.max);
       if (aiSpeakEnabled()) aiSpeak(M.max);
+      const q = aiPosSpeedAskText();
+      aiAddMsg("assistant", q);
+      if (aiSpeakEnabled()) aiSpeak(q);
     }
-    aiPosFinishReturn(); // apply the saved limits and return the rail to the Min point
     return true;
   }
   return false;
+}
+const AI_POS_SPEED_ASK = {
+  en: "And your max speed — how hard may I go? (1-100, e.g. 50)",
+  nl: "En je maximale snelheid — hoe hard mag ik gaan? (1-100, bijv. 50)",
+  de: "Und deine Maximalgeschwindigkeit — wie hart darf ich? (1-100, z.B. 50)",
+  fr: "Et ta vitesse maximale — à quel point puis-je y aller fort ? (1-100, par ex. 50)"
+};
+function aiPosSpeedAskText() {
+  const L = AI_POS_SPEED_ASK[aiStoredLang()] || AI_POS_SPEED_ASK.en;
+  return L;
+}
+function aiPosParseSpeed(text) {
+  const m = String(text || "").match(/\d{1,3}/);
+  if (!m) return null;
+  const n = parseInt(m[0], 10);
+  if (isNaN(n)) return null;
+  return clamp(n, 1, 100);
 }
 function aiStoredLang() {
   const l = aiSpeechLang();
@@ -6651,6 +6676,9 @@ const AI_POS_STEP = 10;   // max move per step (manual moves)
 const AI_POS_MAX_SPEED = 5; // positioning is always gentle — never faster than this
 const AI_POS_AUTO_STEP = 5;   // auto-advance chunk size while finding points
 const AI_POS_AUTO_INTERVAL = 3000; // ms between auto-advance chunks (move + brief pause)
+const AI_POS_RETRACT_SPEED = 10; // faster retraction back to 0 at setup start
+const AI_POS_RETRACT_RAMP = 20;  // ramp up to this while retracting
+const AI_POS_ZERO_TIMEOUT = 10000; // ms to wait for the rail to reach 0 before proceeding
 let aiPosSettleTimer = null;
 let aiPosAutoTimer = null;
 let aiPosMoveGen = 0;    // incremented on stop to invalidate in-flight aiPosMoveTo calls
@@ -6665,7 +6693,8 @@ let aiPos = {
   min: null,
   max: null,
   awaitingConfirm: null,  // "max" | "min" while the app waits for a yes/no on the current point
-  autoMoving: false       // rail auto-advances in chunks while finding min/max
+  autoMoving: false,      // rail auto-advances in chunks while finding min/max
+  maxSpeed: null          // user-confirmed max play speed (set during the speed step)
 };
 function aiPosSpeed() {
   try { const n = parseInt(localStorage.getItem("ossm-ai-pos-speed"), 10); return (isNaN(n) || n < 1) ? AI_POS_MAX_SPEED : clamp(n, 1, AI_POS_MAX_SPEED); } catch (e) { return AI_POS_MAX_SPEED; }
@@ -6694,7 +6723,7 @@ function aiSetStopMode(m) {
 function aiPosReset() {
   if (aiPosSettleTimer) { clearTimeout(aiPosSettleTimer); aiPosSettleTimer = null; }
   if (aiPosAutoTimer) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; }
-  aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null, awaitingConfirm:null, autoMoving:false };
+  aiPos = { active:false, phase:"safeWord", moving:false, current:0, speed:aiPosSpeed(), safeWord:aiPosSafeWord(), min:null, max:null, awaitingConfirm:null, autoMoving:false, maxSpeed:null };
 }
 function aiPosRestoreMode() {
   const back = aiPosReturnAp;
@@ -6790,6 +6819,38 @@ async function aiPosMoveTo(pos) {
 function aiPosMoveBy(delta) {
   aiPosMoveTo(Math.round((aiPos.current || 0) + delta));
 }
+function aiPosRetractToZero() {
+  monitor("AI pos: retracting to 0…", "ai");
+  aiPos.current = 0;
+  aiPos.moving = false;
+  stdDepth = null; // ignore any stale position while we wait for a fresh reading
+  const idx = aiPosPointIndex();
+  const sendRetract = (spd) => {
+    if (!connected || !stdCmd || idx < 0) return;
+    stdWriteReliable("set:min:0");
+    stdWriteReliable("set:max:100");
+    stdWriteReliable("set:sensation:0");
+    stdWriteReliable("set:pattern:" + idx);
+    stdWriteReliable("set:speed:" + spd);
+  };
+  aiPosEnterStd().then(() => {
+    sendRetract(AI_POS_RETRACT_SPEED);
+    setTimeout(() => { if (aiPos.active && aiPos.phase === "retract") sendRetract(AI_POS_RETRACT_RAMP); }, 800);
+  });
+  const t0 = Date.now();
+  const iv = setInterval(() => {
+    if (!aiPos.active || aiPos.phase !== "retract") { clearInterval(iv); return; }
+    const atZero = (typeof stdDepth === "number" && stdDepth <= 3);
+    if (atZero || (Date.now() - t0) >= AI_POS_ZERO_TIMEOUT) {
+      clearInterval(iv);
+      monitor("AI pos: rail at 0 — starting the min-point sweep", "ai");
+      aiPos.speed = AI_POS_MAX_SPEED; // gentle sweep speed (5)
+      aiPos.moving = true;
+      aiPos.phase = "min";
+      aiPosStartAuto();
+    }
+  }, 250);
+}
 function aiPosStartAuto() {
   if (aiPos.autoMoving) return;
   aiPos.autoMoving = true;
@@ -6828,7 +6889,8 @@ async function aiPosFinishReturn() {
   // limits actually update on screen (defensive — "done" should normally do this).
   if (aiPos.min !== null && aiPos.max !== null && aiPos.min <= aiPos.max) {
     const rmn = aiPos.min, rmx = aiPos.max;
-    aiApplyLimits({ minDepth: rmn, maxDepth: rmx, maxSpeed: aiSafetyCaps().maxSpeed });
+    const rsp = (typeof aiPos.maxSpeed === "number" && aiPos.maxSpeed >= 0) ? aiPos.maxSpeed : aiSafetyCaps().maxSpeed;
+    aiApplyLimits({ minDepth: rmn, maxDepth: rmx, maxSpeed: rsp });
     stdValues.min = rmn; stdValues.max = rmx;
     if (connected && stdCmd) {
       stdWriteReliable("set:min:" + rmn);
@@ -6910,6 +6972,20 @@ function aiPosHandleInput(text, inp) {
     aiSpeak("Emergency stop.");
     return true;
   }
+  // Speed step: the user answers the max-speed question with a number.
+  if (aiPos.phase === "speed") {
+    const n = aiPosParseSpeed(text);
+    if (n !== null) {
+      if (inp) inp.value = "";
+      monitor("AI pos: max speed " + n, "ai");
+      aiAddMsg("user", escapeHtml(text));
+      aiPos.maxSpeed = n;
+      aiApplyLimits({ minDepth: aiPos.min, maxDepth: aiPos.max, maxSpeed: n });
+      aiLimitsSetConfirmed();
+      aiPosFinishReturn();
+      return true;
+    }
+  }
   // 2) "stop"-like words while moving → gentle stop (instant, no emergency)
   if (aiPos.moving && aiPosIsGentleStop(tl)) {
     if (inp) inp.value = "";
@@ -6966,10 +7042,9 @@ function aiPosApplyEnvelope(P, canRun) {
   if (a === "start") {
     aiPosReturnAp = (appMode === "ap");
     aiPosReset(); aiPos.active = true;
-    // Find the shallowest (Min/start) point FIRST, then keep going deeper for Max.
-    aiPos.phase = "min";
-    aiPosMoveTo(0);
-    aiPosStartAuto();
+    // Retract fast to 0, WAIT until the rail is actually there, then sweep for Min.
+    aiPos.phase = "retract";
+    aiPosRetractToZero();
   } else if (a === "safeWord" && typeof P.word === "string" && P.word.trim()) {
     aiPos.safeWord = String(P.word).trim().toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
     aiPosSetSafeWord(aiPos.safeWord);
