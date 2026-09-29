@@ -7286,6 +7286,14 @@ function companionRender() {
   const box = $("companionAvatar");
   if (!box) return;
   if (companionState.source === "live" && companionState.customImage) {
+    // In video-avatar mode the talking videos provide the motion, so show the
+    // photo full-frame (object-fit: cover, same framing as the video) instead of
+    // the tight face-crop animation — the two should look identical.
+    if ((companionState.customVideos || 0) > 0) {
+      companionLiveStop();
+      box.innerHTML = '<div class="companion-img"><img src="' + companionState.customImage + '" alt="Companion"></div>';
+      return;
+    }
     box.innerHTML = '<div class="companion-img live"><canvas class="live"></canvas></div>';
     if (companionLive.img) companionLiveStart();
     else {
@@ -7608,6 +7616,7 @@ function companionUploadVideos(files) {
   companionState.customVideos = start + list.length;
   companionState.shown = true;
   companionSave();
+  companionRender();
   syncCompVideoAvatar();
   funLog("Talking video added — " + companionState.customVideos + " total, they take turns while I speak.");
 }
@@ -8370,7 +8379,7 @@ function compLiveStart() {
   const vidBtn = $("compVideoBtn"); const vidInp = $("compVideoInput");
   if (vidBtn && vidInp) { vidBtn.onclick = () => vidInp.click(); vidInp.onchange = () => { companionUploadVideos(vidInp.files); vidInp.value = ""; }; }
   const vidClear = $("compVideoClearBtn");
-  if (vidClear) vidClear.onclick = () => { compVideoForget(); companionSave(); syncCompVideoAvatar(); };
+  if (vidClear) vidClear.onclick = () => { compVideoForget(); companionSave(); companionRender(); syncCompVideoAvatar(); };
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
