@@ -655,6 +655,7 @@
   #compLive.on, #compLiveTop.on { background: #166534; }
   .companion-avatar .companion-img.live { overflow: hidden; border-radius: 50%; background: #0b1220; }
   .companion-avatar canvas.live { width: 100%; height: 100%; display: block; }
+  .companion-avatar video.comp-talk-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 2; background: #0b1220; }
   .photo-modal { position: fixed; inset: 0; z-index: 140; background: rgba(0,0,0,.74); display: flex; align-items: center; justify-content: center; padding: 16px; }
   .photo-modal-card { background: #0d1320; border: 1px solid #1e293b; border-radius: 14px; padding: 18px; max-width: 460px; width: 100%; color: #e2e8f0; }
   .photo-modal-title { font-size: 1rem; font-weight: bold; margin-bottom: 8px; }
@@ -815,6 +816,9 @@
             <button class="ble-btn small" id="compRefresh" type="button" title="Generate a fresh look">🔄</button>
             <button class="ble-btn small" id="compUploadBtn" type="button" title="Use your own image">📁</button>
             <input type="file" id="compUpload" accept="image/*" style="display:none;">
+            <button class="ble-btn small" id="compVideoBtn" type="button" title="Add a talking video — they take turns while I speak">🎬</button>
+            <input type="file" id="compVideoInput" accept="video/*" multiple style="display:none;">
+            <button class="ble-btn small" id="compVideoClearBtn" type="button" title="Remove all talking videos" style="display:none;">✕</button>
           </div>
           <div class="comp-sliders" id="compSliders"></div>
           <div class="comp-video" id="compVideo" style="display:none;">
@@ -7265,7 +7269,7 @@ const COMPANION_PRESETS = [
   { name:"Kai",  seed:"Kai",   style:"lorelei",   hair:"#f6d365", skin:"#ffe0bd" },
   { name:"Luca", seed:"Luca",  style:"lorelei",   hair:"#a16207", skin:"#f3c39c" }
 ];
-let companionState = { preset:0, custom:null, customImage:null, shown:false, source:"generated" };
+let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated" };
 let companionBlinkTimer = null;
 try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
 function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
@@ -7544,6 +7548,115 @@ function companionApplyAvatar(a) {
   companionRender(); companionSave();
 }
 function companionApplyFace(f) { companionApplyAvatar(f); }
+
+// ---------- Talking video avatar (photo when idle, talking videos take turns) ----------
+let compVideoUrls = [];          // object URLs, aligned with IndexedDB keys video-0..N
+let compVideoPlayIdx = -1;       // which talking video is currently shown
+let compVideoWasSpeaking = false;
+function compVideoDb() {
+  return new Promise((res) => {
+    try {
+      const req = indexedDB.open("ossm-companion-media", 1);
+      req.onupgradeneeded = () => { try { req.result.createObjectStore("media"); } catch (e) {} };
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => res(null);
+    } catch (e) { res(null); }
+  });
+}
+function compVideoKey(i) { return "video-" + i; }
+async function compVideoSaveBlob(blob, i) {
+  const db = await compVideoDb();
+  if (!db) return;
+  try { const tx = db.transaction("media", "readwrite"); tx.objectStore("media").put(blob, compVideoKey(i)); } catch (e) {}
+}
+async function compVideoLoadBlob(i) {
+  const db = await compVideoDb();
+  if (!db) return null;
+  try {
+    return await new Promise((res) => {
+      const tx = db.transaction("media", "readonly");
+      const rq = tx.objectStore("media").get(compVideoKey(i));
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => res(null);
+    });
+  } catch (e) { return null; }
+}
+function compVideoForget() {
+  companionState.customVideos = 0;
+  compVideoUrls.forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
+  compVideoUrls = [];
+  compVideoPlayIdx = -1;
+  compVideoWasSpeaking = false;
+  compVideoDb().then((db) => {
+    if (!db) return;
+    try {
+      const tx = db.transaction("media", "readwrite");
+      const st = tx.objectStore("media");
+      for (let i = 0; i < 30; i++) st.delete(compVideoKey(i));
+    } catch (e) {}
+  });
+}
+function companionUploadVideos(files) {
+  const list = (files && files.length) ? Array.prototype.slice.call(files).filter((f) => f && f.type && f.type.indexOf("video/") === 0) : [];
+  if (!list.length) return;
+  const start = companionState.customVideos || 0;
+  list.forEach((f, k) => {
+    const i = start + k;
+    compVideoSaveBlob(f, i);
+    compVideoUrls[i] = URL.createObjectURL(f);
+  });
+  companionState.customVideos = start + list.length;
+  companionState.shown = true;
+  companionSave();
+  syncCompVideoAvatar();
+  funLog("Talking video added — " + companionState.customVideos + " total, they take turns while I speak.");
+}
+function syncCompVideoAvatar() {
+  const box = $("companionAvatar");
+  const clearBtn = $("compVideoClearBtn");
+  const count = companionState.customVideos || 0;
+  if (clearBtn) clearBtn.style.display = count ? "" : "none";
+  if (!box) return;
+  if (!count) {
+    const v = box.querySelector("video.comp-talk-video");
+    if (v) { v.style.display = "none"; try { v.pause(); } catch (e) {} }
+    return;
+  }
+  let v = box.querySelector("video.comp-talk-video");
+  if (!v) {
+    v = document.createElement("video");
+    v.className = "comp-talk-video";
+    v.muted = true; v.loop = true; v.playsInline = true;
+    v.setAttribute("playsinline", "");
+    v.setAttribute("muted", "");
+    box.appendChild(v);
+  }
+  const speaking = aiIsSpeaking() && companionState.shown;
+  // On each new speech burst, switch to the next video (1, 2, 1, 2, …).
+  if (speaking && !compVideoWasSpeaking) {
+    compVideoPlayIdx = (((compVideoPlayIdx + 1) % count) + count) % count;
+  }
+  compVideoWasSpeaking = speaking;
+  if (speaking) {
+    const i = compVideoPlayIdx;
+    const show = (u) => {
+      if (!u) return;
+      if (v.dataset.src !== u) { v.src = u; v.dataset.src = u; }
+      v.style.display = "";
+      try { v.play(); } catch (e) {}
+    };
+    if (compVideoUrls[i]) show(compVideoUrls[i]);
+    else compVideoLoadBlob(i).then((blob) => {
+      if (!blob) return;
+      const u = URL.createObjectURL(blob);
+      compVideoUrls[i] = u;
+      if (aiIsSpeaking() && (companionState.customVideos || 0)) show(u);
+    });
+  } else {
+    v.style.display = "none";
+    try { v.pause(); } catch (e) {}
+  }
+}
 
 // ---------- Live photo companion (client-side face-cam animation) ----------
 const companionLive = {
@@ -8254,6 +8367,10 @@ function compLiveStart() {
   const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
   const up = $("compUploadBtn"); const upi = $("compUpload");
   if (up && upi) { up.onclick = () => upi.click(); upi.onchange = () => { const f = upi.files && upi.files[0]; upi.value = ""; companionUpload(f); }; }
+  const vidBtn = $("compVideoBtn"); const vidInp = $("compVideoInput");
+  if (vidBtn && vidInp) { vidBtn.onclick = () => vidInp.click(); vidInp.onchange = () => { companionUploadVideos(vidInp.files); vidInp.value = ""; }; }
+  const vidClear = $("compVideoClearBtn");
+  if (vidClear) vidClear.onclick = () => { compVideoForget(); companionSave(); syncCompVideoAvatar(); };
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
@@ -8263,7 +8380,7 @@ function compLiveStart() {
   const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
   const refreshBtn = $("compRefresh"); if (refreshBtn) refreshBtn.onclick = companionRefresh;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
-  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); }, 180);
+  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompVideoAvatar(); }, 180);
   document.addEventListener("pointermove", (e) => {
     const av = $("companionAvatar"); if (!av || !companionState.shown) return;
     const r = av.getBoundingClientRect();
@@ -8749,7 +8866,8 @@ function aiDebugRestore() {
       compSetupGreeted = false;
       try { localStorage.removeItem("ossm-companion"); } catch (e) {}
       try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {}
-      companionState = { preset: 0, custom: null, customImage: null, shown: companionState.shown, source: "generated" };
+      companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated" };
+      compVideoForget();
       if (companionState.shown) companionRender();
       // Safety limits go back to safe standards and must be confirmed again.
       try {
