@@ -6697,6 +6697,8 @@ const AI_POS_AUTO_INTERVAL = 3000; // ms between auto-advance chunks (move + bri
 const AI_POS_RETRACT_SPEED = 10; // faster retraction back to 0 at setup start
 const AI_POS_RETRACT_RAMP = 20;  // ramp up to this while retracting
 const AI_POS_ZERO_TIMEOUT = 10000; // ms to wait for the rail to reach 0 before proceeding
+const AI_POS_ARRIVE_TOL = 2;      // the rail is "at" a step within this many units
+const AI_POS_STEP_TIMEOUT = 8000; // per-step fallback wait if the position can't be read
 let aiPosSettleTimer = null;
 let aiPosAutoTimer = null;
 let aiPosMoveGen = 0;    // incremented on stop to invalidate in-flight aiPosMoveTo calls
@@ -6872,15 +6874,29 @@ function aiPosRetractToZero() {
 function aiPosStartAuto() {
   if (aiPos.autoMoving) return;
   aiPos.autoMoving = true;
-  if (aiPosAutoTimer) clearInterval(aiPosAutoTimer);
-  aiPosAutoTimer = setInterval(() => {
+  aiPosAutoAdvance();
+}
+function aiPosAutoAdvance() {
+  if (!aiPos.autoMoving || !aiPos.active) return;
+  if (aiPos.phase !== "min" && aiPos.phase !== "max") { aiPosStopAuto(); return; }
+  if (!connected || !stdCmd) { aiPosStopAuto(); return; }
+  const target = Math.round((aiPos.current || 0) + AI_POS_AUTO_STEP);
+  if (target > 100) { aiPosStopAuto(); return; }
+  stdDepth = null; // wait for a fresh position reading for this step
+  aiPosMoveTo(target).then(() => {
     if (!aiPos.autoMoving || !aiPos.active) return;
     if (aiPos.phase !== "min" && aiPos.phase !== "max") { aiPosStopAuto(); return; }
-    if (!connected || !stdCmd) return;
-    const next = Math.round((aiPos.current || 0) + AI_POS_AUTO_STEP);
-    if (next > 100) { aiPosStopAuto(); return; }
-    aiPosMoveTo(next);
-  }, AI_POS_AUTO_INTERVAL);
+    const t0 = Date.now();
+    if (aiPosAutoTimer) clearInterval(aiPosAutoTimer);
+    aiPosAutoTimer = setInterval(() => {
+      if (!aiPos.autoMoving || !aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; return; }
+      const arrived = (typeof stdDepth === "number" && Math.abs(stdDepth - target) <= AI_POS_ARRIVE_TOL);
+      if (arrived || (Date.now() - t0) >= AI_POS_STEP_TIMEOUT) {
+        clearInterval(aiPosAutoTimer); aiPosAutoTimer = null;
+        aiPosAutoAdvance(); // next step only after the rail is really there
+      }
+    }, 200);
+  });
 }
 function aiPosStopAuto() {
   aiPos.autoMoving = false;
