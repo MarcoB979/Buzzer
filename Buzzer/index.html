@@ -1013,7 +1013,8 @@
           <input type="password" id="aiElevenLabsKey" placeholder="sk_…" autocomplete="off">
           <label class="ai-set-label" for="aiElevenLabsVoiceId">Voice ID</label>
           <input type="text" id="aiElevenLabsVoiceId" placeholder="21m00Tcm4TlvDq8ikWAM" autocomplete="off">
-          <div class="ai-set-hint">Your own key — replies are sent to ElevenLabs and billed to your account only. Find the Voice ID in ElevenLabs → Voices → your voice (the long ID in the URL or details).</div>
+          <button type="button" class="ble-btn small" id="aiElevenLabsTest" style="margin-top:6px;">🔊 Test voice</button>
+          <div class="ai-set-hint">Your own key — replies are sent to ElevenLabs and billed to your account only. Find the Voice ID in ElevenLabs → Voices → your voice (the long ID in the URL or details). Note: free accounts cannot use the public “Library” voices through the API — use your own cloned/custom voice or upgrade to Starter.</div>
         </div>
         <div id="aiSystemTtsRow">
           <label class="ai-set-label" for="aiTtsVoice">Voice</label>
@@ -6099,12 +6100,27 @@ function aiElevenLabsConfigured() {
   return !!(s.key && s.voiceId);
 }
 let aiAudio = null;
+let aiElevenLabsWarned = false;
 function aiStopElevenLabs() {
   if (!aiAudio) return;
   try { aiAudio.pause(); } catch (e) {}
   const u = aiAudio.src;
   try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {}
   try { if (u) URL.revokeObjectURL(u); } catch (e) {}
+}
+async function aiElevenLabsErrorText(resp) {
+  try {
+    if ((resp.headers.get("content-type") || "").indexOf("json") !== -1) {
+      const j = await resp.json();
+      if (j && j.detail && j.detail.message) return String(j.detail.message);
+    }
+  } catch (e) {}
+  return "HTTP " + resp.status;
+}
+function aiElevenLabsWarn(msg) {
+  if (aiElevenLabsWarned) return;
+  aiElevenLabsWarned = true;
+  try { aiAddMsg("system", "🔇 ElevenLabs voice failed — " + msg + " Using the device voice instead."); } catch (e) {}
 }
 async function aiSpeakElevenLabs(text) {
   const s = aiElevenLabsSettings();
@@ -6120,7 +6136,11 @@ async function aiSpeakElevenLabs(text) {
         voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true }
       })
     });
-    if (!resp.ok) { aiSpeakBrowser(text); return; }
+    if (!resp.ok) {
+      aiElevenLabsWarn(await aiElevenLabsErrorText(resp));
+      aiSpeakBrowser(text);
+      return;
+    }
     const blob = await resp.blob();
     const url = URL.createObjectURL(blob);
     if (!aiAudio) aiAudio = new Audio();
@@ -6128,8 +6148,50 @@ async function aiSpeakElevenLabs(text) {
     aiAudio.onended = () => { const u = aiAudio.src; try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {} try { if (u) URL.revokeObjectURL(u); } catch (e) {} };
     await aiAudio.play().catch(() => {});
   } catch (e) {
+    aiElevenLabsWarn(e && e.message ? e.message : "network error");
     aiSpeakBrowser(text);
   }
+}
+function aiTestElevenLabs() {
+  const s = aiElevenLabsSettings();
+  const btn = $("aiElevenLabsTest");
+  const resetBtn = (txt, ms) => setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = txt; } }, ms);
+  if (!s.key || !s.voiceId) {
+    if (btn) { btn.textContent = "⚠ Enter key + voice ID first"; resetBtn("🔊 Test voice", 2500); }
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = "Testing…"; }
+  aiStopElevenLabs();
+  fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(s.voiceId), {
+    method: "POST",
+    headers: { "xi-api-key": s.key, "Content-Type": "application/json", "Accept": "audio/mpeg" },
+    body: JSON.stringify({
+      text: "Hallo, dit is een test van mijn ElevenLabs stem.",
+      model_id: "eleven_flash_v2_5",
+      voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0, use_speaker_boost: true }
+    })
+  }).then(async resp => {
+    if (!resp.ok) {
+      const msg = await aiElevenLabsErrorText(resp);
+      if (btn) btn.textContent = "✖ Failed: " + msg;
+      try { aiAddMsg("system", "🔇 ElevenLabs test failed — " + msg); } catch (e) {}
+      resetBtn("🔊 Test voice", 8000);
+      return;
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    if (!aiAudio) aiAudio = new Audio();
+    aiAudio.src = url;
+    aiAudio.onended = () => { const u = aiAudio.src; try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {} try { if (u) URL.revokeObjectURL(u); } catch (e) {} };
+    await aiAudio.play().catch(() => {});
+    if (btn) btn.textContent = "✓ Working — playing…";
+    resetBtn("🔊 Test voice", 5000);
+  }).catch(e => {
+    const msg = e && e.message ? e.message : "network error";
+    if (btn) btn.textContent = "✖ " + msg;
+    try { aiAddMsg("system", "🔇 ElevenLabs test failed — " + msg); } catch (e) {}
+    resetBtn("🔊 Test voice", 8000);
+  });
 }
 function aiIsSpeaking() {
   if (window.speechSynthesis && speechSynthesis.speaking) return true;
@@ -8687,6 +8749,8 @@ function aiDebugRestore() {
   if (ttsProv) ttsProv.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-provider", ttsProv.value); } catch (e) {} syncTtsUi(); });
   if (elKey) elKey.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-key", elKey.value.trim()); } catch (e) {} });
   if (elVoiceId) elVoiceId.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-voice-id", elVoiceId.value.trim()); } catch (e) {} });
+  const elTest = $("aiElevenLabsTest");
+  if (elTest) elTest.onclick = aiTestElevenLabs;
   syncTtsUi();
   const aiSetPanel = $("aiSettings");
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) { aiLoadVoices(); if (aiWhisperEnabled()) aiPopulateMicList(); } });
