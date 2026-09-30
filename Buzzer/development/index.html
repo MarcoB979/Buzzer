@@ -6958,7 +6958,7 @@ async function aiCallOpenAI(messages) {
 async function aiCallGemini(messages) {
   const s = aiProviderSettings();
   let lastErr = "Gemini request failed";
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       let systemText = "";
       const contents = [];
@@ -6994,7 +6994,7 @@ async function aiCallGemini(messages) {
         lastErr = "Gemini HTTP " + r.status + (msg ? " — " + msg : "");
       }
     } catch (e) { lastErr = "could not reach Gemini (network/CORS)"; }
-    if (attempt === 0) await sleepMs(1000);
+    if (attempt < 2) await sleepMs(attempt === 0 ? 1500 : 3000);
   }
   return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, lang: null, error: lastErr };
 }
@@ -9985,7 +9985,7 @@ function aiDebugRestore() {
     if (keyInp) keyInp.value = s.key;
     if (keyRow) keyRow.style.display = keyed ? "" : "none";
     if (keyLabel) keyLabel.textContent = isGe ? "Gemini API key" : isOa ? "OpenAI API key" : "DeepSeek API key";
-    if (keyHint) keyHint.textContent = isGe ? "Free tier with your Google account — get a key at aistudio.google.com/apikey. Sent to Google with your key." : isOa ? "Sent to your OpenAI-compatible endpoint with your key." : "Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.";
+    if (keyHint) keyHint.textContent = isGe ? "Free tier with your Google account — get a key at aistudio.google.com/apikey. Sent to Google with your key. Free tier can return 503 under high demand; a paid plan (DeepSeek or OpenAI) is more reliable for Fist-IT / Wild / Full-submission play." : isOa ? "Sent to your OpenAI-compatible endpoint with your key." : "Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.";
     if (oaRow) oaRow.style.display = (isOa || isGe) ? "" : "none";
     const baseUrlLabel = $("aiBaseUrlLabel");
     if (baseInp) { baseInp.value = s.baseUrl; baseInp.style.display = isGe ? "none" : ""; }
