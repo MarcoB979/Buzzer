@@ -5786,7 +5786,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to prompt the user to connect (you can't pair Bluetooth yourself). Otherwise null.
 - "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
 - "video" (optional): play one of the user's videos — {"url":"<the exact url from your FAVORITE VIDEOS context>"}, a local one {"local":"<the exact file name from your LOCAL VIDEOS context>"}, or a Stash scene {"stash":<the id from your STASH LIBRARY context>}. Use it when the user asks to watch porn or put something on: match their mood/kinks to the STASH LIBRARY tags and performers when possible; otherwise pick a favorite or local file at random, or ask which they want (translating the title into the language you're replying in). Playing it switches the app to the Funscript screen automatically, so just tell them it's playing — never ask them to find the video or cast it. Otherwise null.
-- "addon" (optional): control an optional addon device (see the OPTIONAL ADDONS context) — {"addon":{"device":"fist"|"eject","action":"start"|"stop"|"set","key":"<slider key>","value":<number>}}. "start"/"stop" turn it on/off; "set" changes one slider value. Otherwise null.
+- "addon" (optional): control an optional addon device (see the OPTIONAL ADDONS context) — {"addon":{"device":"fist"|"eject","action":"start"|"stop"|"set","key":"<slider key>","value":<number>}}, or an ARRAY of such objects to do several at once. "start"/"stop" turn it on/off; "set" changes one slider value. Otherwise null.
 - "search" (optional): look up a term you don't know (e.g. an unfamiliar fisting or kink term) — send {"search":"<the term>"}. The app runs a web search and shows you the results; then briefly explain what you found and confirm with the user before acting. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
@@ -5937,7 +5937,12 @@ function aiExtractJson(text) {
   if (typeof j.search === "string" && j.search.trim()) search = { query: j.search.trim() };
   else if (j.search && typeof j.search === "object" && !Array.isArray(j.search) && typeof j.search.query === "string") search = j.search;
   let addon = null;
-  if (j.addon && typeof j.addon === "object" && !Array.isArray(j.addon) && typeof j.addon.device === "string") addon = j.addon;
+  if (Array.isArray(j.addon)) {
+    addon = j.addon.filter(x => x && typeof x === "object" && !Array.isArray(x) && typeof x.device === "string");
+    if (!addon.length) addon = null;
+  } else if (j.addon && typeof j.addon === "object" && typeof j.addon.device === "string") {
+    addon = j.addon;
+  }
   if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon) {
     return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, lang };
   }
@@ -10292,6 +10297,10 @@ function addonFistIntentText() {
     + "- Safer fisting always: pain is a stop signal, never something to push through; the danger is in the hurry, not the fist — go slowly, no rough or sudden handling. Store how this user likes to be fisted (their terms and preferences) in \"memory\" so you get better over time.";
 }
 
+function addonEjectIntentText() {
+  return "\n\nEJECT (Cumpump) — INTENT: when the user asks you to cum / squirt / shoot / ejaculate inside them, actually RUN it — send an ARRAY of addon actions, e.g. [{\"device\":\"eject\",\"action\":\"start\"},{\"device\":\"eject\",\"action\":\"set\",\"key\":\"speed\",\"value\":80},{\"device\":\"eject\",\"action\":\"set\",\"key\":\"volume\",\"value\":80}] (turn it on, then set pump speed and load size). \"shots\" = number of squirts, \"force\" = how hard, \"volume\" = load size. A moment later (or when they ask) send {\"device\":\"eject\",\"action\":\"stop\"}.";
+}
+
 function addonContext() {
   const parts = [];
   for (const a of ADDON_DEFS) {
@@ -10301,21 +10310,32 @@ function addonContext() {
   }
   if (!parts.length) return "";
   let out = "\n\nOPTIONAL ADDONS (you may control these too):\n" + parts.join("\n")
-    + "\nUse the \"addon\" field: {\"addon\":{\"device\":\"fist\"|\"eject\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}}. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
+    + "\nUse the \"addon\" field — one object {\"device\":\"fist\"|\"eject\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}, or an ARRAY of such objects to do several at once. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
   if (addonEnabled("fist")) out += addonFistIntentText();
+  if (addonEnabled("eject")) out += addonEjectIntentText();
   if (addonFistActive()) out += addonFistSafetyText();
   return out;
 }
 
 function aiApplyAddon(p) {
+  if (!p) return;
+  const list = Array.isArray(p) ? p : [p];
+  for (const item of list) aiApplyAddonOne(item);
+}
+
+function aiApplyAddonOne(p) {
   if (!p || typeof p !== "object" || Array.isArray(p)) return;
   const id = String(p.device || "").toLowerCase();
   const a = ADDON_DEFS.find(x => x.id === id);
   if (!a || !addonEnabled(id)) return;
   const action = String(p.action || "").toLowerCase();
   const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
-  if (action === "start" || action === "on") { if (!st.on) addonStartStop(id); }
-  else if (action === "stop" || action === "off") { if (st.on) addonStartStop(id); }
+  if (action === "start" || action === "on") {
+    if (!st.on) { aiLog("addon " + id + ": start"); addonStartStop(id); }
+  }
+  else if (action === "stop" || action === "off") {
+    if (st.on) { aiLog("addon " + id + ": stop"); addonStartStop(id); }
+  }
   else if (action === "set" || action === "value") {
     const key = String(p.key || "").toLowerCase();
     const s = a.sliders.find(x => x.key === key);
@@ -10330,6 +10350,7 @@ function aiApplyAddon(p) {
         const delta = v - cur;
         if (Math.abs(delta) > step) v = Math.round(cur + Math.sign(delta) * step);
       }
+      aiLog("addon " + id + ": set " + key + " " + v);
       addonSlider(id, key, v);
     }
   }
