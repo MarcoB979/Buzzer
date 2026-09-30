@@ -10281,7 +10281,7 @@ function addonFistSafetyText() {
     : (f === "playful"
       ? "\n- You are in PLAYFUL mode right now. You may still vary the fisting intensity on your own, but any larger increase must be gradual and gentle — never a sharp jump."
       : "");
-  return "\n\nFISTING SAFETY (CRITICAL — applies only while the Fist-IT addon is connected/running): fisting is delicate and dangerous; sudden movement in or out, or sudden speed/rotation changes, can cause internal injury or even death. While Fist-IT is active, control it very gently: change only ONE of its sliders at a time, in small steps (roughly 10% of that slider's range or less), and ramp up gradually. NEVER send a large jump in a single \"set\" command — spread any big change over several turns." + perLevel;
+  return "\n\nFISTING SAFETY (CRITICAL — applies only while the Fist-IT addon is connected/running): fisting is delicate and dangerous; sudden movement in or out, or sudden speed/rotation changes, can cause internal injury or even death. While Fist-IT is active, control it very gently: change its sliders only in small steps (roughly 10% of a slider's range or less; the app also caps each change), and ramp up gradually. NEVER send a large jump in a single \"set\" command — spread any big change over several turns." + perLevel;
 }
 
 function addonFistIntentText() {
@@ -10293,6 +10293,7 @@ function addonFistIntentText() {
     + "  - \"depth play\" = deeper penetration toward the sigmoid — experienced players only, extra care.\n"
     + "  - \"double fisting\" = two hands — very advanced, more stretch than movement.\n"
     + "  - These are examples, not the whole vocabulary.\n"
+    + "- TO RUN IT: send an ARRAY of addon actions, e.g. [{\"device\":\"fist\",\"action\":\"start\"},{\"device\":\"fist\",\"action\":\"set\",\"key\":\"speed\",\"value\":40},{\"device\":\"fist\",\"action\":\"set\",\"key\":\"rotation\",\"value\":180}] — turn it on, then set rotation speed and amount. Always start gentle (low speed) and build up slowly; the app caps each \"set\" to a small step for safety. When they're done or say stop, send {\"device\":\"fist\",\"action\":\"stop\"}.\n"
     + "- UNKNOWN TERM: if the user uses a fisting term you do not know, send \"search\":\"<the term>\" to look it up (the app returns web results). Then briefly explain what you found and CONFIRM with the user that this is the motion they want before doing anything. Once they confirm, save the term and its meaning in \"memory\".\n"
     + "- Safer fisting always: pain is a stop signal, never something to push through; the danger is in the hurry, not the fist — go slowly, no rough or sudden handling. Store how this user likes to be fisted (their terms and preferences) in \"memory\" so you get better over time.";
 }
