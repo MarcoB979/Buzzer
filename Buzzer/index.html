@@ -1819,7 +1819,16 @@ function baseRange(i) {
 function setBase(i, v) {
   const key = baseKey(i);
   const s = getSetting(key);
-  v = clamp(Math.round(v), s.min, s.max);
+  let lo = s.min, hi = s.max;
+  // Once safety limits are confirmed, hard-cap Max Pos / Min Pos so no control
+  // (slider, keyboard, gamepad) can push the stroke past the user's confirmed
+  // deepest/shallowest points.
+  if (aiLimitsConfirmed()) {
+    const caps = aiSafetyCaps();
+    if (key === "Max Pos") hi = Math.min(hi, caps.maxDepth);
+    else if (key === "Min Pos") { lo = Math.max(lo, caps.minDepth); hi = Math.min(hi, caps.maxDepth); }
+  }
+  v = clamp(Math.round(v), lo, hi);
   s.value = v;
   settings[key] = s;
   if (i >= 0 && i < BASE_NAMES.length) activeBaseIndex = i; // highlight the moved setting
@@ -8169,9 +8178,15 @@ function buildCompSliders() {
     { i: 2, label: "In Speed", color: BASE_COLORS[2] },
     { i: 3, label: "Out Speed", color: BASE_COLORS[3] }
   ];
+  const caps = aiLimitsConfirmed() ? aiSafetyCaps() : null;
   for (const d of defs) {
     const r = baseRange(d.i);
-    wrap.appendChild(sliderEl(d.label, r.min, r.max, Math.round(settingValue(baseKey(d.i))), d.color, (v) => setBase(d.i, v)));
+    let rmin = r.min, rmax = r.max;
+    if (caps) {
+      if (d.i === 0) rmax = Math.min(rmax, caps.maxDepth); // Max Pos
+      else if (d.i === 1) { rmin = Math.max(rmin, caps.minDepth); rmax = Math.min(rmax, caps.maxDepth); } // Min Pos
+    }
+    wrap.appendChild(sliderEl(d.label, rmin, rmax, clamp(Math.round(settingValue(baseKey(d.i))), rmin, rmax), d.color, (v) => setBase(d.i, v)));
   }
 }
 function companionPreset(delta) {
@@ -10628,7 +10643,13 @@ function gpStdStep(field, d, mag) {
   }
   if (appMode !== "std") return;
   const sensField = field === "sensation";
-  stdValues[field] = clamp(stdValues[field] + d * mag, sensField ? -100 : 0, 100);
+  let lo = sensField ? -100 : 0, hi = 100;
+  if (!sensField && aiLimitsConfirmed()) {
+    const caps = aiSafetyCaps();
+    if (field === "max") hi = caps.maxDepth;
+    else if (field === "min") { lo = caps.minDepth; hi = caps.maxDepth; }
+  }
+  stdValues[field] = clamp(stdValues[field] + d * mag, lo, hi);
   if (field === "max" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   if (field === "min" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   saveStdValues();
