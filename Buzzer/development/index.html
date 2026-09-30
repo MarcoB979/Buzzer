@@ -1681,8 +1681,16 @@ function parseStdState(raw) {
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
   if (typeof j.depth === "number") stdDepth = Math.round(j.depth);
   if (typeof j.position === "number" && !stdRailChar) stdRailPos = Math.round(j.position);
-  if (typeof j.sensation === "number") stdValues.sensation = sensationFromDevice(j.sensation);
-  if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
+  // Only mirror the stroke-engine "sensation"/"pattern" back into the app when
+  // the firmware is actually IN the stroke engine. In AP/menu the device may
+  // report a stale sensation, and during position setup PointStroke reuses
+  // sensation as an ABSOLUTE position — both would corrupt the user's
+  // neutral-feel setting if echoed here.
+  const inStroke = (typeof j.state === "string" && j.state.indexOf("strokeEngine") === 0);
+  if (inStroke && !(aiPos && (aiPos.active || aiPos.moving))) {
+    if (typeof j.sensation === "number") stdValues.sensation = sensationFromDevice(j.sensation);
+    if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
+  }
   if (typeof j.state === "string") stdStateName = j.state;
   stdRunning = stdValues.speed > 0.5;
   detectFirmware(j);
@@ -5597,6 +5605,7 @@ function enterApMode() {
     const sp = getSetting(SPEED_KEY);
     sp.value = 0;
     settings[SPEED_KEY] = sp;
+    stdStateName = ""; // the AP command moves the firmware out of the stroke engine
     writeControlReliable(speedIndex() + ":0,").catch(() => {});
   }
   updateStartButton();
@@ -6608,6 +6617,15 @@ function aiAddMsg(role, html) {
   h.scrollTop = h.scrollHeight;
   return d;
 }
+// Show a system note AND push it into the active conversation so the AI is
+// told about an app-side decision (e.g. a blocked action) and stops narrating
+// something that didn't actually happen.
+function aiInjectSystem(text) {
+  const msg = { role: "system", content: text, ts: Date.now() };
+  if (compModeActive) compMessages.push(msg); else aiMessages.push(msg);
+  aiAddMsg("system", escapeHtml(text));
+  aiDebugPersistSoon();
+}
 
 function aiProviderSettings() {
   let provider = "free", key = "", baseUrl = "", model = "";
@@ -6900,6 +6918,7 @@ function aiPosRestoreMode() {
     const sp = getSetting(SPEED_KEY);
     sp.value = 0;
     settings[SPEED_KEY] = sp;
+    stdStateName = ""; // the AP command moves the firmware out of the stroke engine
     modeWatchPausedUntil = Date.now() + 5000; // let the firmware settle back into AP
     writeControlReliable(speedIndex() + ":0,").catch(() => {});
   }
@@ -7502,14 +7521,14 @@ function aiPosApplyEnvelope(P, canRun) {
   else if (a === "done") aiLog("positions saved & limits applied");
   else if (a === "ready") aiLog("position setup finished — returning to start");
   if ((a === "start" || a === "move" || a === "ready") && !connected) {
-    aiAddMsg("system", "I can't move the OSSM — it isn't connected yet. Connect it and tell me to go again.");
+    aiInjectSystem("POSITION SETUP DID NOT START: the OSSM is not connected. Do not describe any movement — tell the user to press Connect first.");
     if (aiSpeakEnabled()) aiSpeak("Connect the OSSM first, then I'll move it.");
     return;
   }
   if (a === "start") {
     if (!aiPosSafeWord()) {
       aiLog("blocked position setup start — no safe word set yet");
-      aiAddMsg("system", "Before I move anything, we need a safe word — tell me a word that will stop everything instantly.");
+      aiInjectSystem("POSITION SETUP DID NOT START: no safe word has been set yet. Do not describe any movement — ask the user to choose a safe word first.");
       aiSpeak("First, what is your safe word?");
       return;
     }
