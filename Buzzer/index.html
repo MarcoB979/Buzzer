@@ -1084,6 +1084,7 @@
         <select id="aiTtsProvider">
           <option value="system">System voice (device)</option>
           <option value="google">Free Google (online)</option>
+          <option value="voicerss">VoiceRSS (free key)</option>
           <option value="elevenlabs">ElevenLabs (your key)</option>
         </select>
         <div id="aiElevenLabsRow" style="display:none;">
@@ -1097,6 +1098,16 @@
         <div id="aiGoogleTtsRow" style="display:none;">
           <button type="button" class="ble-btn small" id="aiGoogleTtsTest" style="margin-top:6px;">🔊 Test voice</button>
           <div class="ai-set-hint">Free online voice (Google) — no key needed, just an internet connection. Replies are sent to Google's text-to-speech service; longer replies are split and played one after the other. If it fails (offline / blocked) it falls back to the device voice.</div>
+        </div>
+        <div id="aiVoiceRssRow" style="display:none;">
+          <label class="ai-set-label" for="aiVoiceRssKey">VoiceRSS API key</label>
+          <input type="password" id="aiVoiceRssKey" placeholder="Get a free key at voicerss.org" autocomplete="off">
+          <label class="ai-set-label" for="aiVoiceRssVoice">Voice</label>
+          <select id="aiVoiceRssVoice"><option value="">Auto (match avatar + language)</option></select>
+          <label class="ai-set-label" for="aiVoiceRssRate">Speed (0.5–2)</label>
+          <input type="number" id="aiVoiceRssRate" min="0.5" max="2" step="0.1">
+          <button type="button" class="ble-btn small" id="aiVoiceRssTest" style="margin-top:6px;">🔊 Test voice</button>
+          <div class="ai-set-hint">Free with a key from voicerss.org (100 requests/day on the free tier) — male &amp; female voices per language, plus speed. Pitch isn't available on this service. If it fails (key / limit) it falls back to the free Google voice.</div>
         </div>
         <div id="aiSystemTtsRow">
           <label class="ai-set-label" for="aiTtsVoice">Voice</label>
@@ -6515,6 +6526,8 @@ function aiSpeak(text) {
   const p = aiTtsProvider();
   if (p === "elevenlabs" && aiElevenLabsConfigured()) {
     aiSpeakElevenLabs(text);
+  } else if (p === "voicerss" && aiVoiceRssConfigured()) {
+    aiSpeakVoiceRss(text);
   } else if (p === "google") {
     aiSpeakGoogle(text);
   } else {
@@ -6558,7 +6571,7 @@ function aiSpeakBrowser(text) {
   } catch (e) {}
 }
 function aiTtsProvider() {
-  try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return (p === "elevenlabs" || p === "google") ? p : "system"; } catch (e) { return "system"; }
+  try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return (p === "elevenlabs" || p === "google" || p === "voicerss") ? p : "system"; } catch (e) { return "system"; }
 }
 function aiElevenLabsSettings() {
   let key = "", voiceId = "";
@@ -6670,8 +6683,8 @@ function aiGoogleWarn(msg) {
   aiGoogleWarned = true;
   try { aiAddMsg("system", "🔇 Free Google voice failed — " + msg + " Using the device voice instead."); } catch (e) {}
 }
-function aiGoogleChunks(text) {
-  const max = 180;
+function aiGoogleChunks(text, max) {
+  max = max || 180;
   text = String(text || "").trim();
   if (!text) return [];
   if (text.length <= max) return [text];
@@ -6720,6 +6733,114 @@ function aiTestGoogle() {
   aiAudio.src = url;
   aiAudio.onended = () => done("✓ Working — replay");
   aiAudio.onerror = () => { done("✖ Failed (no internet?)"); try { aiAddMsg("system", "🔇 Free Google voice failed — check your internet connection."); } catch (e) {} };
+  aiAudio.play().then(() => { if (btn) btn.textContent = "▶ Playing…"; }).catch(() => done("✖ Playback blocked"));
+}
+const AI_VOICERSS_VOICES = [
+  { hl: "en-us", v: "Linda", g: "f", label: "English (US) — Linda (female)" },
+  { hl: "en-us", v: "John", g: "m", label: "English (US) — John (male)" },
+  { hl: "en-us", v: "Mike", g: "m", label: "English (US) — Mike (male)" },
+  { hl: "en-gb", v: "Amy", g: "f", label: "English (GB) — Amy (female)" },
+  { hl: "en-gb", v: "Brian", g: "m", label: "English (GB) — Brian (male)" },
+  { hl: "nl-nl", v: "Lotte", g: "f", label: "Dutch — Lotte (vrouw)" },
+  { hl: "nl-nl", v: "Ruben", g: "m", label: "Dutch — Ruben (man)" },
+  { hl: "de-de", v: "Anna", g: "f", label: "German — Anna (weiblich)" },
+  { hl: "de-de", v: "Tim", g: "m", label: "German — Tim (männlich)" },
+  { hl: "fr-fr", v: "Bette", g: "f", label: "French — Bette (femme)" },
+  { hl: "fr-fr", v: "Axel", g: "m", label: "French — Axel (homme)" },
+  { hl: "fr-fr", v: "Louis", g: "m", label: "French — Louis (homme)" },
+];
+function aiVoiceRssKey() { try { return (localStorage.getItem("ossm-voicerss-key") || "").trim(); } catch (e) { return ""; } }
+function aiVoiceRssSavedVoice() { try { return (localStorage.getItem("ossm-voicerss-voice") || "").trim(); } catch (e) { return ""; } }
+function aiVoiceRssRate() {
+  try { const n = parseFloat(localStorage.getItem("ossm-voicerss-rate")); return isNaN(n) ? 1 : Math.min(2, Math.max(0.5, n)); } catch (e) { return 1; }
+}
+function aiVoiceRssConfigured() { return !!aiVoiceRssKey(); }
+function aiPopulateVoiceRssList() {
+  const sel = $("aiVoiceRssVoice");
+  if (!sel) return;
+  const saved = aiVoiceRssSavedVoice();
+  sel.innerHTML = "";
+  const auto = document.createElement("option");
+  auto.value = ""; auto.textContent = "Auto (match avatar + language)";
+  sel.appendChild(auto);
+  let lastHl = "", grp = null;
+  for (const e of AI_VOICERSS_VOICES) {
+    if (e.hl !== lastHl) {
+      grp = document.createElement("optgroup");
+      grp.label = e.hl;
+      sel.appendChild(grp);
+      lastHl = e.hl;
+    }
+    const o = document.createElement("option");
+    o.value = e.v; o.textContent = e.label;
+    grp.appendChild(o);
+  }
+  sel.value = AI_VOICERSS_VOICES.some(x => x.v === saved) ? saved : "";
+}
+function aiVoiceRssEntryFor(lang) {
+  const base = (lang || "en").toLowerCase().split(/[-_]/)[0];
+  const saved = aiVoiceRssSavedVoice();
+  if (saved) {
+    const hit = AI_VOICERSS_VOICES.find(x => x.v === saved);
+    if (hit) {
+      if (hit.hl.split("-")[0] === base) return hit;
+      const sameG = AI_VOICERSS_VOICES.find(x => x.hl.split("-")[0] === base && x.g === hit.g);
+      if (sameG) return sameG;
+    }
+  }
+  const pref = companionPref(); // "male" | "female" | "any"
+  let list = AI_VOICERSS_VOICES.filter(x => x.hl.split("-")[0] === base);
+  if (!list.length) list = AI_VOICERSS_VOICES.filter(x => x.hl.split("-")[0] === "en");
+  const wanted = pref === "female" ? "f" : (pref === "male" ? "m" : null);
+  if (wanted) { const hit = list.find(x => x.g === wanted); if (hit) return hit; }
+  return list[0];
+}
+let aiVoiceRssWarned = false;
+function aiVoiceRssWarn(msg) {
+  if (aiVoiceRssWarned) return;
+  aiVoiceRssWarned = true;
+  try { aiAddMsg("system", "🔇 VoiceRSS failed — " + msg + " Using the free Google voice instead."); } catch (e) {}
+}
+function aiSpeakVoiceRss(text) {
+  const key = aiVoiceRssKey();
+  if (!key) { aiSpeakGoogle(text); return; }
+  const entry = aiVoiceRssEntryFor(aiSpeechLang());
+  const r = Math.round((aiVoiceRssRate() - 1) * 10); // -10..10
+  const chunks = aiGoogleChunks(text, 900);
+  if (!chunks.length) return;
+  aiStopAudio();
+  let i = 0;
+  const playNext = () => {
+    if (i >= chunks.length) return;
+    const url = "https://api.voicerss.org/?key=" + encodeURIComponent(key)
+      + "&hl=" + encodeURIComponent(entry.hl)
+      + "&v=" + encodeURIComponent(entry.v)
+      + "&r=" + r
+      + "&c=MP3&f=44khz_16bit_stereo&src=" + encodeURIComponent(chunks[i]);
+    if (!aiAudio) aiAudio = new Audio();
+    aiAudio.src = url;
+    aiAudio.onended = () => { i++; playNext(); };
+    aiAudio.onerror = () => { aiVoiceRssWarn("bad key or request limit"); aiSpeakGoogle(text); };
+    aiAudio.play().catch(() => { aiVoiceRssWarn("playback blocked"); aiSpeakGoogle(text); });
+  };
+  playNext();
+}
+function aiTestVoiceRss() {
+  const key = aiVoiceRssKey();
+  const btn = $("aiVoiceRssTest");
+  const done = (label) => { if (btn) { btn.disabled = false; btn.textContent = label; } };
+  if (!key) { if (btn) { btn.textContent = "⚠ Enter your key first"; } done("🔊 Test voice"); return; }
+  if (btn) { btn.disabled = true; btn.textContent = "Testing…"; }
+  const phrases = { en: "Hello, this is a test of my VoiceRSS voice.", nl: "Hallo, dit is een test van mijn VoiceRSS stem.", de: "Hallo, das ist ein Test meiner VoiceRSS Stimme.", fr: "Bonjour, ceci est un test de ma voix VoiceRSS." };
+  const lang = aiSpeechLang() || "en";
+  const entry = aiVoiceRssEntryFor(lang);
+  const r = Math.round((aiVoiceRssRate() - 1) * 10);
+  const url = "https://api.voicerss.org/?key=" + encodeURIComponent(key) + "&hl=" + encodeURIComponent(entry.hl) + "&v=" + encodeURIComponent(entry.v) + "&r=" + r + "&c=MP3&f=44khz_16bit_stereo&src=" + encodeURIComponent(phrases[lang] || phrases.en);
+  aiStopAudio();
+  if (!aiAudio) aiAudio = new Audio();
+  aiAudio.src = url;
+  aiAudio.onended = () => done("✓ Working — replay");
+  aiAudio.onerror = () => { done("✖ Failed (key/limit?)"); try { aiAddMsg("system", "🔇 VoiceRSS test failed — check your key and request limit."); } catch (e) {} };
   aiAudio.play().then(() => { if (btn) btn.textContent = "▶ Playing…"; }).catch(() => done("✖ Playback blocked"));
 }
 function aiIsSpeaking() {
@@ -10290,16 +10411,24 @@ function aiDebugRestore() {
   const elKey = $("aiElevenLabsKey");
   const elVoiceId = $("aiElevenLabsVoiceId");
   const gooRow = $("aiGoogleTtsRow");
+  const vrRow = $("aiVoiceRssRow");
+  const vrKey = $("aiVoiceRssKey");
+  const vrVoice = $("aiVoiceRssVoice");
+  const vrRate = $("aiVoiceRssRate");
   const sysTtsRow = $("aiSystemTtsRow");
   const syncTtsUi = () => {
     const prov = aiTtsProvider();
     if (ttsProv) ttsProv.value = prov;
     if (elRow) elRow.style.display = prov === "elevenlabs" ? "" : "none";
     if (gooRow) gooRow.style.display = prov === "google" ? "" : "none";
+    if (vrRow) vrRow.style.display = prov === "voicerss" ? "" : "none";
     if (sysTtsRow) sysTtsRow.style.display = prov === "system" ? "" : "none";
     const s = aiElevenLabsSettings();
     if (elKey) elKey.value = s.key;
     if (elVoiceId) elVoiceId.value = s.voiceId;
+    if (vrKey) vrKey.value = aiVoiceRssKey();
+    if (vrVoice) aiPopulateVoiceRssList();
+    if (vrRate) vrRate.value = aiVoiceRssRate();
   };
   if (ttsProv) ttsProv.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-provider", ttsProv.value); } catch (e) {} syncTtsUi(); });
   if (elKey) elKey.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-key", elKey.value.trim()); } catch (e) {} });
@@ -10308,6 +10437,11 @@ function aiDebugRestore() {
   if (elTest) elTest.onclick = aiTestElevenLabs;
   const gooTest = $("aiGoogleTtsTest");
   if (gooTest) gooTest.onclick = aiTestGoogle;
+  if (vrKey) vrKey.addEventListener("change", () => { try { localStorage.setItem("ossm-voicerss-key", vrKey.value.trim()); } catch (e) {} });
+  if (vrVoice) vrVoice.addEventListener("change", () => { try { localStorage.setItem("ossm-voicerss-voice", vrVoice.value); } catch (e) {} });
+  if (vrRate) vrRate.addEventListener("change", () => { try { localStorage.setItem("ossm-voicerss-rate", vrRate.value); } catch (e) {} });
+  const vrTest = $("aiVoiceRssTest");
+  if (vrTest) vrTest.onclick = aiTestVoiceRss;
   syncTtsUi();
   const aiSetPanel = $("aiSettings");
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) { aiLoadVoices(); if (aiWhisperEnabled()) aiPopulateMicList(); } });
