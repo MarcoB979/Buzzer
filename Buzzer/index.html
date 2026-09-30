@@ -146,6 +146,7 @@
   .wizard-btn { border: 1px solid var(--border-color); background: #1f2937; color: #fff; border-radius: 6px; padding: 6px 12px; font-size: .75rem; cursor: pointer; }
   .wizard-btn.ghost { background: transparent; }
   .wizard-btn.danger { border-color: #dc2626; color: #dc2626; background: transparent; }
+  .freedom-icon { font-size: 3.2rem; text-align: center; line-height: 1; margin-bottom: 4px; }
   .pad-debug { background-color: var(--panel-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 10px; margin-top: 12px; }
   .pad-debug summary { list-style: none; cursor: pointer; user-select: none; font-size: .75rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
   .pad-debug summary::-webkit-details-marker { display: none; }
@@ -1146,6 +1147,18 @@
       </div>
       <div class="wizard-row" style="margin-top:14px;">
         <button class="wizard-btn" id="privacyClose">Got it</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="wizard-overlay" id="freedomOverlay" style="display:none;">
+    <div class="wizard-box" style="max-width:440px;">
+      <div class="freedom-icon" id="freedomIcon">⚠</div>
+      <div class="wizard-title" id="freedomTitle" style="text-align:center;">WARNING</div>
+      <div class="help-body" id="freedomBody" style="text-align:left;"></div>
+      <div class="wizard-row" style="margin-top:16px;">
+        <button class="wizard-btn" id="freedomCancel">Cancel</button>
+        <button class="wizard-btn danger" id="freedomAccept">I accept the risk</button>
       </div>
     </div>
   </div>
@@ -9761,16 +9774,36 @@ function aiDebugRestore() {
   const compFreedomSel = $("compFreedom");
   if (compFreedomSel) {
     compFreedomSel.value = compFreedom();
+    const freedomWarn = (v) => {
+      const ov = $("freedomOverlay"), icon = $("freedomIcon"), title = $("freedomTitle"), body = $("freedomBody");
+      if (!ov) return false;
+      if (v === "full") {
+        if (icon) icon.textContent = "☠";
+        if (title) title.textContent = "FULL SUBMISSION — HIGH RISK";
+        if (body) body.innerHTML = "<p>The companion may raise your safety limits (max depth, min depth, max speed) by up to <b>20 at a time</b>, and may do so <b>on its own initiative</b> when it decides it fits the moment — without asking you to confirm.</p><p>This means the machine can move <b>deeper and faster than your confirmed limits</b> without any confirmation prompt.</p>";
+      } else {
+        if (icon) icon.textContent = "⚠";
+        if (title) title.textContent = "WILD — WARNING";
+        if (body) body.innerHTML = "<p>The companion may raise your safety limits (max depth, min depth, max speed) by up to <b>20 at a time</b> without asking you to confirm — but only when <b>you</b> ask for it.</p><p>This means the machine can move <b>deeper and faster than your confirmed limits</b> without a confirmation prompt.</p>";
+      }
+      ov.style.display = "flex";
+      return true;
+    };
+    let freedomPending = null;
     compFreedomSel.addEventListener("change", () => {
       const v = compFreedomSel.value;
       if (v === "wild" || v === "full") {
-        const msg = (v === "full")
-          ? "⚠ WARNING — FULL SUBMISSION:\n\nThe companion may raise your safety limits (max depth, min depth, max speed) by up to 20 at a time, and may do so ON ITS OWN INITIATIVE when it decides it fits the moment — without asking you to confirm.\n\nThis means the machine can move deeper and faster than your confirmed limits without a confirmation prompt.\n\nDo you accept this risk?"
-          : "⚠ WARNING — WILD:\n\nThe companion may raise your safety limits (max depth, min depth, max speed) by up to 20 at a time without asking you to confirm — but only when YOU ask for it.\n\nThis means the machine can move deeper and faster than your confirmed limits without a confirmation prompt.\n\nDo you accept this risk?";
-        if (!confirm(msg)) { compFreedomSel.value = compFreedom(); return; }
+        if (freedomWarn(v)) { freedomPending = v; return; }
       }
       compSetFreedom(v);
     });
+    const freedomClose = () => { const ov = $("freedomOverlay"); if (ov) ov.style.display = "none"; };
+    const freedomAccept = $("freedomAccept");
+    const freedomCancel = $("freedomCancel");
+    if (freedomAccept) freedomAccept.onclick = () => { if (freedomPending) compSetFreedom(freedomPending); freedomPending = null; freedomClose(); };
+    if (freedomCancel) freedomCancel.onclick = () => { if (freedomPending) compFreedomSel.value = compFreedom(); freedomPending = null; freedomClose(); };
+    const fov = $("freedomOverlay");
+    if (fov) fov.addEventListener("click", (e) => { if (e.target === fov) { if (freedomPending) compFreedomSel.value = compFreedom(); freedomPending = null; freedomClose(); } });
   }
   const localInput = $("aiLocalFolder");
   if (localInput) {
