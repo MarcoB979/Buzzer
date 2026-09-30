@@ -6810,9 +6810,12 @@ function aiProviderSettings() {
   let provider = "free", key = "", baseUrl = "", model = "";
   try { provider = localStorage.getItem("ossm-ai-provider") || "free"; } catch (e) {}
   try { key = (localStorage.getItem("ossm-ai-key") || "").trim(); } catch (e) {}
-  try { baseUrl = (localStorage.getItem("ossm-ai-base-url") || "").trim(); } catch (e) {}
-  try { model = (localStorage.getItem("ossm-ai-model") || "").trim(); } catch (e) {}
+  try { baseUrl = (localStorage.getItem("ossm-ai-base-url-" + provider) || "").trim(); } catch (e) {}
+  try { model = (localStorage.getItem("ossm-ai-model-" + provider) || "").trim(); } catch (e) {}
   if (provider === "openai") {
+    // Legacy: older builds stored one shared base URL/model — adopt it once.
+    if (!baseUrl) { try { baseUrl = (localStorage.getItem("ossm-ai-base-url") || "").trim(); } catch (e) {} }
+    if (!model) { try { model = (localStorage.getItem("ossm-ai-model") || "").trim(); } catch (e) {} }
     if (!baseUrl) baseUrl = "https://api.openai.com/v1";
     if (!model) model = "gpt-4o-mini";
   }
@@ -9950,8 +9953,8 @@ function aiDebugRestore() {
     }
   });
   if (keyInp) keyInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-key", keyInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
-  if (baseInp) baseInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-base-url", baseInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
-  if (modelInp) modelInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-model", modelInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
+  if (baseInp) baseInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-base-url-" + aiProviderSettings().provider, baseInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
+  if (modelInp) modelInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-model-" + aiProviderSettings().provider, modelInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
   const whis = $("aiWhisper");
   const micRow = $("aiMicRow");
   const micSel = $("aiMicDevice");
