@@ -1623,12 +1623,12 @@ async function acquireDevice() {
   return { device: d, server: srv };
 }
 
-async function connect() {
-  if (!navigator.bluetooth) { log("Web Bluetooth not available. Use Chrome/Edge over HTTPS or localhost."); return; }
+async function connect(acquired, silent) {
+  if (!navigator.bluetooth) { log("Web Bluetooth not available. Use Chrome/Edge over HTTPS or localhost."); return false; }
   setConnectingUI(true);
   log("Looking for the OSSM…");
   try {
-    const acquired = await acquireDevice();
+    if (!acquired) acquired = await acquireDevice();
     device = acquired.device;
     server = acquired.server;
     device.addEventListener("gattserverdisconnected", onDisconnected);
@@ -1683,10 +1683,30 @@ async function connect() {
     if (appMode === "std") enterStdMode();
     else if (appMode === "fun") enterStreamingMode();
     log("");
+    return true;
   } catch (e) {
     setConnectingUI(false);
-    $("ble-text").textContent = "OSSM: Error 🔴";
-    log("Bluetooth error: " + e.message);
+    if (!silent) {
+      $("ble-text").textContent = "OSSM: Error 🔴";
+      log("Bluetooth error: " + e.message);
+    }
+    return false;
+  }
+}
+
+// Silently auto-reconnect to a previously-paired OSSM (no picker, no gesture).
+// The device name can be anything — we identify the OSSM by its service UUID.
+async function autoConnectOssm() {
+  if (connected || !navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+  let known = [];
+  try { known = await navigator.bluetooth.getDevices(); } catch (e) { return; }
+  for (const d of known) {
+    try {
+      const server = await bluetoothTimeout(d.gatt.connect(), 4000);
+      await bluetoothTimeout(server.getPrimaryService(SERVICE_UUID), 4000);
+      if (await connect({ device: d, server }, true)) return;
+    } catch (e) {}
+    try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e2) {}
   }
 }
 
@@ -5495,7 +5515,7 @@ function releaseWakeLock() {
 function syncWakeLock() {
   if (wakeLockEnabled() && !document.hidden) requestWakeLock(); else releaseWakeLock();
 }
-document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else { syncWakeLock(); syncOrientationLock(); } });
+document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else { syncWakeLock(); syncOrientationLock(); autoConnectOssm(); if (addonEnabled("fist")) addonAutoConnect("fist"); if (addonEnabled("eject")) addonAutoConnect("eject"); } });
 
 // ---- Disable touch: mapped controls only respond to their controller input ----
 function disableTouchEnabled() { try { return localStorage.getItem("ossm-disable-touch") === "1"; } catch (e) { return false; } }
@@ -10026,6 +10046,59 @@ function addonEncode(command, value, target) {
   return b;
 }
 
+function addonAttach(id, device, server, rx) {
+  const a = ADDON_DEFS.find(x => x.id === id);
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  st.device = device; st.server = server; st.rx = rx; st.connected = true;
+  device.addEventListener("gattserverdisconnected", () => { st.connected = false; st.rx = null; st.on = false; addonRender(); });
+  monitor(a.name + ": connected");
+  addonRender();
+}
+
+// Silent first: reconnect to a previously-paired addon (no picker), then fall
+// back to the picker. getDevices() remembers devices by address, so this works
+// even if the addon's name changed.
+async function addonAcquireDevice(a) {
+  if (navigator.bluetooth.getDevices) {
+    let known = [];
+    try { known = await navigator.bluetooth.getDevices(); } catch (e) {}
+    for (const d of known) {
+      try {
+        const server = await bluetoothTimeout(d.gatt.connect(), 4000);
+        await bluetoothTimeout(server.getPrimaryService(a.service), 4000);
+        return { device: d, server };
+      } catch (e) {
+        try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e2) {}
+      }
+    }
+  }
+  const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [a.service] }], optionalServices: [a.service] });
+  const server = await device.gatt.connect();
+  return { device, server };
+}
+
+// Background auto-connect (no picker at all) — used on load and when the tab
+// regains focus.
+async function addonAutoConnect(id) {
+  const a = ADDON_DEFS.find(x => x.id === id);
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  if (!addonEnabled(id) || st.connected || !navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+  let known = [];
+  try { known = await navigator.bluetooth.getDevices(); } catch (e) { return; }
+  for (const d of known) {
+    try {
+      const server = await bluetoothTimeout(d.gatt.connect(), 4000);
+      const svc = await bluetoothTimeout(server.getPrimaryService(a.service), 4000);
+      const rx = await svc.getCharacteristic(a.rx);
+      addonAttach(id, d, server, rx);
+      monitor(a.name + ": auto-connected");
+      return;
+    } catch (e) {
+      try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e2) {}
+    }
+  }
+}
+
 async function addonConnect(id) {
   const a = ADDON_DEFS.find(x => x.id === id);
   const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
@@ -10036,13 +10109,10 @@ async function addonConnect(id) {
   if (!navigator.bluetooth) { monitor("Web Bluetooth unavailable", "warn"); return; }
   monitor(a.name + ": connecting…");
   try {
-    const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [a.service] }], optionalServices: [a.service] });
-    const server = await device.gatt.connect();
-    const svc = await server.getPrimaryService(a.service);
+    const acq = await addonAcquireDevice(a);
+    const svc = await acq.server.getPrimaryService(a.service);
     const rx = await svc.getCharacteristic(a.rx);
-    st.device = device; st.server = server; st.rx = rx; st.connected = true;
-    device.addEventListener("gattserverdisconnected", () => { st.connected = false; st.rx = null; st.on = false; addonRender(); });
-    monitor(a.name + ": connected");
+    addonAttach(id, acq.device, acq.server, rx);
   } catch (e) {
     if (!(e && (e.name === "NotFoundError" || e.name === "AbortError"))) monitor(a.name + ": " + (e && e.message ? e.message : e), "err");
   }
@@ -10189,9 +10259,13 @@ function aiApplyAddon(p) {
 
 const addonFistChk = $("addonFistEnabled");
 const addonEjectChk = $("addonEjectEnabled");
-if (addonFistChk) { addonFistChk.checked = addonEnabled("fist"); addonFistChk.addEventListener("change", () => { addonSetEnabled("fist", addonFistChk.checked); addonRender(); syncAiFreeWarning(); }); }
-if (addonEjectChk) { addonEjectChk.checked = addonEnabled("eject"); addonEjectChk.addEventListener("change", () => { addonSetEnabled("eject", addonEjectChk.checked); addonRender(); }); }
+if (addonFistChk) { addonFistChk.checked = addonEnabled("fist"); addonFistChk.addEventListener("change", () => { addonSetEnabled("fist", addonFistChk.checked); addonRender(); syncAiFreeWarning(); if (addonFistChk.checked) addonAutoConnect("fist"); }); }
+if (addonEjectChk) { addonEjectChk.checked = addonEnabled("eject"); addonEjectChk.addEventListener("change", () => { addonSetEnabled("eject", addonEjectChk.checked); addonRender(); if (addonEjectChk.checked) addonAutoConnect("eject"); }); }
 addonRender();
+// Auto-reconnect to previously-paired devices on startup (no picker).
+if (addonEnabled("fist")) addonAutoConnect("fist");
+if (addonEnabled("eject")) addonAutoConnect("eject");
+autoConnectOssm();
 
 function setModeFromDropdown(target) {
   if (target === appMode) return;
