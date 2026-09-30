@@ -6926,7 +6926,7 @@ function aiPosRetractToZero() {
     if (connected && stdCmd) stdWriteReliable("set:speed:0");
     await sleepMs(AI_POS_RETRACT_SETTLE);
     if (!aiPos.active || aiPos.phase !== "retract") return;
-    const pos = await aiPosReadActual();
+    const pos = await aiPosReadSettled();
     if (!aiPos.active || aiPos.phase !== "retract") return;
     if (typeof pos === "number" && pos <= 3) { finish(); return; }
     monitor("AI pos: not at 0 yet (read " + (pos === null ? "?" : pos) + ") — retracting further", "ai");
@@ -6973,12 +6973,26 @@ async function aiPosReadActual() {
   }
   return null;
 }
+async function aiPosReadSettled(reads, gapMs) {
+  // The firmware can keep reporting the commanded TARGET right after a stop;
+  // read a few times over ~1.5s and return the LAST value, by which time the
+  // rail has settled and the position is the real one.
+  let last = null;
+  const n = (typeof reads === "number" && reads > 0) ? reads : 3;
+  const gap = (typeof gapMs === "number" && gapMs > 0) ? gapMs : 400;
+  for (let i = 0; i < n; i++) {
+    const v = await aiPosReadActual();
+    if (typeof v === "number") last = v;
+    if (i < n - 1) await sleepMs(gap);
+  }
+  return last;
+}
 function aiPosStopAndRecord() {
   // Give the rail a moment to stop and the device to report its real position,
   // then read and save the ACTUAL position (not the commanded target).
   setTimeout(async () => {
     if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
-    const pos = await aiPosReadActual();
+    const pos = await aiPosReadSettled();
     if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
     const got = (pos !== null) ? pos : ((typeof stdRailPos === "number") ? stdRailPos : ((typeof stdDepth === "number") ? stdDepth : null));
     if (got === null) {
@@ -7167,7 +7181,7 @@ function aiPosHandleInput(text, inp) {
     return true;
   }
   // 1b) the app finished retracting to 0 and is waiting for the user to say go
-  if (aiPos.phase === "waitStart" && /\b(start|begin|go|go ahead|ready|continue|proceed|slide|move|yes|yeah|yep|ok|okay|do it)\b/.test(tl)) {
+  if (aiPos.phase === "waitStart" && /\b(start|begin|go|go ahead|ready|continue|proceed|slide|move|yes|yeah|yep|ok|okay|do it|ja|jawel|oui|si)\b/.test(tl)) {
     if (inp) inp.value = "";
     monitor("local: start — " + text, "ai");
     aiAddMsg("user", escapeHtml(text));
