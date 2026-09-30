@@ -671,6 +671,9 @@
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
   .comp-sliders { display: none; width: 100%; flex-direction: column; gap: 4px; }
   .comp-sliders .slider-group { margin: 0; }
+  .comp-railpos { width: 100%; padding: 10px 8px; border: 1px solid #1e293b; border-radius: 8px; background: #0b1220; display: none; flex-direction: column; align-items: center; gap: 2px; }
+  .comp-railpos-label { font-size: .72rem; color: #94a3b8; letter-spacing: .02em; }
+  .comp-railpos-value { font-size: 1.9rem; font-weight: 700; color: #38bdf8; line-height: 1.1; font-variant-numeric: tabular-nums; }
   .comp-video { width: 100%; padding: 8px; border: 1px solid #1e293b; border-radius: 8px; background: #0b1220; display: flex; flex-direction: column; gap: 6px; }
   .comp-video-title { font-size: .72rem; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .comp-video-actions { display: flex; gap: 6px; }
@@ -821,6 +824,10 @@
             <button class="ble-btn small" id="compVideoClearBtn" type="button" title="Remove all talking videos" style="display:none;">✕</button>
           </div>
           <div class="comp-sliders" id="compSliders"></div>
+          <div class="comp-railpos" id="compRailPos" style="display:none;">
+            <div class="comp-railpos-label">Rail Position</div>
+            <div class="comp-railpos-value" id="compRailPosValue">—</div>
+          </div>
           <div class="comp-video" id="compVideo" style="display:none;">
             <div class="comp-video-title"><span id="compVideoName">video</span></div>
             <div class="comp-video-actions">
@@ -7706,6 +7713,17 @@ function syncCompSlidersVisibility() {
   // positioning they stay hidden so the user can't switch the firmware out of setup.
   wrap.style.display = (aiLimitsConfirmed() && !busy) ? "" : "none";
 }
+function syncCompRailPos() {
+  const el = $("compRailPos");
+  if (!el) return;
+  const busy = !!(aiPos && (aiPos.active || aiPos.moving));
+  // Show the live rail position in the space the sliders normally occupy while
+  // positioning is running (the sliders are hidden then).
+  el.style.display = busy ? "flex" : "none";
+  if (!busy) return;
+  const val = $("compRailPosValue");
+  if (val) val.textContent = (typeof stdRailPos === "number") ? String(stdRailPos) : "—";
+}
 function buildCompSliders() {
   const wrap = $("compSliders");
   if (!wrap) return;
@@ -8595,7 +8613,7 @@ function compLiveStart() {
   const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
   const refreshBtn = $("compRefresh"); if (refreshBtn) refreshBtn.onclick = companionRefresh;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
-  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompVideoAvatar(); }, 180);
+  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompRailPos(); syncCompVideoAvatar(); }, 180);
   document.addEventListener("pointermove", (e) => {
     const av = $("companionAvatar"); if (!av || !companionState.shown) return;
     const r = av.getBoundingClientRect();
