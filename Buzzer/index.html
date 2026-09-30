@@ -683,6 +683,12 @@
   .comp-video { width: 100%; padding: 8px; border: 1px solid #1e293b; border-radius: 8px; background: #0b1220; display: flex; flex-direction: column; gap: 6px; }
   .comp-video-title { font-size: .72rem; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .comp-video-actions { display: flex; gap: 6px; }
+  .comp-watch { width: 100%; display: none; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid #1e293b; border-radius: 8px; background: #0b1220; }
+  .comp-watch.on { display: flex; }
+  .comp-watch-toolbar { display: flex; align-items: center; gap: 6px; }
+  .comp-watch-name { flex: 1 1 auto; min-width: 0; font-size: .72rem; color: #94a3b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .comp-watch-video { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; overflow: hidden; }
+  .comp-watch-video video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
   /* split layout (landscape / tablet) */
   .companion-view.split .companion-body {
     display: grid;
@@ -831,6 +837,14 @@
       <div class="companion-body" id="companionBody">
         <div class="comp-main">
           <div class="companion-avatar" id="companionAvatar"></div>
+          <div class="comp-watch" id="compWatch">
+            <div class="comp-watch-toolbar">
+              <span class="comp-watch-name" id="compWatchName">video</span>
+              <button class="ble-btn small" id="compWatchCast" type="button" title="Cast to TV">🎦 Cast</button>
+              <button class="ble-btn small" id="compWatchClose" type="button" title="Close player">✕</button>
+            </div>
+            <div class="comp-watch-video" id="comp-watch-video"></div>
+          </div>
           <div class="companion-controls">
             <button class="ble-btn small" id="compPrev" type="button" title="Previous face">◀</button>
             <button class="ble-btn small" id="compNext" type="button" title="Next face">▶</button>
@@ -4196,7 +4210,7 @@ function initCast() {
         castConnected = nowConnected;
         castSession = nowConnected ? castContext.getCurrentSession() : null;
         if (nowConnected) {
-          const lv = (appMode === "fun") ? $("funVideo") : $("watchVideo");
+          const lv = localVideoEl();
           castPausedLocal = !!(lv && !lv.paused);
           if (castPausedLocal) lv.pause();
           castConnectAt = Date.now(); castFailNotified = false; castWasPlaying = false; castEnded = false;
@@ -4217,7 +4231,8 @@ function initCast() {
           fallbackToLocal();
         }
         updateCastButton();
-        if (appMode !== "fun") buildWatchPanel();
+        updateCompWatchCastButton();
+        if (!compModeActive && appMode !== "fun") buildWatchPanel();
       });
       try {
         castContext.addEventListener(cast.framework.CastContextEventType.SESSION_STATE_CHANGED, e => {
@@ -4228,6 +4243,7 @@ function initCast() {
         });
       } catch (err) {}
       updateCastButton();
+      updateCompWatchCastButton();
     } catch (err) {}
   };
   window.__onGCastApiAvailable = (isAvailable) => { if (isAvailable) onReady(); };
@@ -5133,14 +5149,22 @@ function updateCastSeekUI() {
   }
 }
 function castOverlayHost() {
+  if (compModeActive) return $("comp-watch-video") || null;
   return (appMode === "fun") ? $("fun-video") : $("watch-video");
+}
+function localVideoEl() {
+  if (compModeActive) return $("compWatchVideo");
+  return (appMode === "fun") ? $("funVideo") : $("watchVideo");
 }
 function setCastOverlay(show) {
   const wrap = castOverlayHost();
   if (!wrap) return;
-  const other = (wrap === $("fun-video")) ? $("watch-video") : $("fun-video");
-  const stale = other && other.querySelector(".fun-cast-overlay");
-  if (stale) stale.remove();
+  ["fun-video", "watch-video", "comp-watch-video"].forEach(id => {
+    const h = $(id);
+    if (!h || h === wrap) return;
+    const stale = h.querySelector(".fun-cast-overlay");
+    if (stale) stale.remove();
+  });
   const v = wrap.querySelector("video");
   if (v) v.style.display = show ? "none" : "";
   let ov = wrap.querySelector(".fun-cast-overlay");
@@ -5287,6 +5311,134 @@ function watchCast() {
     log("Cast failed: " + ((e && (e.description || e.message || e.code)) || "unknown"));
   });
 }
+// ---------- Companion video overlay (AI plays a video inside the companion) ----------
+let compWatchLoaded = false;
+function compWatchCast() {
+  if (!castContext) return;
+  if (castConnected) { castContext.endCurrentSession(true); return; }
+  castRemoteTime = 0; castClockBaseMs = 0; castEnded = false; castWasPlaying = false;
+  const localFile = funState.localFile;
+  const relay = funState.castRelay;
+  const appId = getCastAppId();
+  if ((relay || localFile) && appId) {
+    castMode = "webrtc";
+    localCastFile = relay ? null : localFile;
+    castRelay = relay || null;
+    setReceiverApp(appId);
+  } else {
+    castMode = "media";
+    localCastFile = null;
+    castRelay = null;
+    setReceiverApp(chrome.cast.media.DEFAULT_MEDIA_RECEIVER_APP_ID);
+  }
+  castContext.requestSession().catch(e => {
+    funLog("Cast failed: " + ((e && (e.description || e.message || e.code)) || "unknown"));
+  });
+}
+function updateCompWatchCastButton() {
+  const b = $("compWatchCast");
+  if (!b) return;
+  const hasVideo = !!(funState.videoUrl || funState.castUrl);
+  b.style.display = hasVideo ? "" : "none";
+  b.disabled = castConnected ? false : !castAvailable;
+  b.textContent = castConnected ? "⏹ Stop cast" : "🎦 Cast";
+}
+function compWatchShow() {
+  const w = $("compWatch");
+  if (w) w.classList.add("on");
+  const av = $("companionAvatar");
+  if (av) av.style.display = "none";
+  const ctrl = document.querySelector(".companion-controls");
+  if (ctrl) ctrl.style.display = "none";
+}
+function compWatchHide() {
+  const w = $("compWatch");
+  if (w) w.classList.remove("on");
+  const av = $("companionAvatar");
+  if (av) av.style.display = "";
+  const ctrl = document.querySelector(".companion-controls");
+  if (ctrl) ctrl.style.display = "";
+}
+function compWatchPause() {
+  const v = $("compWatchVideo");
+  if (v) { try { v.pause(); } catch (e) {} }
+}
+function compWatchClose() {
+  compWatchLoaded = false;
+  compWatchPause();
+  if (castConnected) { try { stopCast(); } catch (e) {} }
+  compWatchHide();
+}
+function buildCompWatchVideo() {
+  const wrap = $("comp-watch-video");
+  if (!wrap) return;
+  let v = wrap.querySelector("video");
+  if (!v) {
+    v = document.createElement("video");
+    v.id = "compWatchVideo";
+    v.controls = true;
+    v.playsInline = true;
+    wrap.appendChild(v);
+  }
+  const url = funState.videoUrl;
+  if (!url) return;
+  if (/\.m3u8([?#]|$)/i.test(url)) {
+    if (typeof Hls !== "undefined") {
+      if (funState.hls) funState.hls.destroy();
+      funState.hls = new Hls();
+      funState.hls.loadSource(url);
+      funState.hls.attachMedia(v);
+    }
+  } else if (v.src !== url) {
+    v.src = url;
+  }
+  setCastOverlay(castConnected);
+  if (!castConnected) { v.play().catch(() => {}); }
+}
+function setCompWatchVideo(url, name, opts) {
+  opts = opts || {};
+  if (funState.videoUrl && funState.videoUrl.startsWith("blob:")) URL.revokeObjectURL(funState.videoUrl);
+  funState.videoUrl = url;
+  funState.videoName = name;
+  funState.castUrl = opts.castUrl || null;
+  funState.castRelay = opts.castRelay || null;
+  funState.uploading = false;
+  funState.localFile = opts.localFile || null;
+  funState.fileMeta = null;
+  compWatchLoaded = true;
+  watchStageHidden = true; // keep the plain watch stage out of the way while in the companion
+  compWatchShow();
+  const nv = $("compWatchName"); if (nv) nv.textContent = name;
+  buildCompWatchVideo();
+  updateCompWatchCastButton();
+}
+async function loadCompWatchUrl(input) {
+  const raw = (input || "").trim();
+  if (!raw) { funLog("Enter a video URL or Pornhub ID."); return; }
+  const pageUrl = /^https?:\/\//i.test(raw)
+    ? raw
+    : ("https://www.pornhub.com/view_video.php?viewkey=" + encodeURIComponent(extractPhKey(raw)));
+  let data = null;
+  if (/^https?:\/\/[^\s]+\.(?:mp4|m3u8|webm|m4v|mov|mkv|mpg|mpeg|ogv)(?:[?#].*)?$/i.test(raw)) {
+    data = { url: raw, type: /\.m3u8(?:[?#]|$)/i.test(raw) ? "hls" : "mp4" };
+  } else {
+    funLog("Extracting video…");
+    const extractor = getExtractorUrl();
+    if (extractor) data = await callExtractor(extractor + "?url=" + encodeURIComponent(pageUrl));
+    if (!data || data.error) data = await fallbackExtract(pageUrl);
+  }
+  if (!data || data.error || !data.url) { funLog((data && data.error) || "Could not extract a video."); return; }
+  const videoUrl = absUrl(data.url);
+  let name = "Stream";
+  try { name = new URL(pageUrl).hostname; } catch (e) {}
+  if (/pornhub/i.test(pageUrl)) name = "Pornhub " + extractPhKey(pageUrl);
+  setCompWatchVideo(videoUrl, name, {});
+  funLog("Video loaded — watch it here, or press 🎦 Cast.");
+}
+const compWatchCastBtn = $("compWatchCast");
+if (compWatchCastBtn) compWatchCastBtn.onclick = compWatchCast;
+const compWatchCloseBtn = $("compWatchClose");
+if (compWatchCloseBtn) compWatchCloseBtn.onclick = compWatchClose;
 function setWatchVideo(url, name, localFile) {
   if (funState.videoUrl && funState.videoUrl.startsWith("blob:")) URL.revokeObjectURL(funState.videoUrl);
   funState.videoUrl = url;
@@ -5386,7 +5538,7 @@ function toggleCast() {
 function fallbackToLocal() {
   if (castPausedLocal) {
     castPausedLocal = false;
-    const v = (appMode === "fun") ? $("funVideo") : $("watchVideo");
+    const v = localVideoEl();
     if (v && v.paused && funState.videoUrl) {
       v.play().catch(() => {});
       if (appMode === "fun") syncFunToTime(v.currentTime * 1000);
@@ -6517,10 +6669,30 @@ const AI_ASK_LIMITS = {
   fr: "Nouvelle session — dans quelle plage de profondeur dois-je travailler ? Dis-moi ta profondeur minimale et maximale et ta vitesse maximale. Ou, si tu préfères, je peux t'aider à trouver ensemble tes positions parfaites — au feeling."
 };
 const AI_COMP_WELCOME = {
-  en: "Hey you, fresh start — I'm all yours. What are you in the mood for?",
-  nl: "Hé jij, frisse start — ik ben helemaal van jou. Waar heb je zin in?",
-  de: "Hey du, frischer Start — ich bin ganz dein. Worauf hast du Lust?",
-  fr: "Hé toi, nouveau départ — je suis tout à toi. De quoi as-tu envie ?"
+  en: [
+    "Hey you, fresh start — I'm all yours. What are you in the mood for?",
+    "Mmm, hello again… I've been waiting for you. What are you craving today?",
+    "Hey gorgeous — just you and me now. Tell me what you're in the mood for.",
+    "There you are… I'm all yours. What do you want to do to me today?"
+  ],
+  nl: [
+    "Hé jij, frisse start — ik ben helemaal van jou. Waar heb je zin in?",
+    "Mmm, daar ben je weer… ik heb op je gewacht. Waar heb je vandaag zin in?",
+    "Hé schatje — alleen jij en ik nu. Zeg me waar je zin in hebt.",
+    "Daar ben je… ik ben helemaal van jou. Wat wil je vandaag met me doen?"
+  ],
+  de: [
+    "Hey du, frischer Start — ich bin ganz dein. Worauf hast du Lust?",
+    "Mmm, da bist du wieder… ich habe auf dich gewartet. Worauf hast du heute Lust?",
+    "Hey Schatz — nur du und ich jetzt. Sag mir, worauf du Lust hast.",
+    "Da bist du ja… ich bin ganz dein. Was willst du heute mit mir anstellen?"
+  ],
+  fr: [
+    "Hé toi, nouveau départ — je suis tout à toi. De quoi as-tu envie ?",
+    "Mmm, te revoilà… je t'attendais. De quoi as-tu envie aujourd'hui ?",
+    "Hé toi — rien que toi et moi maintenant. Dis-moi ce dont tu as envie.",
+    "Te voilà… je suis tout à toi. Qu'as-tu envie de me faire aujourd'hui ?"
+  ]
 };
 const AI_REMIND_SAFEWORD = {
   en: (w) => " Your safe word is still \"" + w + "\" — say \"change the safe word to …\" if you want a new one.",
@@ -8052,7 +8224,13 @@ function aiApplyVideo(v) {
   if (!v) return;
   if (v && typeof v === "object") {
     if (typeof v.local === "string") {
-      if (!playLocalVideoByName(v.local)) funLog("Local video not loaded — re-pick the folder in 🤖 AI assistant.");
+      const f = localVideoFileByName(v.local);
+      if (!f) { funLog("Local video not loaded — re-pick the folder in 🤖 AI assistant."); return; }
+      if (compModeActive) {
+        setCompWatchVideo(URL.createObjectURL(f), f.name, { localFile: f });
+      } else if (!playLocalVideoByName(v.local)) {
+        funLog("Local video not loaded — re-pick the folder in 🤖 AI assistant.");
+      }
       return;
     }
     if (v.stash !== undefined && v.stash !== null && String(v.stash) !== "") {
@@ -8060,17 +8238,19 @@ function aiApplyVideo(v) {
       const id = String(v.stash);
       const scene = (stashLibraryCache.scenes || []).find(s => String(s.id) === id);
       const name = scene ? (scene.title || ("Scene " + id)) : ("Scene " + id);
-      if (compModeActive) companionClose();
-      setModeFromDropdown("fun");
+      if (!compModeActive) setModeFromDropdown("fun");
       stashLoadVideo(id, name, null);
       return;
     }
   }
   const url = (typeof v === "string") ? v.trim() : ((v && typeof v.url === "string") ? v.url.trim() : "");
   if (!url) return;
-  if (compModeActive) companionClose();
-  setModeFromDropdown("fun");
-  loadVideoUrl(url);
+  if (compModeActive) {
+    loadCompWatchUrl(url);
+  } else {
+    setModeFromDropdown("fun");
+    loadVideoUrl(url);
+  }
 }
 function aiVideoContext() {
   const favs = getFavorites();
@@ -8127,8 +8307,12 @@ async function aiHandleLink(url, onMsg) {
   } else if (onMsg) {
     onMsg("system", "Playing that one — press Cast to TV and pick your device.");
   }
-  setModeFromDropdown("fun");
-  loadVideoUrl(url);
+  if (compModeActive) {
+    loadCompWatchUrl(url);
+  } else {
+    setModeFromDropdown("fun");
+    loadVideoUrl(url);
+  }
 }
 async function aiWebSearch(query) {
   const q = String(query || "").trim().slice(0, 120);
@@ -8242,6 +8426,11 @@ function companionOpen() {
   buildCompSliders();
   syncCompSlidersVisibility();
   syncCompVideo();
+  if (compWatchLoaded) {
+    compWatchShow();
+    setCastOverlay(castConnected);
+    updateCompWatchCastButton();
+  }
   if (aiFreeBlocked()) {
     compAddMsg("assistant", aiFreeBlockedMessage());
   } else if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) {
@@ -8257,6 +8446,8 @@ function companionClose() {
   companionState.shown = false;
   compModeActive = false;
   compDirtyTalkStop();
+  compWatchPause();
+  compWatchHide();
   syncModeDropdown();
   companionSave();
   compLiveStop();
@@ -8342,7 +8533,8 @@ function compNewSession(confirmFirst) {
   const inp = $("compInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
   const lang = aiStoredLang();
-  const greet = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
+  const greetings = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
+  const greet = greetings[Math.floor(Math.random() * greetings.length)];
   compMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   compAddMsg("assistant", escapeHtml(greet));
   if (aiSpeakEnabled()) aiSpeak(greet);
@@ -10699,9 +10891,14 @@ async function stashLoadVideo(id, name, btn) {
       }
       done(scriptLoaded ? "Script + video ✓" : "Video ✓");
     } else {
-      setWatchVideo(video, name, null);
+      const relay = { url: video, name: name, mime: streamMime, size: 0, meta: null };
+      if (compModeActive) {
+        setCompWatchVideo(video, name, { castRelay: relay });
+      } else {
+        setWatchVideo(video, name, null);
+      }
       funState.castUrl = null;
-      funState.castRelay = { url: video, name: name, mime: streamMime, size: 0, meta: null };
+      funState.castRelay = relay;
       prepareRelayInfo(video, name, streamMime).then(ri => {
         if (funState.castRelay && funState.castRelay.url === ri.url) funState.castRelay = ri;
       });
