@@ -1825,8 +1825,9 @@ function setBase(i, v) {
   // deepest/shallowest points.
   if (aiLimitsConfirmed()) {
     const caps = aiSafetyCaps();
-    if (key === "Max Pos") hi = Math.min(hi, caps.maxDepth);
-    else if (key === "Min Pos") { lo = Math.max(lo, caps.minDepth); hi = Math.min(hi, caps.maxDepth); }
+    if (key === "Max Pos") { lo = Math.max(lo, caps.minDepth); hi = Math.min(hi, caps.maxDepth); }
+    else if (key === "Min Pos") hi = Math.min(hi, caps.minDepth);
+    else if (key === SPEED_KEY) hi = Math.min(hi, caps.maxSpeed);
   }
   v = clamp(Math.round(v), lo, hi);
   s.value = v;
@@ -1840,14 +1841,20 @@ function setBase(i, v) {
   buildInterface();
 }
 function setSpeed(v) {
-  stopSpeedRamp();
-  apSpeedSeq++;
-  const seq = apSpeedSeq;
-  setBase(speedIndex(), v);
-  if (v > 0) lastNonZeroSpeed = v;
+  const target = clamp(Math.round(v), 0, 100);
+  if (compModeActive && speedRampEnabled) {
+    // Companion: manual speed changes ramp like the AI's — never an instant jump.
+    rampSpeed(speed(), target);
+  } else {
+    stopSpeedRamp();
+    apSpeedSeq++;
+    setBase(speedIndex(), target);
+  }
+  if (target > 0) lastNonZeroSpeed = target;
   // A stop (speed 0) can be dropped mid-stroke, especially during direction
   // reversal. Re-send it once unless a newer speed command superseded it.
-  if (v === 0) {
+  if (target === 0) {
+    const seq = apSpeedSeq;
     setTimeout(() => {
       if (seq === apSpeedSeq && connected && ctlChar) writeControlReliable(speedIndex() + ":0,").catch(() => {});
     }, STOP_RESEND_MS);
@@ -1866,14 +1873,19 @@ function stopSpeedRamp() {
   speedRampDown = false;
 }
 function setStdSpeed(v) {
-  stopSpeedRamp();
-  v = clamp(Math.round(v), 0, 100);
-  stdSpeedSeq++;
-  const seq = stdSpeedSeq;
-  stdValues.speed = v;
-  if (v > 0) stdLastSpeed = v;
-  stdWriteReliable("set:speed:" + v);
-  if (v === 0) {
+  const target = clamp(Math.round(v), 0, 100);
+  if (compModeActive && speedRampEnabled) {
+    // Companion: manual speed changes ramp like the AI's — never an instant jump.
+    rampSpeed(stdValues.speed, target);
+  } else {
+    stopSpeedRamp();
+    stdSpeedSeq++;
+    stdValues.speed = target;
+    stdWriteReliable("set:speed:" + target);
+  }
+  if (target > 0) stdLastSpeed = target;
+  if (target === 0) {
+    const seq = stdSpeedSeq;
     setTimeout(() => {
       if (seq === stdSpeedSeq && connected && stdCmd) stdWriteReliable("set:speed:0");
     }, STOP_RESEND_MS);
@@ -5855,18 +5867,24 @@ function aiLimitsText() {
   }
   return "Current AI limits — depth: " + caps.minDepth + " (shallowest) to " + caps.maxDepth + " (deepest); max speed: " + caps.maxSpeed + " (ABSOLUTE ceiling — never set \"Speed\", \"In Speed\" or \"Out Speed\" above it). "
     + "For MOVEMENT, \"deep\"/\"full\" means Max Pos = " + caps.maxDepth + " (never set movement above it), and \"shallow\"/\"out\" means Min Pos = " + caps.minDepth + " (never below it). "
-    + "These are only the CURRENT limits — if the user asks for different limits (even higher), propose them via \"limits\" and ask to confirm; do not reject or talk them down.";
+    + "These are only the CURRENT limits — if the user asks for different limits (even higher), propose them via \"limits\" and ask to confirm; do not reject or talk them down. "
+    + "GOING BEYOND A LIMIT DURING PLAY: if the user asks to go deeper than the max depth, shallower than the min depth, or faster than the max speed, do NOT change the values yet — first ask for a sensual confirmation in character (e.g. \"mmm… ready to handle even more now?\"). Only after they clearly confirm (any eager yes — \"sure\", \"yes please\", \"pound me now\", \"oh god yes\", etc.) send \"limits\" with ONLY that limit changed by exactly 10: max depth +10, min depth −10 (never below 0), max speed +10. Never expand by more than 10 in one step — the app caps it to 10 anyway.";
 }
-function aiApplyLimits(limits) {
+function aiApplyLimits(limits, capToStep) {
   if (!limits || typeof limits !== "object" || Array.isArray(limits)) return false;
-  const apply = (key, val) => {
+  // capToStep caps each change to ±10 — used by the confirm-then-expand flow
+  // once limits are already set. Initial setup (positioning / numbers) passes
+  // nothing and can set any values.
+  const cur = aiSafetyCaps();
+  const apply = (key, val, curVal) => {
     if (typeof val !== "number" || !isFinite(val)) return;
-    const n = clamp(Math.round(val), 0, 100);
+    let n = clamp(Math.round(val), 0, 100);
+    if (capToStep && aiLimitsConfirmed()) n = clamp(n, curVal - 10, curVal + 10);
     try { localStorage.setItem(key, String(n)); } catch (e) {}
   };
-  if (typeof limits.maxDepth === "number") apply("ossm-ai-max-depth", limits.maxDepth);
-  if (typeof limits.minDepth === "number") apply("ossm-ai-min-depth", limits.minDepth);
-  if (typeof limits.maxSpeed === "number") apply("ossm-ai-max-speed", limits.maxSpeed);
+  if (typeof limits.maxDepth === "number") apply("ossm-ai-max-depth", limits.maxDepth, cur.maxDepth);
+  if (typeof limits.minDepth === "number") apply("ossm-ai-min-depth", limits.minDepth, cur.minDepth);
+  if (typeof limits.maxSpeed === "number") apply("ossm-ai-max-speed", limits.maxSpeed, cur.maxSpeed);
   aiSyncLimitInputs();
   return true;
 }
@@ -5886,9 +5904,14 @@ function aiLimitsRowOpen(open) {
 function aiIsYes(text) {
   const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
   if (!t) return false;
-  if (t.split(" ").length > 6) return false;
-  if (/\b(no|nee|niet|not|don'?t|geen|stop|never|nooit|maar|but)\b/.test(t)) return false;
-  return /\b(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|do it|go ahead|proceed|graag|ja|ja hoor|zeker|tuurlijk|ja doe maar|ja graag|oui|si|sí|да)\b/.test(t);
+  if (t.split(" ").length > 14) return false; // keep it a short, direct answer
+  // Any clear negation wins — never treat a refusal as confirmation.
+  if (/\b(no|nee|niet|not|dont|don|geen|stop|never|nooit|maar|but|nope|hou op|wacht|niet doen)\b/.test(t)) return false;
+  // Literal agreement words.
+  if (/\b(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|do it|go ahead|proceed|graag|ja|ja hoor|zeker|tuurlijk|ja doe maar|ja graag|oui|si|sí|да|mhm|yess|of course|natuurlijk)\b/.test(t)) return true;
+  // Eager / urgent consent — the user clearly wants it, just phrased dirtier.
+  if (/\b(pound me|fuck me|neuk me|ram me|hammer me|give it to me|geef me|doe maar|geef maar|ga maar|go on|come on|harder|dieper|deeper|more|meer|faster|sneller|now|nu|please|alsjeblieft|aub)\b/.test(t)) return true;
+  return false;
 }
 function aiFallbackError(res) {
   const s = aiProviderSettings();
@@ -8167,7 +8190,7 @@ function buildCompSliders() {
     const caps = aiSafetyCaps();
     wrap.appendChild(sliderEl("Max Pos", 0, caps.maxDepth, Math.round(stdValues.max), "#ff0c00", (v) => { stdValues.max = clamp(v, 0, caps.maxDepth); stdWrite("set:max:" + stdValues.max); saveStdValues(); }));
     wrap.appendChild(sliderEl("Min Pos", caps.minDepth, caps.maxDepth, Math.round(stdValues.min), "#ff8100", (v) => { stdValues.min = clamp(v, caps.minDepth, caps.maxDepth); stdWrite("set:min:" + stdValues.min); saveStdValues(); }));
-    wrap.appendChild(sliderEl("Speed", 0, caps.maxSpeed, Math.round(stdValues.speed), "#7dd3fc", (v) => { applySpeedInstant(clamp(v, 0, caps.maxSpeed)); }));
+    wrap.appendChild(sliderEl("Speed", 0, caps.maxSpeed, Math.round(stdValues.speed), "#7dd3fc", (v) => { rampSpeed(stdValues.speed, clamp(v, 0, caps.maxSpeed)); }));
     wrap.appendChild(sliderEl("Sensation", -100, 100, Math.round(stdValues.sensation), "#00ff00", (v) => { stdValues.sensation = clamp(v, -100, 100); stdWrite("set:sensation:" + sensationToDevice(stdValues.sensation)); saveStdValues(); }));
     return;
   }
@@ -8183,10 +8206,11 @@ function buildCompSliders() {
     const r = baseRange(d.i);
     let rmin = r.min, rmax = r.max;
     if (caps) {
-      if (d.i === 0) rmax = Math.min(rmax, caps.maxDepth); // Max Pos
-      else if (d.i === 1) { rmin = Math.max(rmin, caps.minDepth); rmax = Math.min(rmax, caps.maxDepth); } // Min Pos
+      if (d.i === 0) { rmin = Math.max(rmin, caps.minDepth); rmax = Math.min(rmax, caps.maxDepth); } // Max Pos: [min, max]
+      else if (d.i === 1) rmax = Math.min(rmax, caps.minDepth); // Min Pos: [0, min]
+      else if (d.i === 6) rmax = Math.min(rmax, caps.maxSpeed); // Speed: [0, max speed] (In/Out Speed stay 0-100)
     }
-    wrap.appendChild(sliderEl(d.label, rmin, rmax, clamp(Math.round(settingValue(baseKey(d.i))), rmin, rmax), d.color, (v) => setBase(d.i, v)));
+    wrap.appendChild(sliderEl(d.label, rmin, rmax, clamp(Math.round(settingValue(baseKey(d.i))), rmin, rmax), d.color, (v) => (d.i === 6 ? setSpeed(v) : setBase(d.i, v))));
   }
 }
 function companionPreset(delta) {
@@ -8915,7 +8939,7 @@ async function compSend() {
     if (res.params) { aiApplySet(res.params); buildCompSliders(); }
     if (res.limits) {
       if (compPendingLimits && aiIsYes(text)) {
-        aiApplyLimits(res.limits);
+        aiApplyLimits(res.limits, true);
         aiLimitsSetConfirmed();
         compPendingLimits = null;
         buildCompSliders();
@@ -8930,6 +8954,12 @@ async function compSend() {
       } else {
         compPendingLimits = null; // not a clear confirmation → drop
       }
+    } else if (compPendingLimits && aiIsYes(text)) {
+      // The user confirmed but the AI didn't re-send "limits" — apply the proposed one.
+      aiApplyLimits(compPendingLimits, true);
+      aiLimitsSetConfirmed();
+      compPendingLimits = null;
+      buildCompSliders();
     } else if (compPendingLimits) {
       compPendingLimits = null;
     }
@@ -9140,7 +9170,7 @@ async function aiSend(opts) {
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiPendingLimits && aiIsYes(text)) {
-        aiApplyLimits(res.limits);
+        aiApplyLimits(res.limits, true);
         aiLimitsSetConfirmed();
         aiPendingLimits = null;
         aiLimitsRowOpen(false); // confirmed — tuck the limits away again
@@ -9155,6 +9185,12 @@ async function aiSend(opts) {
       } else {
         aiPendingLimits = null; // not a clear confirmation → drop
       }
+    } else if (aiPendingLimits && aiIsYes(text)) {
+      // The user confirmed but the AI didn't re-send "limits" — apply the proposed one.
+      aiApplyLimits(aiPendingLimits, true);
+      aiLimitsSetConfirmed();
+      aiPendingLimits = null;
+      aiLimitsRowOpen(false);
     } else if (aiPendingLimits) {
       aiPendingLimits = null;
     }
@@ -10646,8 +10682,8 @@ function gpStdStep(field, d, mag) {
   let lo = sensField ? -100 : 0, hi = 100;
   if (!sensField && aiLimitsConfirmed()) {
     const caps = aiSafetyCaps();
-    if (field === "max") hi = caps.maxDepth;
-    else if (field === "min") { lo = caps.minDepth; hi = caps.maxDepth; }
+    if (field === "max") { lo = caps.minDepth; hi = caps.maxDepth; }
+    else if (field === "min") hi = caps.minDepth;
   }
   stdValues[field] = clamp(stdValues[field] + d * mag, lo, hi);
   if (field === "max" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
@@ -10830,6 +10866,14 @@ function gpFire(held, id, handler, repeat) {
   st.on = false;
 }
 
+function aiModeActive() {
+  // True while the user is chatting with the AI (companion open or the AI
+  // assistant panel visible) — keyboard bindings are disabled then.
+  if (compModeActive) return true;
+  const p = $("aiPanel");
+  return !!(p && p.style.display !== "none");
+}
+
 function gpPoll() {
   const gp = currentGamepad();
   if (gp) {
@@ -10855,7 +10899,8 @@ function gpPoll() {
     // binding except the emergency stop, so a stray keypress can't send AP or
     // stroke-engine commands and break the setup.
     if (da.id !== "estop" && aiPos && (aiPos.active || aiPos.moving)) continue;
-    const held = bindingHeld(bindings[da.id], gp) || bindingHeld(kbBindings[da.id], null);
+    const kbActive = !aiModeActive() || da.id === "estop"; // keyboard off while chatting with the AI (Esc stays live)
+    const held = bindingHeld(bindings[da.id], gp) || (kbActive && bindingHeld(kbBindings[da.id], null));
     gpFire(held, da.id, () => gpHandleDigital(da.id), !!da.repeat);
   }
 
