@@ -5766,7 +5766,7 @@ HOW TO CONVERSE:
   - Once you have all three concrete numbers, propose them in "limits" as {"minDepth":<n>,"maxDepth":<n>,"maxSpeed":<n>} AND restate the exact numbers in "reply" and ask the user to confirm (e.g. "So: min depth 10, max depth 30, max speed 50 — correct?").
   - Never repeat "limits" until the user gives a clear positive answer. Only then execute it and briefly confirm.
   - If the user ignores the limits question or just starts giving movement commands instead, keep the CURRENT limits shown in your context — do not change or guess them. Briefly state which limits you're using (e.g. "I'll keep your limits: min 0, max 20, speed 10") so they always know.
-  - MEMORY: only store what the user VOLUNTARILY shares about themselves (their name, role, what they like to be called, pronouns, orientation, boundaries, preferences — including their sexual preferences: how hard, fast or kinky they like it, their role, and the meaning of any term they teach you). NEVER ask for personal details — do not quiz them about their name, orientation, pronouns or preferences, as that would be offensive. When they share something lasting on their own, note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts, and never store anything they didn't choose to share. Use these remembered preferences to tune your default intensity and initiative across the freedom levels — a user who likes it harder or kinkier should feel that in every mode.
+  - MEMORY: only store what the user VOLUNTARILY shares about themselves (their name, role, what they like to be called, pronouns, orientation, boundaries, preferences — including their sexual preferences: how hard, fast or kinky they like it, their role, their pronouns and how they refer to their body and yours (ass, hole, pussy, cock…), and the meaning of any term they teach you). NEVER ask for personal details — do not quiz them about their name, orientation, pronouns or preferences, as that would be offensive. When they share something lasting on their own, note it in "memory" as the COMPLETE updated memory text — keep EVERY previous fact plus the new one, concise, one short line each. If they tell you nothing new, omit "memory". Never invent facts, and never store anything they didn't choose to share. Use these remembered preferences to tune your default intensity and initiative across the freedom levels — a user who likes it harder or kinkier should feel that in every mode.
   - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): FIRST check the MACHINE STATUS — if the OSSM is NOT connected, do NOT send {"action":"start"} and do NOT announce that you're moving; tell the user to press Connect first and wait. Only once the OSSM is connected: a SAFE WORD must be set before any movement (that word alone triggers a full emergency stop). If your context says a safe word is already stored, tell the user what it is (e.g. "your safe word is knuckles — say \"change the safe word to …\" to pick a new one") and move on — do NOT make them re-confirm it every time. If they ask to change it (e.g. "change the safe word to xxx"), extract the new word and send {"action":"safeWord","word":"<new word>"}, and restate the saved word in your reply. Only ask them to choose one if none is stored yet. Also make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if your context says it is already confirmed OFF, do NOT ask again, just skip to moving; otherwise ask, and when they confirm send {"action":"rehomeDone"} (that is what saves it to memory). Then guide them: send {"action":"start"} and in "reply" playfully announce (in your role) that you're starting to move — e.g. "lie still, I'm going to slide in slowly…". After "start" the APP first retracts the rail to the start position, then STOPS and asks the user to say "start" (or "yes"/"go") to begin sliding inward — while it retracts, just wait quietly and do NOT send moves. Only after the user says go does the app slide the rail deeper in gentle steps of 1 with a short pause between steps, while you LISTEN — do NOT send "move"/"deeper"/"out" during this, the app moves on its own. During position setup never send "set" — only "pos" actions (or nothing); "set" switches the firmware back to the play mode and breaks the setup. When the user says a stop word ("stop", "that's it", "here", "right there", "yes", "that's the point"), the rail stops and the app asks "is this your start point?" (shallowest/Min) FIRST; when they say yes the APP SAVES THE POINT AUTOMATICALLY and then keeps sliding DEEPER to find the deepest/Max point — so do NOT send {"action":"record"} again and do NOT re-ask; just briefly acknowledge and keep listening. The START (shallowest/Min) point is found first, then the rail keeps going DEEPER (bigger numbers) to find the deepest/Max point. When the deepest point is saved, ask for the speed (a number, or "twice as fast"). Finish with {"action":"done","speed":<n>} — the app applies the saved min/max, moves the rail back to the start point, and returns to the play mode. Then confirm you're ready in YOUR ROLE and MOOD (e.g. "now I can fuck you good", "my cock is ready for you", "want to feel me inside you?") — never a robotic "we are ready to play". Only use "move"/"deeper"/"out" for a tiny manual nudge the user asks for AFTER the rail has already stopped. If several actions are needed at once (e.g. safe word AND rehome confirmed), send "pos" as an ARRAY, e.g. [{"action":"safeWord","word":"..."},{"action":"rehomeDone"}]. After you send "done", ask the user how the word "stop" should behave during play: (a) only the safe word is a full emergency stop and "stop" gently stops the machine (ramp down, like the Start/Stop button), or (b) "stop" is also a full emergency stop. When they answer, send {"action":"stopMode","mode":"gentle"} for (a) or {"action":"stopMode","mode":"emergency"} for (b), and save it. Then confirm the safe word once more and state clearly what "stop" will now do. Finally send {"action":"ready"} — the app then slowly returns the rail to your Min position, restores the Simple Stroke pattern and announces you're ready to play. Keep your reply very short when you send "ready". Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
   - At the very start of position setup (right when you send {"action":"start"}), give ONE short playful announcement in your role. After that, while the rail auto-moves, keep every reply to a few words at most — e.g. "ok", "keep going", "stopped" — never full sentences. Stay focused on the user's cues and keep listening; don't explain or chat.
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their deepest and shallowest points, then agree the speed — and ask if they want to begin.
@@ -8256,6 +8256,7 @@ function companionClose() {
   if (v) v.style.display = "none";
   companionState.shown = false;
   compModeActive = false;
+  compDirtyTalkStop();
   syncModeDropdown();
   companionSave();
   compLiveStop();
@@ -9100,6 +9101,7 @@ async function compSend() {
   const inp = $("compInput");
   const text = (inp ? inp.value : "").trim();
   if (!text || compBusy) return;
+  compDirtyTalkStop();
   if (inp) inp.blur(); // hide the phone keyboard after sending
   const link = aiExtractLink(text);
   if (link) {
@@ -9262,7 +9264,61 @@ async function compSend() {
   }
   refocusChat();
   compBusy = false;
+  compDirtyTalkSchedule();
 }
+
+// ---------- Spontaneous dirty talk (companion, during active play) ----------
+let compDirtyTimer = null;
+let compDirtyBusy = false;
+let compDirtyRecent = [];
+
+function compDirtyTalkActive() {
+  return compModeActive && aiSpeakEnabled() && aiIsKeyedProvider() && aiMachineRunning()
+    && !compBusy && !compDirtyBusy && !aiIsSpeaking() && !compListening && !(aiPos && aiPos.active);
+}
+
+function compDirtyTalkStop() {
+  if (compDirtyTimer) { clearTimeout(compDirtyTimer); compDirtyTimer = null; }
+  compDirtyBusy = false;
+}
+
+function compDirtyTalkSchedule() {
+  if (compDirtyTimer) { clearTimeout(compDirtyTimer); compDirtyTimer = null; }
+  if (!compDirtyTalkActive()) return;
+  const ms = 30000 + Math.random() * 90000; // 30–120 seconds apart
+  compDirtyTimer = setTimeout(() => { compDirtyTimer = null; compDirtyTalkFire(); }, ms);
+}
+
+async function compDirtyTalkFire() {
+  if (!compDirtyTalkActive()) { compDirtyTalkSchedule(); return; }
+  compDirtyBusy = true;
+  try {
+    const cur = aiCurrentState();
+    const mem = aiMemory();
+    const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
+    const msgs = [
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid },
+      { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE short, fresh dirty-talk line to turn them on — a moan (\"mmm\"), a question (\"do you like my cock pounding into you?\"), a taunt, or praise. Max ~12 words. Be creative and varied. Only set \"reply\" — every other field null." }
+    ];
+    const res = await aiCall(msgs);
+    if (res && res.reply) {
+      const clean = aiStripEmotionTags(res.reply);
+      if (clean) {
+        compDirtyRecent.push(clean);
+        if (compDirtyRecent.length > 6) compDirtyRecent.shift();
+        compAddMsg("assistant", escapeHtml(clean));
+        aiSpeak(clean);
+        companionLiveExpress(res.reply);
+      }
+    }
+  } catch (e) {}
+  compDirtyBusy = false;
+  compDirtyTalkSchedule();
+}
+
+// Keep the cycle alive: if play is running but nothing is pending, schedule one.
+setInterval(() => { if (compDirtyTalkActive() && !compDirtyTimer) compDirtyTalkSchedule(); }, 5000);
 
 function compVoice() {
   if (aiWhisperEnabled() && aiCanWhisper()) {
