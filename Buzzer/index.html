@@ -1166,6 +1166,9 @@ const STD_STATE_UUID      = "522b443a-4f53-534d-2000-420badbabe69";
 const STD_PATTERNS_UUID   = "522b443a-4f53-534d-3000-420badbabe69";
 const STD_SENPTL_UUID     = "4f53534d-456e-6769-6e65-5061744c7374";
 const STREAM_UUID         = "4f53534d-436f-6d6d-6f6e-53747265616D";
+const STD_STRPOS_UUID     = "4f53534d-456e-6769-6e65-537472506f73"; // live rail position (% of travel)
+const STD_STRSPD_UUID     = "4f53534d-456e-6769-6e65-537472537064"; // stroke cruise speed
+const STD_STRACC_UUID     = "4f53534d-456e-6769-6e65-537472416363"; // stroke accel
 const STD_PATTERN_FALLBACK = ["Simple Stroke", "Teasing Pounding", "Robo Stroke", "Half'n'Half", "Deeper", "Stop'n'Go", "Insist", "Progressive Stroke", "Random Stroke", "Go to Point"];
 const STD_PATTERN_DESC_FALLBACK = [
   "Acceleration, coasting, deceleration equally split; sensation adds randomness in stroke.",
@@ -1184,6 +1187,7 @@ const STD_KNOWN_PATTERN_COUNT = 10;  // indices 0..9 have graph renderers; newer
 let device = null, server = null;
 let ctlChar = null, cfgChar = null, stsChar = null, prsChar = null;
 let stdCmd = null, stdState = null, stdPatternsChar = null, senptlChar = null, streamChar = null;
+let stdRailChar = null;   // live rail-position characteristic (StrPos)
 let presetNames = [];
 let connected = false;
 let running = false;
@@ -1232,7 +1236,8 @@ function saveStdValues() {
 let stdPendingSafeSync = false;
 let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
 let stdStateName = "";
-let stdDepth = null;   // current rail position 0-100 (lite firmware reports "depth")
+let stdDepth = null;   // legacy JSON "depth" (on Lite this is the max-position SETTING, not actual position)
+let stdRailPos = null; // actual rail position 0-100 from the StrPos characteristic
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
 let stdRunning = false;
 let lastNonZeroSpeed = 0;
@@ -1547,9 +1552,10 @@ async function connect() {
     prsChar = await svc.getCharacteristic(PRESETS_UUID);
 
     // Standard-mode characteristics (legacy service) — best effort.
-    stdCmd = null; stdState = null; stdPatternsChar = null; senptlChar = null; streamChar = null;
+    stdCmd = null; stdState = null; stdPatternsChar = null; senptlChar = null; streamChar = null; stdRailChar = null;
     try { senptlChar = await svc.getCharacteristic(STD_SENPTL_UUID); } catch (e) {}
     try { streamChar = await svc.getCharacteristic(STREAM_UUID); } catch (e) {}
+    try { stdRailChar = await svc.getCharacteristic(STD_STRPOS_UUID); } catch (e) {}
     try {
       const legacy = await server.getPrimaryService(LEGACY_SERVICE_UUID);
       try { stdCmd = await legacy.getCharacteristic(STD_CMD_UUID); } catch (e) {}
@@ -1564,6 +1570,10 @@ async function connect() {
     if (stdState && stdState.properties.notify) {
       stdState.addEventListener("characteristicvaluechanged", onStdState);
       try { await stdState.startNotifications(); } catch (e) {}
+    }
+    if (stdRailChar && stdRailChar.properties.notify) {
+      stdRailChar.addEventListener("characteristicvaluechanged", onStdRail);
+      try { await stdRailChar.startNotifications(); } catch (e) {}
     }
     log("Reading configuration…");
     const cfg = await readStr(cfgChar);
@@ -1593,7 +1603,7 @@ async function connect() {
 }
 
 function onDisconnected() {
-  connected = false; running = false; stdRunning = false; stdStateName = ""; streamChar = null;
+  connected = false; running = false; stdRunning = false; stdStateName = ""; streamChar = null; stdRailChar = null; stdRailPos = null;
   // A BLE drop must not kill an active cast — the video on the TV keeps
   // playing; only the OSSM motion pauses until it reconnects.
   if (castConnected) funLog("OSSM disconnected — cast keeps playing.");
@@ -1646,6 +1656,7 @@ function parseStdState(raw) {
   if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
   if (typeof j.depth === "number") stdDepth = Math.round(j.depth);
+  if (typeof j.position === "number" && !stdRailChar) stdRailPos = Math.round(j.position);
   if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
   if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
   if (typeof j.state === "string") stdStateName = j.state;
@@ -1680,6 +1691,10 @@ function onStdState(ev) {
   if (appMode === "ap") enforceModeAvailability();
   else if (appMode === "std") buildInterface();
   else if (appMode === "fun") { updateStartButton(); funPrePosition(); }
+}
+function onStdRail(ev) {
+  const v = parseFloat(decode(ev.target.value));
+  if (isFinite(v)) stdRailPos = Math.round(clamp(v, 0, 100));
 }
 
 async function stdWrite(cmd) {
@@ -6862,7 +6877,7 @@ function aiPosRetractToZero() {
   monitor("AI pos: retracting to 0…", "ai");
   aiPos.current = 0;
   aiPos.moving = false;
-  stdDepth = null; // ignore any stale position while we wait for a fresh reading
+  stdRailPos = null; // ignore any stale position while we wait for a fresh reading
   const idx = aiPosPointIndex();
   const sendRetract = (spd) => {
     if (!connected || !stdCmd || idx < 0) return;
@@ -6879,7 +6894,7 @@ function aiPosRetractToZero() {
   const t0 = Date.now();
   const iv = setInterval(() => {
     if (!aiPos.active || aiPos.phase !== "retract") { clearInterval(iv); return; }
-    const atZero = (typeof stdDepth === "number" && stdDepth <= 3);
+    const atZero = (typeof stdRailPos === "number" && stdRailPos <= 3);
     if (atZero || (Date.now() - t0) >= AI_POS_ZERO_TIMEOUT) {
       clearInterval(iv);
       monitor("AI pos: rail at 0 — gliding inward to find the start point", "ai");
@@ -6902,11 +6917,22 @@ function aiPosGlide() {
   aiPos.moving = true;
 }
 async function aiPosReadActual() {
+  // Authoritative: the live rail-position characteristic (StrPos, % of travel).
+  if (stdRailChar) {
+    try {
+      if (!stdRailChar.properties || stdRailChar.properties.read) {
+        const v = parseFloat(decode(await stdRailChar.readValue()));
+        if (isFinite(v)) { stdRailPos = Math.round(clamp(v, 0, 100)); return stdRailPos; }
+      }
+    } catch (e) {}
+    if (typeof stdRailPos === "number") return stdRailPos;
+  }
+  // JSON fallback: some builds expose "position"; older OSSM uses "depth".
   if (connected && stdState) {
     try {
-      const raw = await stdState.readValue();
-      const j = JSON.parse(decode(raw));
-      if (typeof j.depth === "number") return Math.round(clamp(j.depth, 0, 100));
+      const j = JSON.parse(decode(await stdState.readValue()));
+      if (typeof j.position === "number") return Math.round(clamp(j.position, 0, 100));
+      if (firmwareKind !== "lite" && typeof j.depth === "number") return Math.round(clamp(j.depth, 0, 100));
     } catch (e) {}
   }
   return null;
@@ -6918,7 +6944,7 @@ function aiPosStopAndRecord() {
     if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
     const pos = await aiPosReadActual();
     if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
-    const got = (pos !== null) ? pos : ((typeof stdDepth === "number") ? stdDepth : null);
+    const got = (pos !== null) ? pos : ((typeof stdRailPos === "number") ? stdRailPos : ((typeof stdDepth === "number") ? stdDepth : null));
     if (got === null) {
       aiAddMsg("system", "I couldn't read the rail position — say stop again.");
       return;
@@ -6954,7 +6980,7 @@ function aiPosAutoAdvance() {
   if (!connected || !stdCmd) { aiPosStopAuto(); return; }
   const target = Math.round((aiPos.current || 0) + AI_POS_AUTO_STEP);
   if (target > 100) { aiPosStopAuto(); return; }
-  stdDepth = null; // wait for a fresh position reading for this step
+  stdRailPos = null; // wait for a fresh position reading for this step
   aiPosMoveTo(target).then(() => {
     if (!aiPos.autoMoving || !aiPos.active) return;
     if (aiPos.phase !== "min" && aiPos.phase !== "max") { aiPosStopAuto(); return; }
@@ -6962,11 +6988,11 @@ function aiPosAutoAdvance() {
     if (aiPosAutoTimer) clearInterval(aiPosAutoTimer);
     aiPosAutoTimer = setInterval(() => {
       if (!aiPos.autoMoving || !aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) { clearInterval(aiPosAutoTimer); aiPosAutoTimer = null; return; }
-      const arrived = (typeof stdDepth === "number" && Math.abs(stdDepth - target) <= AI_POS_ARRIVE_TOL);
+      const arrived = (typeof stdRailPos === "number" && Math.abs(stdRailPos - target) <= AI_POS_ARRIVE_TOL);
       const delayElapsed = (Date.now() - t0) >= AI_POS_STEP_DELAY;
       if (arrived || delayElapsed) {
         clearInterval(aiPosAutoTimer); aiPosAutoTimer = null;
-        monitor("AI pos: step " + target + (typeof stdDepth === "number" ? " (rail at " + stdDepth + ")" : " (rail position unknown)"), "ai");
+        monitor("AI pos: step " + target + (typeof stdRailPos === "number" ? " (rail at " + stdRailPos + ")" : " (rail position unknown)"), "ai");
         aiPosAutoAdvance();
       }
     }, 50);
