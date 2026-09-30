@@ -1408,6 +1408,7 @@ function handleWriteError(e, context) {
 }
 
 async function writeControl(s) {
+  if (aiPos && aiPos.active) return; // position setup runs the FIRMWARE in the stroke engine — never send AP commands mid-setup
   monitorTx("AP " + advancedCmdLabel(s));
   await gattOp(async () => {
     try { await ctlChar.writeValueWithoutResponse(encode(s)); }
@@ -1415,6 +1416,7 @@ async function writeControl(s) {
   });
 }
 async function writeControlReliable(s) {
+  if (aiPos && aiPos.active) return; // position setup runs the FIRMWARE in the stroke engine — never send AP commands mid-setup
   monitorTx("AP " + advancedCmdLabel(s) + " ✓");
   await gattOp(async () => {
     try { await ctlChar.writeValueWithResponse(encode(s)); }
@@ -7274,9 +7276,13 @@ function aiPosApplyEnvelope(P, canRun) {
   } else if (a === "stopMode") {
     aiSetStopMode(P.mode);
   } else if (a === "ready") {
+    if (aiPos.phase === "retract" || aiPos.phase === "waitStart" || aiPos.phase === "min" || aiPos.phase === "max") return; // points not found yet — ignore
     aiPosFinishReturn();
   } else if (a === "done") {
     if (!aiPos.active) return;
+    // In the feel-flow the app records the points itself; a "done" while still
+    // finding points is premature (it would return the rail and switch to AP).
+    if (aiPos.phase === "retract" || aiPos.phase === "waitStart" || aiPos.phase === "min" || aiPos.phase === "max") return;
     const haveRecorded = aiPos.min !== null && aiPos.max !== null && aiPos.min <= aiPos.max;
     const mn = haveRecorded ? aiPos.min : clamp(Math.round(Number(P.min)), 0, 100);
     const mx = haveRecorded ? aiPos.max : clamp(Math.round(Number(P.max)), 0, 100);
