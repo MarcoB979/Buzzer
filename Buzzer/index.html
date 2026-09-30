@@ -5517,6 +5517,15 @@ function syncWakeLock() {
 }
 document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else { syncWakeLock(); syncOrientationLock(); autoConnectOssm(); if (addonEnabled("fist")) addonAutoConnect("fist"); if (addonEnabled("eject")) addonAutoConnect("eject"); } });
 
+// Periodic silent retry (M5-style): catches a device that was powered on or
+// brought in range AFTER the app loaded. Safe no-op once already connected.
+setInterval(() => {
+  if (document.hidden) return;
+  autoConnectOssm();
+  if (addonEnabled("fist")) addonAutoConnect("fist");
+  if (addonEnabled("eject")) addonAutoConnect("eject");
+}, 15000);
+
 // ---- Disable touch: mapped controls only respond to their controller input ----
 function disableTouchEnabled() { try { return localStorage.getItem("ossm-disable-touch") === "1"; } catch (e) { return false; } }
 function isPadMapped(id) { return !!(id && bindings[id]); }
