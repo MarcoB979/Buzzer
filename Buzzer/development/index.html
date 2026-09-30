@@ -1071,6 +1071,19 @@
         <div class="ai-set-section">Tools</div>
         <button class="ble-btn small" id="aiExportInfo" type="button" style="margin-top:4px;">📄 Export developer info</button>
         <div class="ai-set-hint">Downloads a text file with the AI conversation, the live monitor log and what the AI has learned about you — for reporting bugs to the developer. Your API key is never included.</div>
+        <div class="ai-set-divider"></div>
+        <div class="ai-set-section">Addons</div>
+        <label class="ai-set-label ai-enable"><input type="checkbox" id="addonFistEnabled"> Enable Fist-IT addon</label>
+        <label class="ai-set-label ai-enable"><input type="checkbox" id="addonEjectEnabled"> Enable Eject Cumpump addon</label>
+        <div class="ai-set-hint">Optional hardware addons controlled over Bluetooth. Enable one to open its control panel in the Addons section.</div>
+      </div>
+    </details>
+
+    <details class="presets-panel" id="addonsPanel" style="display:none;">
+      <summary>🔌 Addons</summary>
+      <div class="ai-settings-body">
+        <div id="addonFistBody"></div>
+        <div id="addonEjectBody"></div>
       </div>
     </details>
 
@@ -5720,7 +5733,7 @@ HOW TO CONVERSE:
 - APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: the user must press Connect themselves — Bluetooth pairing needs their tap, so you can't do it (tell them to press Connect). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"face":null,"video":null,"search":null,"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"face":null,"video":null,"search":null,"addon":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user. You may prefix it with one invisible emotion tag — [frown], [thinking], [smile] or [blush] — which the app strips before showing or speaking it.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
@@ -5730,6 +5743,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to prompt the user to connect (you can't pair Bluetooth yourself). Otherwise null.
 - "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
 - "video" (optional): play one of the user's videos — {"url":"<the exact url from your FAVORITE VIDEOS context>"}, a local one {"local":"<the exact file name from your LOCAL VIDEOS context>"}, or a Stash scene {"stash":<the id from your STASH LIBRARY context>}. Use it when the user asks to watch porn or put something on: match their mood/kinks to the STASH LIBRARY tags and performers when possible; otherwise pick a favorite or local file at random, or ask which they want (translating the title into the language you're replying in). Playing it switches the app to the Funscript screen automatically, so just tell them it's playing — never ask them to find the video or cast it. Otherwise null.
+- "addon" (optional): control an optional addon device (see the OPTIONAL ADDONS context) — {"addon":{"device":"fist"|"eject","action":"start"|"stop"|"set","key":"<slider key>","value":<number>}}. "start"/"stop" turn it on/off; "set" changes one slider value. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
 let aiBusy = false;
@@ -5818,7 +5832,7 @@ function aiRecoverEnvelope(t) {
 function aiExtractJson(text) {
   // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "pos": {...}, "lang": ".."} or a flat params object.
   // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
-  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, lang: null });
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, lang: null });
   if (!text) return empty();
   const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
@@ -5878,10 +5892,12 @@ function aiExtractJson(text) {
   let search = null;
   if (typeof j.search === "string" && j.search.trim()) search = { query: j.search.trim() };
   else if (j.search && typeof j.search === "object" && !Array.isArray(j.search) && typeof j.search.query === "string") search = j.search;
-  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search) {
-    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, lang };
+  let addon = null;
+  if (j.addon && typeof j.addon === "object" && !Array.isArray(j.addon) && typeof j.addon.device === "string") addon = j.addon;
+  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon) {
+    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, lang };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -8979,12 +8995,12 @@ async function compSend() {
     compMessages.push({ role: "user", content: text, ts: Date.now() });
     aiDebugPersistSoon();
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar || res.video || res.search) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
       if (res.raw) { compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
@@ -9052,6 +9068,7 @@ async function compSend() {
       aiApplyUi(res.ui);
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
     }
+    if (res.addon) aiApplyAddon(res.addon);
   } catch (e) {
     if (th) th.remove();
     compAddMsg("assistant", "Hmm, I lost the connection — try again?");
@@ -9225,12 +9242,12 @@ async function aiSend(opts) {
       ? (mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "")
       : "\n\nMEMORY IS DISABLED by the user — do not output the \"memory\" field.";
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + aiLangLine() + memLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.video || res.search) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.video || res.search || res.addon) {
       if (res.raw) { aiMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
@@ -9289,6 +9306,7 @@ async function aiSend(opts) {
       aiApplyUi(res.ui);
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
     }
+    if (res.addon) aiApplyAddon(res.addon);
     if (res.face) companionApplyFace(res.face);
     if (res.video) aiApplyVideo(res.video);
     if (res.search) aiApplySearch(res.search);
@@ -9835,6 +9853,171 @@ function aiDebugRestore() {
   }
   syncAiSettingsUI();
 })();
+
+// ---------- Optional Addons (Fist-IT / Eject Cumpump) ----------
+const ADDON_DEFS = [
+  { id:"fist", name:"Fist-IT", deviceName:"Fist-IT",
+    service:"5f8bb6f0-9f17-4aa8-9c42-3d8b8b4d9001",
+    rx:"5f8bb6f1-9f17-4aa8-9c42-3d8b8b4d9001",
+    tx:"5f8bb6f2-9f17-4aa8-9c42-3d8b8b4d9001",
+    target:3, desc:"rotates the dildo for a fisting feel",
+    sliders:[
+      {key:"speed", label:"Speed", cmd:30, min:0, max:100},
+      {key:"rotation", label:"Rotation", cmd:31, min:0, max:360},
+      {key:"pause", label:"Pause", cmd:32, min:0, max:100},
+      {key:"force", label:"Force", cmd:33, min:0, max:100}
+    ] },
+  { id:"eject", name:"Eject Cumpump", deviceName:"Eject",
+    service:"5f8bb7f0-9f17-4aa8-9c42-3d8b8b4d9001",
+    rx:"5f8bb7f1-9f17-4aa8-9c42-3d8b8b4d9001",
+    tx:"5f8bb7f2-9f17-4aa8-9c42-3d8b8b4d9001",
+    target:2, unload:true, desc:"pumps fluid out of the dildo (ejaculation / lube / pee play)",
+    sliders:[
+      {key:"speed", label:"Speed", cmd:20, min:0, max:100},
+      {key:"shots", label:"Squirts", cmd:21, min:0, max:360},
+      {key:"force", label:"Force", cmd:22, min:0, max:100},
+      {key:"pause", label:"Pause", cmd:23, min:0, max:100}
+    ] }
+];
+const ADDON_STATE = {};
+function addonEnabled(id) { try { return localStorage.getItem("ossm-addon-" + id) === "1"; } catch (e) { return false; } }
+function addonSetEnabled(id, on) { try { localStorage.setItem("ossm-addon-" + id, on ? "1" : "0"); } catch (e) {} }
+function addonAnyEnabled() { return ADDON_DEFS.some(a => addonEnabled(a.id)); }
+
+function addonEncode(command, value, target) {
+  const b = new ArrayBuffer(40);
+  const dv = new DataView(b);
+  dv.setUint8(21, 1);             // esp_connected = true
+  dv.setInt32(24, command, true); // esp_command
+  dv.setFloat32(28, value, true); // esp_value
+  dv.setInt32(32, target, true);  // esp_target
+  dv.setInt32(36, 99, true);      // esp_sender = M5_ID
+  return b;
+}
+
+async function addonConnect(id) {
+  const a = ADDON_DEFS.find(x => x.id === id);
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  if (st.connected && st.device && st.device.gatt && st.device.gatt.connected) {
+    try { st.device.gatt.disconnect(); } catch (e) {}
+    st.connected = false; st.rx = null; st.on = false; addonRender(); return;
+  }
+  if (!navigator.bluetooth) { monitor("Web Bluetooth unavailable", "warn"); return; }
+  monitor(a.name + ": connecting…");
+  try {
+    const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [a.service] }], optionalServices: [a.service] });
+    const server = await device.gatt.connect();
+    const svc = await server.getPrimaryService(a.service);
+    const rx = await svc.getCharacteristic(a.rx);
+    st.device = device; st.server = server; st.rx = rx; st.connected = true;
+    device.addEventListener("gattserverdisconnected", () => { st.connected = false; st.rx = null; st.on = false; addonRender(); });
+    monitor(a.name + ": connected");
+  } catch (e) {
+    if (!(e && (e.name === "NotFoundError" || e.name === "AbortError"))) monitor(a.name + ": " + (e && e.message ? e.message : e), "err");
+  }
+  addonRender();
+}
+
+async function addonSend(id, command, value) {
+  const a = ADDON_DEFS.find(x => x.id === id);
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  if (!st.rx || !st.connected) { monitor(a.name + ": not connected", "warn"); return false; }
+  try { await st.rx.writeValue(addonEncode(command, value, a.target)); return true; }
+  catch (e) { monitor(a.name + ": " + (e && e.message ? e.message : e), "err"); return false; }
+}
+
+function addonStartStop(id) {
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  if (!st.connected) { addonConnect(id); return; }
+  const turningOn = !st.on;
+  addonSend(id, turningOn ? 11 : 10, 0).then(ok => { if (ok) { st.on = turningOn; addonRender(); } });
+}
+
+function addonSlider(id, key, v) {
+  const a = ADDON_DEFS.find(x => x.id === id);
+  const s = a.sliders.find(x => x.key === key);
+  if (!s) return;
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  st.sliderValues = st.sliderValues || {}; st.sliderValues[key] = v;
+  if (!st.connected) { addonConnect(id); return; }
+  addonSend(id, s.cmd, v);
+}
+
+function addonToggleUnload(id) {
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  st.unload = !st.unload;
+  const a = ADDON_DEFS.find(x => x.id === id);
+  const s = a.sliders.find(x => x.key === "force");
+  const val = (st.sliderValues && typeof st.sliderValues.force === "number") ? st.sliderValues.force : 0;
+  if (s && st.connected) addonSend(id, s.cmd, st.unload ? -val : val);
+  addonRender();
+}
+
+function addonBuildSection(id) {
+  const a = ADDON_DEFS.find(x => x.id === id);
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = { sliderValues:{} });
+  const wrap = document.createElement("div");
+  const status = document.createElement("div");
+  status.className = "ai-set-hint";
+  status.textContent = st.connected ? (st.on ? "● Running" : "● Connected — ready") : "Not connected";
+  wrap.appendChild(status);
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;";
+  const mk = (txt) => { const b = document.createElement("button"); b.type = "button"; b.className = "ble-btn small"; b.textContent = txt; return b; };
+  const conn = mk(st.connected ? "Disconnect" : "Connect"); conn.onclick = () => addonConnect(id);
+  const onoff = mk(st.on ? "Stop" : "Start"); onoff.onclick = () => addonStartStop(id);
+  btnRow.appendChild(conn); btnRow.appendChild(onoff);
+  if (a.unload) { const un = mk(st.unload ? "Unload: ON" : "Unload: OFF"); un.onclick = () => addonToggleUnload(id); btnRow.appendChild(un); }
+  wrap.appendChild(btnRow);
+  for (const s of a.sliders) {
+    const cur = (st.sliderValues && typeof st.sliderValues[s.key] === "number") ? st.sliderValues[s.key] : s.min;
+    wrap.appendChild(sliderEl(s.label, s.min, s.max, cur, "#38bdf8", (v) => addonSlider(id, s.key, v)));
+  }
+  return wrap;
+}
+
+function addonRender() {
+  const panel = $("addonsPanel");
+  if (panel) panel.style.display = addonAnyEnabled() ? "" : "none";
+  const f = $("addonFistBody"), e = $("addonEjectBody");
+  if (f) { f.innerHTML = ""; if (addonEnabled("fist")) f.appendChild(addonBuildSection("fist")); }
+  if (e) { e.innerHTML = ""; if (addonEnabled("eject")) e.appendChild(addonBuildSection("eject")); }
+}
+
+function addonContext() {
+  const parts = [];
+  for (const a of ADDON_DEFS) {
+    if (!addonEnabled(a.id)) continue;
+    const sl = a.sliders.map(s => '"' + s.key + '" (' + s.min + "-" + s.max + ")").join(", ");
+    parts.push("- " + a.name + ": " + a.desc + ". Sliders: " + sl + ".");
+  }
+  if (!parts.length) return "";
+  return "\n\nOPTIONAL ADDONS (you may control these too):\n" + parts.join("\n")
+    + "\nUse the \"addon\" field: {\"addon\":{\"device\":\"fist\"|\"eject\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}}. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
+}
+
+function aiApplyAddon(p) {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return;
+  const id = String(p.device || "").toLowerCase();
+  const a = ADDON_DEFS.find(x => x.id === id);
+  if (!a || !addonEnabled(id)) return;
+  const action = String(p.action || "").toLowerCase();
+  const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
+  if (action === "start" || action === "on") { if (!st.on) addonStartStop(id); }
+  else if (action === "stop" || action === "off") { if (st.on) addonStartStop(id); }
+  else if (action === "set" || action === "value") {
+    const key = String(p.key || "").toLowerCase();
+    const s = a.sliders.find(x => x.key === key);
+    const v = Number(p.value);
+    if (s && isFinite(v)) { addonSlider(id, key, clamp(Math.round(v), s.min, s.max)); }
+  }
+}
+
+const addonFistChk = $("addonFistEnabled");
+const addonEjectChk = $("addonEjectEnabled");
+if (addonFistChk) { addonFistChk.checked = addonEnabled("fist"); addonFistChk.addEventListener("change", () => { addonSetEnabled("fist", addonFistChk.checked); addonRender(); }); }
+if (addonEjectChk) { addonEjectChk.checked = addonEnabled("eject"); addonEjectChk.addEventListener("change", () => { addonSetEnabled("eject", addonEjectChk.checked); addonRender(); }); }
+addonRender();
 
 function setModeFromDropdown(target) {
   if (target === appMode) return;
