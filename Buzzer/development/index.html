@@ -66,6 +66,8 @@
   #speed-control { order: 6; }
   #sliders-wrapper { order: 7; }
   #reset-row { order: 9; }
+  #addonFistPanel { order: 10; }
+  #addonEjectPanel { order: 11; }
   #kofi-wrap { order: 13; }
   #presets-panel { order: 8; }
   #generalSettings { order: 21; }
@@ -754,6 +756,18 @@
   <div class="col col-left" id="col-left">
     <div class="fun-controls" id="fun-controls" style="display:none;"></div>
     <div class="sliders-panel" id="sliders-wrapper"></div>
+    <details class="presets-panel" id="addonFistPanel" style="display:none;">
+      <summary><span class="summary-left">✊ Fist-IT</span></summary>
+      <div class="ai-settings-body">
+        <div id="addonFistBody"></div>
+      </div>
+    </details>
+    <details class="presets-panel" id="addonEjectPanel" style="display:none;">
+      <summary><span class="summary-left">🍆💦 Eject Cumpump</span></summary>
+      <div class="ai-settings-body">
+        <div id="addonEjectBody"></div>
+      </div>
+    </details>
     <details class="presets-panel" id="presets-panel">
       <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
       <div id="presetList"></div>
@@ -994,7 +1008,7 @@
           <span><span class="addon-icon">🍆💦</span>Eject Cumpump addon</span>
           <span class="switch"><input type="checkbox" id="addonEjectEnabled"><span class="slider"></span></span>
         </label>
-        <div class="ai-set-hint">Optional hardware addons controlled over Bluetooth — they work in every mode. Enable one to open its control panel in the Addons section.</div>
+        <div class="ai-set-hint">Optional hardware addons controlled over Bluetooth — they work in every mode. Enable one to show its control panel.</div>
       </div>
     </details>
 
@@ -1083,20 +1097,6 @@
         <div class="ai-set-section">Tools</div>
         <button class="ble-btn small" id="aiExportInfo" type="button" style="margin-top:4px;">📄 Export developer info</button>
         <div class="ai-set-hint">Downloads a text file with the AI conversation, the live monitor log and what the AI has learned about you — for reporting bugs to the developer. Your API key is never included.</div>
-      </div>
-    </details>
-
-    <details class="presets-panel" id="addonFistPanel" style="display:none;">
-      <summary><span class="summary-left">✊ Fist-IT</span></summary>
-      <div class="ai-settings-body">
-        <div id="addonFistBody"></div>
-      </div>
-    </details>
-
-    <details class="presets-panel" id="addonEjectPanel" style="display:none;">
-      <summary><span class="summary-left">🍆💦 Eject Cumpump</span></summary>
-      <div class="ai-settings-body">
-        <div id="addonEjectBody"></div>
       </div>
     </details>
 
