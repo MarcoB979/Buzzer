@@ -1083,6 +1083,7 @@
         <label class="ai-set-label" for="aiTtsProvider">Voice (TTS)</label>
         <select id="aiTtsProvider">
           <option value="system">System voice (device)</option>
+          <option value="google">Free Google (online)</option>
           <option value="elevenlabs">ElevenLabs (your key)</option>
         </select>
         <div id="aiElevenLabsRow" style="display:none;">
@@ -1092,6 +1093,10 @@
           <input type="text" id="aiElevenLabsVoiceId" placeholder="21m00Tcm4TlvDq8ikWAM" autocomplete="off">
           <button type="button" class="ble-btn small" id="aiElevenLabsTest" style="margin-top:6px;">🔊 Test voice</button>
           <div class="ai-set-hint">Your own key — replies are sent to ElevenLabs and billed to your account only. Find the Voice ID in ElevenLabs → Voices → your voice (the long ID in the URL or details). Note: free accounts cannot use the public “Library” voices through the API — use your own cloned/custom voice or upgrade to Starter.</div>
+        </div>
+        <div id="aiGoogleTtsRow" style="display:none;">
+          <button type="button" class="ble-btn small" id="aiGoogleTtsTest" style="margin-top:6px;">🔊 Test voice</button>
+          <div class="ai-set-hint">Free online voice (Google) — no key needed, just an internet connection. Replies are sent to Google's text-to-speech service; longer replies are split and played one after the other. If it fails (offline / blocked) it falls back to the device voice.</div>
         </div>
         <div id="aiSystemTtsRow">
           <label class="ai-set-label" for="aiTtsVoice">Voice</label>
@@ -6507,8 +6512,11 @@ function aiPickVoice(lang) {
   return best;
 }
 function aiSpeak(text) {
-  if (aiTtsProvider() === "elevenlabs" && aiElevenLabsConfigured()) {
+  const p = aiTtsProvider();
+  if (p === "elevenlabs" && aiElevenLabsConfigured()) {
     aiSpeakElevenLabs(text);
+  } else if (p === "google") {
+    aiSpeakGoogle(text);
   } else {
     aiSpeakBrowser(text);
   }
@@ -6518,7 +6526,7 @@ function aiSpeechLang() {
   // HEAR replies), then the last language the AI used, then the device language.
   // (ElevenLabs voices are multilingual, so there we rely on the AI's last language
   // or the device language instead of a system voice.)
-  if (aiTtsProvider() !== "elevenlabs") {
+  if (aiTtsProvider() === "system") {
     const name = aiTtsVoiceName();
     if (name) {
       try { const sl = (localStorage.getItem("ossm-ai-tts-voice-lang") || "").trim(); if (sl) return sl.toLowerCase().split(/[-_]/)[0]; } catch (e) {}
@@ -6550,7 +6558,7 @@ function aiSpeakBrowser(text) {
   } catch (e) {}
 }
 function aiTtsProvider() {
-  try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return p === "elevenlabs" ? "elevenlabs" : "system"; } catch (e) { return "system"; }
+  try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return (p === "elevenlabs" || p === "google") ? p : "system"; } catch (e) { return "system"; }
 }
 function aiElevenLabsSettings() {
   let key = "", voiceId = "";
@@ -6564,7 +6572,7 @@ function aiElevenLabsConfigured() {
 }
 let aiAudio = null;
 let aiElevenLabsWarned = false;
-function aiStopElevenLabs() {
+function aiStopAudio() {
   if (!aiAudio) return;
   try { aiAudio.pause(); } catch (e) {}
   const u = aiAudio.src;
@@ -6588,7 +6596,7 @@ function aiElevenLabsWarn(msg) {
 async function aiSpeakElevenLabs(text) {
   const s = aiElevenLabsSettings();
   if (!s.key || !s.voiceId) return;
-  aiStopElevenLabs();
+  aiStopAudio();
   try {
     const resp = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(s.voiceId), {
       method: "POST",
@@ -6624,7 +6632,7 @@ function aiTestElevenLabs() {
     return;
   }
   if (btn) { btn.disabled = true; btn.textContent = "Testing…"; }
-  aiStopElevenLabs();
+  aiStopAudio();
   fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(s.voiceId), {
     method: "POST",
     headers: { "xi-api-key": s.key, "Content-Type": "application/json", "Accept": "audio/mpeg" },
@@ -6655,6 +6663,64 @@ function aiTestElevenLabs() {
     try { aiAddMsg("system", "🔇 ElevenLabs test failed — " + msg); } catch (e) {}
     resetBtn("🔊 Test voice", 8000);
   });
+}
+let aiGoogleWarned = false;
+function aiGoogleWarn(msg) {
+  if (aiGoogleWarned) return;
+  aiGoogleWarned = true;
+  try { aiAddMsg("system", "🔇 Free Google voice failed — " + msg + " Using the device voice instead."); } catch (e) {}
+}
+function aiGoogleChunks(text) {
+  const max = 180;
+  text = String(text || "").trim();
+  if (!text) return [];
+  if (text.length <= max) return [text];
+  const out = [];
+  let rest = text;
+  while (rest.length > max) {
+    let cut = 0;
+    const probes = [". ", "! ", "? ", "… ", "\n"];
+    for (const p of probes) {
+      const idx = rest.lastIndexOf(p, max);
+      if (idx > 0) { cut = idx + p.length; break; }
+    }
+    if (!cut) { cut = rest.lastIndexOf(" ", max); if (cut <= 0) cut = max; }
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
+}
+function aiSpeakGoogle(text) {
+  const lang = aiSpeechLang() || "en";
+  const chunks = aiGoogleChunks(text);
+  if (!chunks.length) return;
+  aiStopAudio();
+  let i = 0;
+  const playNext = () => {
+    if (i >= chunks.length) return;
+    const url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + encodeURIComponent(lang) + "&q=" + encodeURIComponent(chunks[i]);
+    if (!aiAudio) aiAudio = new Audio();
+    aiAudio.src = url;
+    aiAudio.onended = () => { i++; playNext(); };
+    aiAudio.onerror = () => { aiGoogleWarn("network error"); aiSpeakBrowser(text); };
+    aiAudio.play().catch(() => { aiGoogleWarn("playback blocked"); aiSpeakBrowser(text); });
+  };
+  playNext();
+}
+function aiTestGoogle() {
+  const btn = $("aiGoogleTtsTest");
+  const phrases = { nl: "Hallo, dit is een test van mijn gratis stem.", en: "Hello, this is a test of my free voice.", de: "Hallo, das ist ein Test meiner freien Stimme.", fr: "Bonjour, ceci est un test de ma voix gratuite." };
+  const lang = aiSpeechLang() || "en";
+  const done = (label) => { if (btn) { btn.disabled = false; btn.textContent = label; } };
+  if (btn) { btn.disabled = true; btn.textContent = "Testing…"; }
+  aiStopAudio();
+  const url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + encodeURIComponent(lang) + "&q=" + encodeURIComponent(phrases[lang] || phrases.en);
+  if (!aiAudio) aiAudio = new Audio();
+  aiAudio.src = url;
+  aiAudio.onended = () => done("✓ Working — replay");
+  aiAudio.onerror = () => { done("✖ Failed (no internet?)"); try { aiAddMsg("system", "🔇 Free Google voice failed — check your internet connection."); } catch (e) {} };
+  aiAudio.play().then(() => { if (btn) btn.textContent = "▶ Playing…"; }).catch(() => done("✖ Playback blocked"));
 }
 function aiIsSpeaking() {
   if (window.speechSynthesis && speechSynthesis.speaking) return true;
@@ -10223,12 +10289,14 @@ function aiDebugRestore() {
   const elRow = $("aiElevenLabsRow");
   const elKey = $("aiElevenLabsKey");
   const elVoiceId = $("aiElevenLabsVoiceId");
+  const gooRow = $("aiGoogleTtsRow");
   const sysTtsRow = $("aiSystemTtsRow");
   const syncTtsUi = () => {
-    const isEl = aiTtsProvider() === "elevenlabs";
-    if (ttsProv) ttsProv.value = isEl ? "elevenlabs" : "system";
-    if (elRow) elRow.style.display = isEl ? "" : "none";
-    if (sysTtsRow) sysTtsRow.style.display = isEl ? "none" : "";
+    const prov = aiTtsProvider();
+    if (ttsProv) ttsProv.value = prov;
+    if (elRow) elRow.style.display = prov === "elevenlabs" ? "" : "none";
+    if (gooRow) gooRow.style.display = prov === "google" ? "" : "none";
+    if (sysTtsRow) sysTtsRow.style.display = prov === "system" ? "" : "none";
     const s = aiElevenLabsSettings();
     if (elKey) elKey.value = s.key;
     if (elVoiceId) elVoiceId.value = s.voiceId;
@@ -10238,6 +10306,8 @@ function aiDebugRestore() {
   if (elVoiceId) elVoiceId.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-voice-id", elVoiceId.value.trim()); } catch (e) {} });
   const elTest = $("aiElevenLabsTest");
   if (elTest) elTest.onclick = aiTestElevenLabs;
+  const gooTest = $("aiGoogleTtsTest");
+  if (gooTest) gooTest.onclick = aiTestGoogle;
   syncTtsUi();
   const aiSetPanel = $("aiSettings");
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) { aiLoadVoices(); if (aiWhisperEnabled()) aiPopulateMicList(); } });
