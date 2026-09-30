@@ -5314,7 +5314,10 @@ function watchCast() {
 // ---------- Companion video overlay (AI plays a video inside the companion) ----------
 let compWatchLoaded = false;
 function compWatchCast() {
-  if (!castContext) return;
+  if (!castAvailable || !castContext) {
+    compAddMsg("system", "Cast isn't available in this browser. Open Buzzer in Chrome on your phone or PC and make sure your TV is on the same WiFi, then press 🎦 Cast again.");
+    return;
+  }
   if (castConnected) { castContext.endCurrentSession(true); return; }
   castRemoteTime = 0; castClockBaseMs = 0; castEnded = false; castWasPlaying = false;
   const localFile = funState.localFile;
@@ -5340,22 +5343,19 @@ function updateCompWatchCastButton() {
   if (!b) return;
   const hasVideo = !!(funState.videoUrl || funState.castUrl);
   b.style.display = hasVideo ? "" : "none";
-  b.disabled = castConnected ? false : !castAvailable;
+  b.disabled = false;
   b.textContent = castConnected ? "⏹ Stop cast" : "🎦 Cast";
+  b.title = castAvailable ? (castConnected ? "Stop casting" : "Cast to TV") : "Cast to TV (not available in this browser)";
 }
 function compWatchShow() {
   const w = $("compWatch");
   if (w) w.classList.add("on");
-  const av = $("companionAvatar");
-  if (av) av.style.display = "none";
   const ctrl = document.querySelector(".companion-controls");
   if (ctrl) ctrl.style.display = "none";
 }
 function compWatchHide() {
   const w = $("compWatch");
   if (w) w.classList.remove("on");
-  const av = $("companionAvatar");
-  if (av) av.style.display = "";
   const ctrl = document.querySelector(".companion-controls");
   if (ctrl) ctrl.style.display = "";
 }
@@ -8582,11 +8582,14 @@ function syncCompSlidersVisibility() {
   const wrap = $("compSliders");
   if (!wrap) return;
   const busy = !!(aiPos && (aiPos.active || aiPos.moving));
+  const watch = $("compWatch");
+  const watchOn = !!(watch && watch.classList.contains("on"));
   // Only reveal the Advanced-Penetration sliders once we're truly ready to play
   // (safety limits confirmed and positioning finished). Before and during
   // positioning they stay hidden AND disabled so neither clicks nor the
-  // keyboard/gamepad bindings can drive the AP values out of setup.
-  const visible = aiLimitsConfirmed() && !busy;
+  // keyboard/gamepad bindings can drive the AP values out of setup. While a
+  // video is playing in the companion they stay folded away for room.
+  const visible = !watchOn && aiLimitsConfirmed() && !busy;
   wrap.style.display = visible ? "" : "none";
   wrap.querySelectorAll("input, button, select").forEach(el => {
     if ("disabled" in el) el.disabled = !visible;
