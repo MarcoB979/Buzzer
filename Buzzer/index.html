@@ -11041,7 +11041,21 @@ if (window.ResizeObserver) {
 const BUILD_TIME = "__BUILD_TIME__";
 (function renderBuildInfo() {
   const el = $("buildInfo");
-  if (el) el.textContent = BUILD_TIME.indexOf("__") === 0 ? "Local build" : "Build: " + BUILD_TIME;
+  if (!el) return;
+  const p2 = (n) => String(n).padStart(2, "0");
+  const fmt = (d) => d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate()) + " " + p2(d.getHours()) + ":" + p2(d.getMinutes()) + ":" + p2(d.getSeconds());
+  if (BUILD_TIME.indexOf("__") === 0) {
+    // Local (un-built) copy: show the file's last-modified time when the
+    // browser exposes it (this is the build time of the copy you're running),
+    // otherwise the page-load time — an easy "am I on the latest file?" check.
+    let lm = null;
+    try { if (document.lastModified) { const t = new Date(document.lastModified); if (!isNaN(t.getTime())) lm = t; } } catch (e) {}
+    el.textContent = lm ? ("File updated: " + fmt(lm)) : ("Loaded: " + fmt(new Date()));
+    el.title = "Hard-reload (Ctrl+Shift+R) to refresh this.";
+  } else {
+    el.textContent = "Build: " + BUILD_TIME;
+    el.title = "Built at " + BUILD_TIME;
+  }
 })();
 </script>
 <script>
