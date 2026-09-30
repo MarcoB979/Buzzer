@@ -6380,14 +6380,15 @@ function aiPosSpeedSetText(n) {
   return L.replace("{n}", String(n));
 }
 const AI_POS_READY = {
-  en: "Ready to play — your positions are saved.",
-  nl: "Klaar om te spelen — je posities zijn opgeslagen.",
-  de: "Bereit zum Spielen — deine Positionen sind gespeichert.",
-  fr: "Prêt·e à jouer — tes positions sont enregistrées."
+  en: "Ready to play — min {min}, max {max}, max speed {spd}. I'm stopped until you say go.",
+  nl: "Klaar om te spelen — min {min}, max {max}, max snelheid {spd}. Ik sta stil tot je zegt dat ik mag beginnen.",
+  de: "Bereit zum Spielen — Min {min}, Max {max}, Maximalgeschwindigkeit {spd}. Ich bin gestoppt, bis du loslegen willst.",
+  fr: "Prêt·e à jouer — min {min}, max {max}, vitesse max {spd}. Je reste arrêté jusqu'à ce que tu me dises d'y aller."
 };
 function aiPosReadyText() {
   const L = AI_POS_READY[aiStoredLang()] || AI_POS_READY.en;
-  return L;
+  const c = aiSafetyCaps();
+  return L.replace("{min}", String(c.minDepth)).replace("{max}", String(c.maxDepth)).replace("{spd}", String(c.maxSpeed));
 }
 function aiPosIsConfirm(t) {
   const short = t.trim().split(/\s+/).length <= 4;
@@ -6843,6 +6844,25 @@ function aiPosRestoreMode() {
     writeControlReliable(speedIndex() + ":0,").catch(() => {});
   }
 }
+function aiPosSyncAp() {
+  // Position setup records the points in the stroke engine, but the companion
+  // runs in Advanced Penetration — push the recorded values into the AP settings
+  // (and the device) so the AP sliders show them. Speed stays 0 (stopped); the
+  // recorded max speed becomes the resume speed when the user starts playing.
+  if (appMode !== "ap" || !apAvailable()) return;
+  const caps = aiSafetyCaps();
+  const mn = clamp(Math.round(caps.minDepth), 0, 100);
+  const mx = clamp(Math.round(caps.maxDepth), 0, 100);
+  const sMax = getSetting("Max Pos"); sMax.value = mx; settings["Max Pos"] = sMax;
+  const sMin = getSetting("Min Pos"); sMin.value = mn; settings["Min Pos"] = sMin;
+  if (caps.maxSpeed >= 1) lastNonZeroSpeed = clamp(Math.round(caps.maxSpeed), 1, 100);
+  if (connected && ctlChar) {
+    writeControl("0:" + mx + ",").catch(() => {});
+    writeControl("1:" + mn + ",").catch(() => {});
+  }
+  buildCompSliders();
+  buildInterface();
+}
 // Switch the FIRMWARE into the stroke engine in the background (for position
 // setup) without changing the visible app mode.
 function aiPosEnterStd() {
@@ -7114,7 +7134,10 @@ async function aiPosFinishReturn() {
   if (!connected || !stdCmd || pointIdx < 0) {
     aiPosReset();
     aiPosRestoreMode();
-    aiAddMsg("assistant", "Ready to play — your positions are saved. Pick a pattern and press Start when you like.");
+    aiPosSyncAp();
+    const ready = aiPosReadyText();
+    aiAddMsg("assistant", ready);
+    if (aiSpeakEnabled()) aiSpeak(ready);
     return;
   }
   // Slowly return the rail to Min (PointStroke holds the point), then restore Simple Stroke.
@@ -7145,6 +7168,7 @@ async function aiPosFinishReturn() {
     if (appMode === "std") buildInterface();
     aiPosReset();
     aiPosRestoreMode();
+    aiPosSyncAp();
     const ready = aiPosReadyText();
     aiAddMsg("assistant", ready);
     if (aiSpeakEnabled()) aiSpeak(ready);
