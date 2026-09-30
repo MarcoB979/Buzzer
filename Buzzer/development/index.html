@@ -996,6 +996,12 @@
           <div class="ai-set-hint" id="aiMemoryHelpText" style="display:none;">If you turn this on, the AI remembers what you voluntarily tell it about yourself (your name, role, preferences) — stored only on this device. It never asks for personal details, and “Forget me” erases it all.</div>
         </div>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
+        <label class="ai-set-label" for="aiStopModeSel">Emergency stop on</label>
+        <select id="aiStopModeSel">
+          <option value="emergency">Safe word + "Stop"</option>
+          <option value="gentle">Only safe word</option>
+        </select>
+        <div class="ai-set-hint">With "Only safe word", saying "stop" ramps the rail down and pauses gently — only your safe word triggers a full emergency stop.</div>
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
@@ -6976,7 +6982,10 @@ function aiStopMode() {
   try { return localStorage.getItem("ossm-ai-stop-mode") === "gentle" ? "gentle" : "emergency"; } catch (e) { return "emergency"; }
 }
 function aiSetStopMode(m) {
-  try { localStorage.setItem("ossm-ai-stop-mode", m === "gentle" ? "gentle" : "emergency"); } catch (e) {}
+  const v = m === "gentle" ? "gentle" : "emergency";
+  try { localStorage.setItem("ossm-ai-stop-mode", v); } catch (e) {}
+  const sel = $("aiStopModeSel");
+  if (sel && sel.value !== v) sel.value = v;
 }
 function aiPosReset() {
   if (aiPosSettleTimer) { clearTimeout(aiPosSettleTimer); aiPosSettleTimer = null; }
@@ -9696,6 +9705,11 @@ function aiDebugRestore() {
     syncWhisper();
   }
   if (micSel) micSel.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-mic-device", micSel.value); } catch (e) {} });
+  const stopModeSel = $("aiStopModeSel");
+  if (stopModeSel) {
+    stopModeSel.value = aiStopMode();
+    stopModeSel.addEventListener("change", () => aiSetStopMode(stopModeSel.value));
+  }
   const localInput = $("aiLocalFolder");
   if (localInput) {
     localInput.addEventListener("change", () => {
