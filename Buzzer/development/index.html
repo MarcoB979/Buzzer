@@ -1002,6 +1002,14 @@
           <option value="gentle">Only safe word</option>
         </select>
         <div class="ai-set-hint">With "Only safe word", saying "stop" ramps the rail down and pauses gently — only your safe word triggers a full emergency stop.</div>
+        <label class="ai-set-label" for="compFreedom">Companion initiative</label>
+        <select id="compFreedom">
+          <option value="strict">Strict — only what I ask</option>
+          <option value="playful">Playful — can tease within limits</option>
+          <option value="wild">Wild — raise limits when I ask (no confirm)</option>
+          <option value="full">Full submission — may raise limits on its own</option>
+        </select>
+        <div class="ai-set-hint">How much initiative the companion may take on its own. "Wild" and "Full submission" let it raise your safety limits without a confirmation — choose carefully.</div>
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
@@ -5878,14 +5886,14 @@ function aiLimitsText() {
 }
 function aiApplyLimits(limits, capToStep) {
   if (!limits || typeof limits !== "object" || Array.isArray(limits)) return false;
-  // capToStep caps each change to ±10 — used by the confirm-then-expand flow
-  // once limits are already set. Initial setup (positioning / numbers) passes
-  // nothing and can set any values.
+  // capToStep caps each change to the companion-freedom step (10 or 20) —
+  // used by the confirm-then-expand flow once limits are already set. Initial
+  // setup (positioning / numbers) passes nothing and can set any values.
   const cur = aiSafetyCaps();
   const apply = (key, val, curVal) => {
     if (typeof val !== "number" || !isFinite(val)) return;
     let n = clamp(Math.round(val), 0, 100);
-    if (capToStep && aiLimitsConfirmed()) n = clamp(n, curVal - 10, curVal + 10);
+    if (capToStep && aiLimitsConfirmed()) n = clamp(n, curVal - compFreedomStep(), curVal + compFreedomStep());
     try { localStorage.setItem(key, String(n)); } catch (e) {}
   };
   if (typeof limits.maxDepth === "number") apply("ossm-ai-max-depth", limits.maxDepth, cur.maxDepth);
@@ -6992,6 +7000,30 @@ function aiSetStopMode(m) {
   try { localStorage.setItem("ossm-ai-stop-mode", v); } catch (e) {}
   const sel = $("aiStopModeSel");
   if (sel && sel.value !== v) sel.value = v;
+}
+function compFreedom() {
+  try {
+    const v = localStorage.getItem("ossm-companion-freedom");
+    return ["playful", "wild", "full"].indexOf(v) >= 0 ? v : "strict";
+  } catch (e) { return "strict"; }
+}
+function compSetFreedom(m) {
+  try { localStorage.setItem("ossm-companion-freedom", m); } catch (e) {}
+}
+function compFreedomStep() {
+  const f = compFreedom();
+  return (f === "wild" || f === "full") ? 20 : 10;
+}
+function compFreedomDirectRaise() {
+  const f = compFreedom();
+  return f === "wild" || f === "full";
+}
+function compFreedomContext() {
+  const f = compFreedom();
+  if (f === "strict") return "\n\nYOUR INITIATIVE LEVEL: STRICT — never change anything on your own initiative; do only exactly what the user asks, stay inside the confirmed safety limits, and never add modifiers or vary the rhythm unless they ask.";
+  if (f === "playful") return "\n\nYOUR INITIATIVE LEVEL: PLAYFUL — you may freely vary rhythm and modifiers and give the occasional harder stroke on your own, as long as you stay inside the confirmed safety limits. To go beyond a limit you must still ask for confirmation first (max +10 per confirmation).";
+  if (f === "wild") return "\n\nYOUR INITIATIVE LEVEL: WILD — same as playful, plus when the user asks to go beyond a limit you may raise that limit directly WITHOUT asking them to confirm (up to +20 per request). You still only raise a limit when the user asks for it.";
+  return "\n\nYOUR INITIATIVE LEVEL: FULL SUBMISSION — same as wild, and you may also raise a limit on your own initiative when it clearly fits the mood and the user's role (up to +20), while still respecting consent and their hard safety caps.";
 }
 function aiPosReset() {
   if (aiPosSettleTimer) { clearTimeout(aiPosSettleTimer); aiPosSettleTimer = null; }
@@ -8923,7 +8955,7 @@ async function compSend() {
     compMessages.push({ role: "user", content: text, ts: Date.now() });
     aiDebugPersistSoon();
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -8953,7 +8985,12 @@ async function compSend() {
     if (res.search) aiApplySearch(res.search);
     if (res.params) { aiApplySet(res.params); buildCompSliders(); }
     if (res.limits) {
-      if (compPendingLimits && aiIsYes(text)) {
+      if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
+        // Wild / full submission: apply boundary changes directly (no confirmation).
+        aiApplyLimits(res.limits, true);
+        compPendingLimits = null;
+        buildCompSliders();
+      } else if (compPendingLimits && aiIsYes(text)) {
         aiApplyLimits(res.limits, true);
         aiLimitsSetConfirmed();
         compPendingLimits = null;
@@ -9164,7 +9201,7 @@ async function aiSend(opts) {
       ? (mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "")
       : "\n\nMEMORY IS DISABLED by the user — do not output the \"memory\" field.";
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + aiLangLine() + memLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + aiLangLine() + memLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
@@ -9184,7 +9221,12 @@ async function aiSend(opts) {
     if (res.memory && aiMemoryActive()) { aiSetMemory(res.memory); aiLog("stored a preference (memory)"); }
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
-      if (aiPendingLimits && aiIsYes(text)) {
+      if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
+        // Wild / full submission: apply boundary changes directly (no confirmation).
+        aiApplyLimits(res.limits, true);
+        aiPendingLimits = null;
+        aiLimitsRowOpen(false);
+      } else if (aiPendingLimits && aiIsYes(text)) {
         aiApplyLimits(res.limits, true);
         aiLimitsSetConfirmed();
         aiPendingLimits = null;
@@ -9715,6 +9757,20 @@ function aiDebugRestore() {
   if (stopModeSel) {
     stopModeSel.value = aiStopMode();
     stopModeSel.addEventListener("change", () => aiSetStopMode(stopModeSel.value));
+  }
+  const compFreedomSel = $("compFreedom");
+  if (compFreedomSel) {
+    compFreedomSel.value = compFreedom();
+    compFreedomSel.addEventListener("change", () => {
+      const v = compFreedomSel.value;
+      if (v === "wild" || v === "full") {
+        const msg = (v === "full")
+          ? "⚠ WARNING — FULL SUBMISSION:\n\nThe companion may raise your safety limits (max depth, min depth, max speed) by up to 20 at a time, and may do so ON ITS OWN INITIATIVE when it decides it fits the moment — without asking you to confirm.\n\nThis means the machine can move deeper and faster than your confirmed limits without a confirmation prompt.\n\nDo you accept this risk?"
+          : "⚠ WARNING — WILD:\n\nThe companion may raise your safety limits (max depth, min depth, max speed) by up to 20 at a time without asking you to confirm — but only when YOU ask for it.\n\nThis means the machine can move deeper and faster than your confirmed limits without a confirmation prompt.\n\nDo you accept this risk?";
+        if (!confirm(msg)) { compFreedomSel.value = compFreedom(); return; }
+      }
+      compSetFreedom(v);
+    });
   }
   const localInput = $("aiLocalFolder");
   if (localInput) {
