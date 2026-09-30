@@ -356,6 +356,8 @@
   .ai-set-label { font-size: .72rem; color: #94a3b8; }
   .ai-settings-body select, .ai-settings-body input { background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; width: 100%; box-sizing: border-box; }
   .ai-set-hint { font-size: .66rem; color: #64748b; line-height: 1.4; }
+  .ai-set-divider { border-top: 1px solid var(--border-color); margin: 10px 0 2px; }
+  .ai-set-section { font-size: .66rem; text-transform: uppercase; letter-spacing: 1px; color: #7dd3fc; }
   .ai-enable { display: flex; align-items: center; gap: 6px; }
   .ai-settings-body input[type=checkbox] { width: auto; }
   .ai-help { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; background: #334155; color: #e2e8f0; border: 1px solid var(--border-color); font-size: .72rem; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
@@ -987,6 +989,7 @@
     <details class="presets-panel" id="aiSettings">
       <summary><span class="summary-left">🤖 AI assistant<span class="summary-value" id="aiProviderLabel"></span></span></summary>
       <div class="ai-settings-body">
+        <div class="ai-set-section">Companion</div>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCompanionEnabled" checked> Enable AI companion</label>
         <div id="aiExtrasRow" style="display:none;">
           <label class="ai-set-label ai-enable"><input type="checkbox" id="aiCanRun"> Allow AI to start / pause the machine</label>
@@ -997,6 +1000,8 @@
           <div class="ai-set-hint" id="aiMemoryHelpText" style="display:none;">If you turn this on, the AI remembers what you voluntarily tell it about yourself (your name, role, preferences) — stored only on this device. It never asks for personal details, and “Forget me” erases it all.</div>
         </div>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
+        <div class="ai-set-divider"></div>
+        <div class="ai-set-section">Safety</div>
         <label class="ai-set-label" for="aiStopModeSel">Emergency stop on</label>
         <select id="aiStopModeSel">
           <option value="emergency">Safe word + "Stop"</option>
@@ -1011,6 +1016,8 @@
           <option value="full">Full submission — may raise limits on its own</option>
         </select>
         <div class="ai-set-hint">How much initiative the companion may take on its own. "Wild" and "Full submission" let it raise your safety limits without a confirmation — choose carefully.</div>
+        <div class="ai-set-divider"></div>
+        <div class="ai-set-section">AI provider</div>
         <label class="ai-set-label" for="aiProvider">Provider</label>
         <select id="aiProvider">
           <option value="free">Free (Pollinations)</option>
@@ -1030,6 +1037,8 @@
           <input type="text" id="aiModel" placeholder="gpt-4o-mini" autocomplete="off">
           <div class="ai-set-hint">Works with any OpenAI-compatible server: OpenAI, Groq, Together, OpenRouter, or a local model. For Ollama use base URL http://localhost:11434/v1 and the model name you have pulled. For LM Studio use http://localhost:1234/v1.</div>
         </div>
+        <div class="ai-set-divider"></div>
+        <div class="ai-set-section">Voice & microphone</div>
         <label class="ai-set-label" for="aiTtsProvider">Voice (TTS)</label>
         <select id="aiTtsProvider">
           <option value="system">System voice (device)</option>
@@ -1058,7 +1067,9 @@
           <div class="ai-set-hint">Whisper records with the mic you pick here (e.g. a Bluetooth headset) and transcribes in the cloud. Needs an OpenAI-compatible key. When off, plain voice input is used — it can't choose a mic.</div>
         </div>
         <div class="ai-set-hint">The Voice list shows whatever your browser exposes. On Android that’s usually one voice per language — the one you picked in your system Text-to-speech settings — and “Auto” uses that device default. On desktop you can pick a specific voice here.</div>
-        <button class="ble-btn small" id="aiExportInfo" type="button" style="margin-top:10px;">📄 Export developer info</button>
+        <div class="ai-set-divider"></div>
+        <div class="ai-set-section">Tools</div>
+        <button class="ble-btn small" id="aiExportInfo" type="button" style="margin-top:4px;">📄 Export developer info</button>
         <div class="ai-set-hint">Downloads a text file with the AI conversation, the live monitor log and what the AI has learned about you — for reporting bugs to the developer. Your API key is never included.</div>
       </div>
     </details>
