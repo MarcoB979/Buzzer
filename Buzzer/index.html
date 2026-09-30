@@ -6643,6 +6643,32 @@ function aiInjectSystem(visibleText, directive) {
   if (compModeActive) compMessages.push(msg); else aiMessages.push(msg);
   aiDebugPersistSoon();
 }
+function isEditableField(el) {
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (tag === "INPUT") {
+    const t = (el.type || "text").toLowerCase();
+    return ["text", "number", "search", "email", "url", "password", "tel"].indexOf(t) >= 0;
+  }
+  return !!el.isContentEditable;
+}
+function chatInput() {
+  return compModeActive ? $("compInput") : $("aiInput");
+}
+function refocusChat() {
+  // Touch devices blur the input on purpose to hide the on-screen keyboard —
+  // only auto-refocus with a physical keyboard (desktop).
+  if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) return;
+  const inp = chatInput();
+  if (!inp || !inp.offsetParent) return; // chat panel not open
+  if (document.activeElement === inp) return;
+  if (isEditableField(document.activeElement)) return; // user is editing a value
+  try { inp.focus(); } catch (e) {}
+}
+// Keep the chat textbox focused so typing always goes to the chat instead of
+// the global keyboard bindings (which drive the AP/stroke sliders).
+document.addEventListener("pointerup", () => setTimeout(refocusChat, 0));
 
 function aiProviderSettings() {
   let provider = "free", key = "", baseUrl = "", model = "";
@@ -8091,8 +8117,13 @@ function syncCompSlidersVisibility() {
   const busy = !!(aiPos && (aiPos.active || aiPos.moving));
   // Only reveal the Advanced-Penetration sliders once we're truly ready to play
   // (safety limits confirmed and positioning finished). Before and during
-  // positioning they stay hidden so the user can't switch the firmware out of setup.
-  wrap.style.display = (aiLimitsConfirmed() && !busy) ? "" : "none";
+  // positioning they stay hidden AND disabled so neither clicks nor the
+  // keyboard/gamepad bindings can drive the AP values out of setup.
+  const visible = aiLimitsConfirmed() && !busy;
+  wrap.style.display = visible ? "" : "none";
+  wrap.querySelectorAll("input, button, select").forEach(el => {
+    if ("disabled" in el) el.disabled = !visible;
+  });
 }
 function syncCompRailPos() {
   const el = $("compRailPos");
@@ -8904,6 +8935,7 @@ async function compSend() {
     if (th) th.remove();
     compAddMsg("assistant", "Hmm, I lost the connection — try again?");
   }
+  refocusChat();
   compBusy = false;
 }
 
@@ -9146,6 +9178,7 @@ async function aiSend(opts) {
     if (th) th.remove();
     aiAddMsg("assistant", "AI request failed (offline or service busy) — try again.");
   }
+  refocusChat();
   aiBusy = false;
 }
 
@@ -10797,6 +10830,10 @@ function gpPoll() {
 
   for (const da of GP_ACTIONS) {
     if (da.mode !== "both" && da.mode !== appMode) continue;
+    // During position setup the app owns the rail — ignore every key/button
+    // binding except the emergency stop, so a stray keypress can't send AP or
+    // stroke-engine commands and break the setup.
+    if (da.id !== "estop" && aiPos && (aiPos.active || aiPos.moving)) continue;
     const held = bindingHeld(bindings[da.id], gp) || bindingHeld(kbBindings[da.id], null);
     gpFire(held, da.id, () => gpHandleDigital(da.id), !!da.repeat);
   }
