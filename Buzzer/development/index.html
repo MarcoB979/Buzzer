@@ -6744,7 +6744,8 @@ const AI_POS_AUTO_STEP = 1;   // auto-advance step size while finding points
 const AI_POS_AUTO_INTERVAL = 3000; // ms between auto-advance chunks (move + brief pause)
 const AI_POS_RETRACT_SPEED = 10; // faster retraction back to 0 at setup start
 const AI_POS_RETRACT_RAMP = 20;  // ramp up to this while retracting
-const AI_POS_ZERO_TIMEOUT = 10000; // ms to wait for the rail to reach 0 before proceeding
+const AI_POS_RETRACT_CHUNK = 1500; // ms of retract motion before stopping to verify the position
+const AI_POS_ZERO_TIMEOUT = 10000; // total budget to reach 0 before proceeding anyway
 const AI_POS_ARRIVE_TOL = 1;      // the rail is "at" a step within this many units
 const AI_POS_STEP_DELAY = 250;    // ms between steps if the position can't be read (fluent fallback)
 const AI_POS_GLIDE_SPEED = 5;    // gentle continuous glide speed while finding points
@@ -6885,8 +6886,8 @@ function aiPosRetractToZero() {
   monitor("AI pos: retracting to 0…", "ai");
   aiPos.current = 0;
   aiPos.moving = false;
-  stdRailPos = null; // ignore any stale position while we wait for a fresh reading
   const idx = aiPosPointIndex();
+  const deadline = Date.now() + AI_POS_ZERO_TIMEOUT;
   const sendRetract = (spd) => {
     if (!connected || !stdCmd || idx < 0) return;
     stdWriteReliable("set:min:0");
@@ -6895,21 +6896,34 @@ function aiPosRetractToZero() {
     stdWriteReliable("set:pattern:" + idx);
     stdWriteReliable("set:speed:" + spd);
   };
+  const finish = () => {
+    if (!aiPos.active || aiPos.phase !== "retract") return;
+    monitor("AI pos: rail at 0 — gliding inward to find the start point", "ai");
+    aiPos.phase = "min";
+    aiPosGlide();
+  };
+  // The firmware reports the TARGET position while the rail is moving (StrPos =
+  // commanded sensation), so "position == 0" can't be watched live. Instead:
+  // retract for a chunk, STOP, read the now-physical position, repeat until 0.
+  const verify = () => {
+    if (!aiPos.active || aiPos.phase !== "retract") return;
+    if (Date.now() > deadline) { finish(); return; } // ran out of time — proceed anyway
+    if (connected && stdCmd) stdWriteReliable("set:speed:0");
+    setTimeout(async () => {
+      if (!aiPos.active || aiPos.phase !== "retract") return;
+      const pos = await aiPosReadActual(); // motor is stopped → physical position
+      if (!aiPos.active || aiPos.phase !== "retract") return;
+      if (typeof pos === "number" && pos <= 3) { finish(); return; }
+      sendRetract(AI_POS_RETRACT_RAMP);
+      setTimeout(verify, AI_POS_RETRACT_CHUNK);
+    }, 300);
+  };
   aiPosEnterStd().then(() => {
+    if (!aiPos.active || aiPos.phase !== "retract") return;
     sendRetract(AI_POS_RETRACT_SPEED);
     setTimeout(() => { if (aiPos.active && aiPos.phase === "retract") sendRetract(AI_POS_RETRACT_RAMP); }, 800);
+    setTimeout(verify, AI_POS_RETRACT_CHUNK);
   });
-  const t0 = Date.now();
-  const iv = setInterval(() => {
-    if (!aiPos.active || aiPos.phase !== "retract") { clearInterval(iv); return; }
-    const atZero = (typeof stdRailPos === "number" && stdRailPos <= 3);
-    if (atZero || (Date.now() - t0) >= AI_POS_ZERO_TIMEOUT) {
-      clearInterval(iv);
-      monitor("AI pos: rail at 0 — gliding inward to find the start point", "ai");
-      aiPos.phase = "min";
-      aiPosGlide();
-    }
-  }, 250);
 }
 function aiPosGlide() {
   const idx = aiPosPointIndex();
