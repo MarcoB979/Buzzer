@@ -9271,6 +9271,7 @@ async function compSend() {
 let compDirtyTimer = null;
 let compDirtyBusy = false;
 let compDirtyRecent = [];
+let compDirtyLastSaid = 0;
 
 function compDirtyTalkActive() {
   return compModeActive && aiSpeakEnabled() && aiIsKeyedProvider() && aiMachineRunning()
@@ -9285,7 +9286,8 @@ function compDirtyTalkStop() {
 function compDirtyTalkSchedule() {
   if (compDirtyTimer) { clearTimeout(compDirtyTimer); compDirtyTimer = null; }
   if (!compDirtyTalkActive()) return;
-  const ms = 30000 + Math.random() * 90000; // 30–120 seconds apart
+  compDirtyLastSaid = Date.now();
+  const ms = 10000 + Math.random() * 50000; // 10–60 seconds apart
   compDirtyTimer = setTimeout(() => { compDirtyTimer = null; compDirtyTalkFire(); }, ms);
 }
 
@@ -9293,13 +9295,18 @@ async function compDirtyTalkFire() {
   if (!compDirtyTalkActive()) { compDirtyTalkSchedule(); return; }
   compDirtyBusy = true;
   try {
+    const elapsed = Date.now() - (compDirtyLastSaid || Date.now());
+    let lengthNote;
+    if (elapsed < 20000) lengthNote = "It's only been a moment — make it an ULTRA-short sound: one moan (\"mmm…\"), a gasp, or a single word (\"yeah\", \"fuck\").";
+    else if (elapsed < 40000) lengthNote = "Keep it to just a few words (\"you like my cock?\", \"so tight…\").";
+    else lengthNote = "A short sentence is fine (\"you have such a hot ass — do you like my cock pounding into you?\").";
     const cur = aiCurrentState();
     const mem = aiMemory();
     const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid },
-      { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE short, fresh dirty-talk line to turn them on — a moan (\"mmm\"), a question (\"do you like my cock pounding into you?\"), a taunt, or praise. Max ~12 words. Be creative and varied. Only set \"reply\" — every other field null." }
+      { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Only set \"reply\" — every other field null." }
     ];
     const res = await aiCall(msgs);
     if (res && res.reply) {
