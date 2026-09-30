@@ -5913,7 +5913,7 @@ function aiPosContext() {
   if (aiPos.phase === "retract") return "POSITION SETUP — the rail is retracting back to the start. Do NOT send moves; just wait, or answer briefly.";
   if (aiPos.phase === "waitStart") return "POSITION SETUP — the rail is at the start position and the app has asked the user to confirm before moving inward. Do NOT send moves or \"set\"; just wait for the user to say \"start\"/\"yes\". If they say the rail isn't back at 0 yet, the app re-retracts automatically — just acknowledge.";
   if (aiPos.phase === "speed") return "POSITION SETUP — the app is asking the user for their max speed (1-100). Do NOT ask for it yourself and do NOT send {\"action\":\"done\"}; just wait, or answer briefly.";
-  if (aiPos.phase === "return") return "POSITION SETUP — the rail is slowly returning to the Min position and will then be ready to play. Do NOT send more moves; just wait, or answer the user briefly.";
+  if (aiPos.phase === "return") return "POSITION SETUP — the rail is returning to the Min position and will be ready to play in a few seconds (the app finishes the setup by itself). Do NOT send moves. The safety limits ARE now confirmed, so if the user asks to start playing, tell them it will start in a moment.";
   return "POSITION SETUP ACTIVE — the rail is gliding slowly inward so the user can find their points by feel. Phase: " + aiPos.phase + " (min = shallowest START point first, then max = deepest point)."
     + ". Safe word: " + (aiPos.safeWord ? "\"" + aiPos.safeWord + "\"" : "none yet")
     + ". " + rehome + stopTxt
@@ -6367,6 +6367,26 @@ const AI_POS_START_ASK = {
 };
 function aiPosStartAskText() {
   const L = AI_POS_START_ASK[aiStoredLang()] || AI_POS_START_ASK.en;
+  return L;
+}
+const AI_POS_SPEED_SET = {
+  en: "Max speed {n} — saved. Returning to your start position, then we're ready.",
+  nl: "Max snelheid {n} — opgeslagen. Ik ga terug naar je startpunt, daarna zijn we klaar.",
+  de: "Maximalgeschwindigkeit {n} — gespeichert. Ich fahre zurück zu deinem Startpunkt, dann sind wir bereit.",
+  fr: "Vitesse max {n} — enregistrée. Je reviens à ton point de départ, ensuite nous sommes prêts."
+};
+function aiPosSpeedSetText(n) {
+  const L = AI_POS_SPEED_SET[aiStoredLang()] || AI_POS_SPEED_SET.en;
+  return L.replace("{n}", String(n));
+}
+const AI_POS_READY = {
+  en: "Ready to play — your positions are saved.",
+  nl: "Klaar om te spelen — je posities zijn opgeslagen.",
+  de: "Bereit zum Spielen — deine Positionen sind gespeichert.",
+  fr: "Prêt·e à jouer — tes positions sont enregistrées."
+};
+function aiPosReadyText() {
+  const L = AI_POS_READY[aiStoredLang()] || AI_POS_READY.en;
   return L;
 }
 function aiPosIsConfirm(t) {
@@ -7125,6 +7145,9 @@ async function aiPosFinishReturn() {
     if (appMode === "std") buildInterface();
     aiPosReset();
     aiPosRestoreMode();
+    const ready = aiPosReadyText();
+    aiAddMsg("assistant", ready);
+    if (aiSpeakEnabled()) aiSpeak(ready);
   }, delay);
 }
 function aiPosIsGentleStop(t) {
@@ -7169,6 +7192,9 @@ function aiPosHandleInput(text, inp) {
       aiPos.maxSpeed = n;
       aiApplyLimits({ minDepth: aiPos.min, maxDepth: aiPos.max, maxSpeed: n });
       aiLimitsSetConfirmed();
+      const done = aiPosSpeedSetText(n);
+      aiAddMsg("assistant", done);
+      if (aiSpeakEnabled()) aiSpeak(done);
       aiPosFinishReturn();
       return true;
     }
