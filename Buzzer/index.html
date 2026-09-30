@@ -1245,6 +1245,7 @@ let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: ST
 let stdStateName = "";
 let stdDepth = null;   // legacy JSON "depth" (on Lite this is the max-position SETTING, not actual position)
 let stdRailPos = null; // actual rail position 0-100 from the StrPos characteristic
+let railPollBusy = false; // prevents overlapping rail-position reads
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
 let stdRunning = false;
 let lastNonZeroSpeed = 0;
@@ -7721,8 +7722,21 @@ function syncCompRailPos() {
   // positioning is running (the sliders are hidden then).
   el.style.display = busy ? "flex" : "none";
   if (!busy) return;
+  // A direct read returns the live physical position; the notifications alone
+  // can report the commanded target (e.g. 100) while the rail is still moving.
+  pollRailPos();
   const val = $("compRailPosValue");
   if (val) val.textContent = (typeof stdRailPos === "number") ? String(stdRailPos) : "—";
+}
+async function pollRailPos() {
+  if (!stdRailChar || railPollBusy) return;
+  if (stdRailChar.properties && !stdRailChar.properties.read) return;
+  railPollBusy = true;
+  try {
+    const v = parseFloat(await readStr(stdRailChar));
+    if (isFinite(v)) stdRailPos = Math.round(clamp(v, 0, 100));
+  } catch (e) {}
+  railPollBusy = false;
 }
 function buildCompSliders() {
   const wrap = $("compSliders");
