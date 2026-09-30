@@ -5909,8 +5909,16 @@ function aiPosContext() {
   const sw = aiPosSafeWord();
   const rehome = "\"Home between modes\" (firmware re-home on mode switch) confirmed OFF by the user: " + (aiPosRehomeConfirmed() ? "yes" : "no") + ".";
   const stopTxt = " Stop-word behavior: \"stop\" during play = " + (aiStopMode() === "gentle" ? "gentle stop (ramp down like the Start/Stop button; only the safe word is a full emergency stop)" : "full emergency stop (same as the safe word)") + ".";
-  if (!aiPos.active) return rehome + (sw ? " Safe word stored: \"" + sw + "\"." : " No safe word stored yet.") + stopTxt
-    + " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} ONCE to begin — the app then drives everything automatically: it retracts the rail to 0, STOPS and waits for the user to say \"start\"/\"yes\", then glides slowly inward; the user says \"stop\" at their shallowest (start) point, the app reads the ACTUAL rail position and confirms the number, then glides deeper until the user says \"stop\" again for their deepest point, then asks for max speed and returns to the start point by itself. So after you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
+  if (!aiPos.active) {
+    let base = rehome + (sw ? " Safe word stored: \"" + sw + "\"." : " No safe word stored yet.") + stopTxt;
+    if (aiLimitsConfirmed()) {
+      const c = aiSafetyCaps();
+      base += " POSITION SETUP COMPLETE — the user's positions are saved and confirmed: min depth " + c.minDepth + " (shallowest), max depth " + c.maxDepth + " (deepest), max speed " + c.maxSpeed + ". These ARE their current limits — use them and do NOT ask for them again. When the user asks to start (\"fuck me\", \"go\", \"start\"), send \"run\":\"start\".";
+    } else {
+      base += " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} ONCE to begin; the app then drives everything automatically (retract to 0, glide inward, read the ACTUAL position at each \"stop\", then ask for max speed and return to the start point by itself). After you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
+    }
+    return base;
+  }
   if (aiPos.phase === "retract") return "POSITION SETUP — the rail is retracting back to the start. Do NOT send moves; just wait, or answer briefly.";
   if (aiPos.phase === "waitStart") return "POSITION SETUP — the rail is at the start position and the app has asked the user to confirm before moving inward. Do NOT send moves or \"set\"; just wait for the user to say \"start\"/\"yes\". If they say the rail isn't back at 0 yet, the app re-retracts automatically — just acknowledge.";
   if (aiPos.phase === "speed") return "POSITION SETUP — the app is asking the user for their max speed (1-100). Do NOT ask for it yourself and do NOT send {\"action\":\"done\"}; just wait, or answer briefly.";
@@ -6402,6 +6410,16 @@ function aiPosReadyText() {
   const L = AI_POS_READY[aiStoredLang()] || AI_POS_READY.en;
   const c = aiSafetyCaps();
   return L.replace("{min}", String(c.minDepth)).replace("{max}", String(c.maxDepth)).replace("{spd}", String(c.maxSpeed));
+}
+const AI_POS_VERIFY = {
+  en: "I stopped at {n}. Is that your point? Say \"yes\" to save it, or \"a bit more\" / \"a bit back\".",
+  nl: "Ik ben gestopt op {n}. Is dat je punt? Zeg \"ja\" om het op te slaan, of \"iets meer\" / \"iets terug\".",
+  de: "Ich bin bei {n} gestoppt. Ist das dein Punkt? Sag \"ja\" zum Speichern, oder \"etwas mehr\" / \"etwas zurück\".",
+  fr: "Je me suis arrêté à {n}. C'est ton point ? Dis \"oui\" pour l'enregistrer, ou \"un peu plus\" / \"un peu en arrière\"."
+};
+function aiPosVerifyText(n) {
+  const L = AI_POS_VERIFY[aiStoredLang()] || AI_POS_VERIFY.en;
+  return L.replace("{n}", String(n));
 }
 function aiPosIsConfirm(t) {
   const short = t.trim().split(/\s+/).length <= 4;
@@ -7053,6 +7071,45 @@ async function aiPosReadSettled(reads, gapMs) {
   }
   return last;
 }
+function aiPosFallbackPos(pos) {
+  if (pos !== null && typeof pos === "number") return pos;
+  if (typeof stdRailPos === "number") return stdRailPos;
+  if (typeof stdDepth === "number") return stdDepth;
+  return null;
+}
+function aiPosRecordAt(cur, announce) {
+  if (!aiPos.active) return false;
+  if (aiPos.phase === "min" && aiPos.min === null) {
+    aiPos.min = cur;
+    aiPos.phase = "max";
+    aiPos.awaitingConfirm = null;
+    monitor("AI pos: recorded shallowest (min/start) point " + aiPos.min, "ai");
+    if (announce) {
+      aiAddMsg("assistant", aiPosGotText("min", aiPos.min));
+      if (aiSpeakEnabled()) aiSpeak(aiPosGotText("min", aiPos.min));
+    }
+    // Show the recorded start point for a moment before gliding deeper.
+    setTimeout(() => { if (aiPos.active && aiPos.phase === "max" && aiPos.max === null) aiPosGlide(); }, 900);
+    return true;
+  }
+  if (aiPos.phase === "max" && aiPos.max === null) {
+    aiPos.max = cur;
+    aiPos.phase = "speed";
+    aiPos.awaitingConfirm = null;
+    aiPosStopAuto();
+    aiPosStop();
+    monitor("AI pos: recorded deepest (max) point " + aiPos.max, "ai");
+    if (announce) {
+      aiAddMsg("assistant", aiPosGotText("max", aiPos.max));
+      if (aiSpeakEnabled()) aiSpeak(aiPosGotText("max", aiPos.max));
+      const q = aiPosSpeedAskText();
+      aiAddMsg("assistant", q);
+      if (aiSpeakEnabled()) aiSpeak(q);
+    }
+    return true;
+  }
+  return false;
+}
 function aiPosStopAndRecord() {
   // Give the rail a moment to stop and the device to report its real position,
   // then read and save the ACTUAL position (not the commanded target).
@@ -7060,31 +7117,62 @@ function aiPosStopAndRecord() {
     if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
     const pos = await aiPosReadSettled();
     if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
-    const got = (pos !== null) ? pos : ((typeof stdRailPos === "number") ? stdRailPos : ((typeof stdDepth === "number") ? stdDepth : null));
+    const got = aiPosFallbackPos(pos);
     if (got === null) {
       aiAddMsg("system", "I couldn't read the rail position — say stop again.");
       return;
     }
-    const cur = Math.round(clamp(got, 0, 100));
-    if (aiPos.phase === "min" && aiPos.min === null) {
-      aiPos.min = cur;
-      aiPos.phase = "max";
-      monitor("AI pos: recorded shallowest (min/start) point " + aiPos.min, "ai");
-      aiAddMsg("assistant", aiPosGotText("min", aiPos.min));
-      if (aiSpeakEnabled()) aiSpeak(aiPosGotText("min", aiPos.min));
-      // Show the recorded start point for a moment before gliding deeper.
-      setTimeout(() => { if (aiPos.active && aiPos.phase === "max" && aiPos.max === null) aiPosGlide(); }, 900);
-    } else if (aiPos.phase === "max" && aiPos.max === null) {
-      aiPos.max = cur;
-      aiPos.phase = "speed";
-      monitor("AI pos: recorded deepest (max) point " + aiPos.max, "ai");
-      aiAddMsg("assistant", aiPosGotText("max", aiPos.max));
-      if (aiSpeakEnabled()) aiSpeak(aiPosGotText("max", aiPos.max));
-      const q = aiPosSpeedAskText();
-      aiAddMsg("assistant", q);
-      if (aiSpeakEnabled()) aiSpeak(q);
-    }
+    aiPosRecordAt(Math.round(clamp(got, 0, 100)), true);
   }, 400);
+}
+async function aiPosVerifyRead() {
+  if (!aiPos.active || !aiPos.awaitingConfirm) return;
+  const pos = await aiPosReadSettled();
+  if (!aiPos.active || !aiPos.awaitingConfirm) return;
+  const got = aiPosFallbackPos(pos);
+  if (got === null) return;
+  aiPos.current = Math.round(clamp(got, 0, 100));
+  const msg = aiPosVerifyText(aiPos.current);
+  aiAddMsg("assistant", msg);
+  if (aiSpeakEnabled()) aiSpeak(msg);
+}
+function aiPosAskVerify() {
+  aiPosStopAuto();
+  aiPosStop();
+  aiPos.moving = false;
+  aiPos.awaitingConfirm = aiPos.phase;
+  setTimeout(() => { aiPosVerifyRead(); }, 400);
+}
+function aiPosConfirmRecord() {
+  // The rail is already stopped — re-read the settled position and save it.
+  aiPosStop();
+  setTimeout(async () => {
+    if (!aiPos.active || !aiPos.awaitingConfirm) return;
+    const pos = await aiPosReadSettled(2, 300);
+    if (!aiPos.active || !aiPos.awaitingConfirm) return;
+    const got = aiPosFallbackPos(pos);
+    if (got === null) {
+      aiAddMsg("system", "I couldn't read the rail position — say stop again.");
+      return;
+    }
+    aiPos.current = Math.round(clamp(got, 0, 100));
+    aiPosRecordAt(aiPos.current, true);
+  }, 300);
+}
+function aiPosNudgeBackThenVerify() {
+  aiPosStopAuto();
+  aiPosStop();
+  aiPos.moving = false;
+  aiPos.awaitingConfirm = null; // the nudge is a normal move; verify after it arrives
+  const target = Math.round(clamp((aiPos.current || 0) - AI_POS_STEP, 0, 100));
+  aiPosMoveTo(target).then(() => {
+    setTimeout(() => {
+      if (!aiPos.active || (aiPos.phase !== "min" && aiPos.phase !== "max")) return;
+      aiPosStop();
+      aiPos.awaitingConfirm = aiPos.phase;
+      aiPosVerifyRead();
+    }, 900);
+  });
 }
 function aiPosStartAuto() {
   if (aiPos.autoMoving) return;
@@ -7206,6 +7294,42 @@ function aiPosIsGentleStop(t) {
   const short = (t.trim().split(/\s+/).length <= 3);
   return short && /\b(here|there|right there|good|perfect|hier|daar|genau|passt|ici|c'?est bon|ca va)\b/.test(t);
 }
+function aiPosIsHardStop(t) {
+  // Only UNAMBIGUOUS stop words record directly while gliding; anything else
+  // stops the rail and asks the user to verify first (safety).
+  if (/\b(stop|halt|stopp|stoppen|pauze|wait|hold on|that'?s it|this is it|arrete|arrêt|voila)\b/.test(t)) return true;
+  return aiPosLooksLikeStop(t);
+}
+function aiPosLooksLikeStop(t) {
+  // Tolerate common typos of "stop"/"stoppen"/"halt"/"pauze"/"wait".
+  const words = String(t || "").toLowerCase().split(/[^a-z]+/).filter(Boolean);
+  const targets = ["stop", "stoppen", "halt", "pauze", "wacht", "wait"];
+  for (const w of words) {
+    if (w.length < 3 || w.length > 8) continue;
+    for (const tg of targets) {
+      if (w.startsWith(tg) || tg.startsWith(w)) return true;
+      if (Math.abs(w.length - tg.length) <= 1 && aiPosEditDistance(w, tg) <= 1) return true;
+    }
+  }
+  return false;
+}
+function aiPosEditDistance(a, b) {
+  const m = a.length, n = b.length;
+  if (!m) return n; if (!n) return m;
+  const d = [];
+  for (let i = 0; i <= m; i++) d[i] = [i];
+  for (let j = 0; j <= n; j++) d[0][j] = j;
+  for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++) {
+    d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  }
+  return d[m][n];
+}
+function aiPosIsKeepGoing(t) {
+  return /\b(verder|meer|dieper|deeper|more|further|keep going|go on|go further|ga door|ga verder|doorgaan|continue|door|plus|a bit more|a little more|iets meer|een beetje meer|nog meer|nog wat|nog verder)\b/.test(t);
+}
+function aiPosIsBack(t) {
+  return /\b(terug|back|een beetje terug|iets terug|een stukje terug|a bit back|minder|less|niet zo diep|not so deep|not that deep|te diep|too deep|shallower|naar buiten|out a bit|eruit|iets minder|stukje terug)\b/.test(t);
+}
 function aiSafeWordHit(text) {
   const sw = aiPosSafeWord();
   if (!sw) return false;
@@ -7265,36 +7389,82 @@ function aiPosHandleInput(text, inp) {
     aiPosGlide();
     return true;
   }
-  // 2) "stop"-like words while gliding → stop and record the ACTUAL position
-  if (aiPos.moving && aiPosIsGentleStop(tl)) {
-    if (inp) inp.value = "";
-    aiPosStopAuto();
-    aiPosStop();
-    monitor("local: stop — " + text, "ai");
-    aiAddMsg("user", escapeHtml(text));
-    aiPosStopAndRecord();
-    return true;
-  }
-  // 2b) the app asked "is this your point?" and the user just confirmed → save it locally
-  if (aiPos.awaitingConfirm && aiPosIsConfirm(tl)) {
-    if (inp) inp.value = "";
-    if (aiPos.moving) { aiPosStopAuto(); aiPosStop(); }
-    monitor("local: confirm point — " + text, "ai");
-    aiAddMsg("user", escapeHtml(text));
-    aiPosRecordCurrent(false);
-    return true;
-  }
-  // 3) cancel the whole setup
-  if (!aiPos.moving && /\b(cancel|abort|never mind|quit|stop the setup)\b/.test(tl)) {
+  // 0) cancel the whole setup (works whether gliding or stopped)
+  if (/\b(cancel|abort|never mind|quit|stop the setup|stop de setup|annuleer|annuleren)\b/.test(tl)) {
     if (inp) inp.value = "";
     monitor("local: cancel setup — " + text, "ai");
     aiAddMsg("user", escapeHtml(text));
+    aiPosStopAuto();
+    aiPosStop();
     aiPosReset();
     aiPosRestoreMode();
     aiAddMsg("assistant", "Setup cancelled.");
     return true;
   }
-  aiPos.awaitingConfirm = null; // said something else — stop waiting for a yes
+  // 2) while gliding to find min/max, interpret the user's cue
+  if (aiPos.moving && (aiPos.phase === "min" || aiPos.phase === "max")) {
+    // unambiguous stop word (incl. typos) → stop and record the ACTUAL position
+    if (aiPosIsHardStop(tl)) {
+      if (inp) inp.value = "";
+      aiPosStopAuto();
+      aiPosStop();
+      monitor("local: stop — " + text, "ai");
+      aiAddMsg("user", escapeHtml(text));
+      aiPosStopAndRecord();
+      return true;
+    }
+    // "a bit back / shallower" → pull back a step, then verify
+    if (aiPosIsBack(tl)) {
+      if (inp) inp.value = "";
+      monitor("local: back a bit — " + text, "ai");
+      aiAddMsg("user", escapeHtml(text));
+      aiPosNudgeBackThenVerify();
+      return true;
+    }
+    // "keep going / deeper" → stay in motion
+    if (aiPosIsKeepGoing(tl)) {
+      if (inp) inp.value = "";
+      return true;
+    }
+    // anything else → stop and ASK the user to confirm the position before saving
+    if (inp) inp.value = "";
+    monitor("local: stop to verify — " + text, "ai");
+    aiAddMsg("user", escapeHtml(text));
+    aiPosAskVerify();
+    return true;
+  }
+  // 2b) the app asked "is this your point?" — confirm or adjust
+  if (aiPos.awaitingConfirm) {
+    if (aiPosIsConfirm(tl) || aiPosIsGentleStop(tl) || aiPosLooksLikeStop(tl)) {
+      if (inp) inp.value = "";
+      monitor("local: confirm point — " + text, "ai");
+      aiAddMsg("user", escapeHtml(text));
+      aiPosConfirmRecord();
+      return true;
+    }
+    if (aiPosIsBack(tl)) {
+      if (inp) inp.value = "";
+      monitor("local: a bit back — " + text, "ai");
+      aiAddMsg("user", escapeHtml(text));
+      aiPosNudgeBackThenVerify();
+      return true;
+    }
+    if (aiPosIsKeepGoing(tl)) {
+      if (inp) inp.value = "";
+      monitor("local: a bit more — " + text, "ai");
+      aiAddMsg("user", escapeHtml(text));
+      aiPos.awaitingConfirm = null;
+      aiPosGlide();
+      return true;
+    }
+    // ambiguous while verifying → keep waiting and re-ask
+    if (inp) inp.value = "";
+    aiAddMsg("user", escapeHtml(text));
+    const again = aiPosVerifyText(aiPos.current || 0);
+    aiAddMsg("assistant", again);
+    if (aiSpeakEnabled()) aiSpeak(again);
+    return true;
+  }
   return false;
 }
 function aiPosApplyEnvelope(P, canRun) {
@@ -7316,6 +7486,12 @@ function aiPosApplyEnvelope(P, canRun) {
     return;
   }
   if (a === "start") {
+    if (!aiPosSafeWord()) {
+      aiLog("blocked position setup start — no safe word set yet");
+      aiAddMsg("system", "Before I move anything, we need a safe word — tell me a word that will stop everything instantly.");
+      aiSpeak("First, what is your safe word?");
+      return;
+    }
     aiPosReturnAp = (appMode === "ap");
     aiPosReset(); aiPos.active = true;
     // Retract fast to 0, WAIT until the rail is actually there, then sweep for Min.
