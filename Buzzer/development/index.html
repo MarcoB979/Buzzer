@@ -1049,6 +1049,7 @@
           <option value="free">Free (Pollinations)</option>
           <option value="deepseek">DeepSeek (your key)</option>
           <option value="openai">OpenAI (compatible)</option>
+          <option value="gemini">Google Gemini (free)</option>
         </select>
         <div class="ai-set-hint" id="aiFreeWarning" style="display:none;color:#fbbf24;">⚠ Free (Pollinations) is a shared, unauthenticated public service with no privacy guarantee. For private use, choose DeepSeek or OpenAI (compatible) and add your own key.</div>
         <div id="aiKeyRow" style="display:none;">
@@ -1177,7 +1178,7 @@
       <div class="wizard-title">🔒 Privacy</div>
       <div class="help-body" style="max-height:70vh;overflow-y:auto;text-align:left;padding-right:4px;">
         <p><b>Where your data lives</b><br>Buzzer has no server, no accounts and no analytics. Everything is stored only in this browser on this device (local storage): what the AI has learned about you, your settings, your API keys, your favorite video links, and the names of local videos you've picked.</p>
-        <p><b>What leaves your device</b><br>• Your messages and profile context (what the AI remembers, plus your video library titles/tags) are sent to the AI provider you chose — Free (Pollinations), DeepSeek, or an OpenAI-compatible server.<br>• If you enable cloud speech-to-text (Whisper), your voice is sent to the OpenAI-compatible endpoint for transcription.<br>• If you use Stash, requests go to your own Stash server.<br>• Casting uses Google's Cast framework.</p>
+        <p><b>What leaves your device</b><br>• Your messages and profile context (what the AI remembers, plus your video library titles/tags) are sent to the AI provider you chose — Free (Pollinations), DeepSeek, an OpenAI-compatible server, or Google Gemini.<br>• If you enable cloud speech-to-text (Whisper), your voice is sent to the OpenAI-compatible endpoint for transcription.<br>• If you use Stash, requests go to your own Stash server.<br>• Casting uses Google's Cast framework.</p>
         <p><b>About the free AI service</b><br>⚠ The free option (Pollinations) is a shared, unauthenticated public endpoint with no privacy guarantee. For private conversations, choose DeepSeek or OpenAI (compatible) with your own key. Note that DeepSeek processes data in China.</p>
         <p><b>What we never do</b><br>Buzzer cannot sell or share your data — there is no server. Your API keys are never included in the "Export developer info" file.</p>
         <p><b>Your control</b><br>"Forget me" (Settings → Privacy) erases what the AI has learned and resets your companion. Clearing this site's data in your browser removes everything on this device.</p>
@@ -6815,6 +6816,10 @@ function aiProviderSettings() {
     if (!baseUrl) baseUrl = "https://api.openai.com/v1";
     if (!model) model = "gpt-4o-mini";
   }
+  if (provider === "gemini") {
+    if (!baseUrl) baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai";
+    if (!model) model = "gemini-2.5-flash";
+  }
   return { provider, key, baseUrl, model };
 }
 function aiEnabled() {
@@ -6840,7 +6845,7 @@ function aiIsDeepSeek() {
 }
 function aiIsKeyedProvider() {
   const p = aiProviderSettings().provider;
-  return p === "deepseek" || p === "openai";
+  return p === "deepseek" || p === "openai" || p === "gemini";
 }
 function aiFreeBlocked() {
   if (aiProviderSettings().provider !== "free") return false;
@@ -6953,7 +6958,7 @@ async function aiCall(messages) {
   if (provider === "deepseek" && key) {
     return aiCallDeepSeek(messages, key);
   }
-  if (provider === "openai") {
+  if (provider === "openai" || provider === "gemini") {
     if (key) return aiCallOpenAI(messages);
     return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: "No API key saved — add it under 🤖 AI assistant." };
   }
@@ -9921,17 +9926,19 @@ function aiDebugRestore() {
     const s = aiProviderSettings();
     const isDs = s.provider === "deepseek";
     const isOa = s.provider === "openai";
+    const isGe = s.provider === "gemini";
+    const keyed = isDs || isOa || isGe;
     if (prov) prov.value = s.provider;
     if (keyInp) keyInp.value = s.key;
-    if (keyRow) keyRow.style.display = (isDs || isOa) ? "" : "none";
-    if (keyLabel) keyLabel.textContent = isOa ? "OpenAI API key" : "DeepSeek API key";
-    if (keyHint) keyHint.textContent = isOa ? "Sent to your OpenAI-compatible endpoint with your key." : "Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.";
-    if (oaRow) oaRow.style.display = isOa ? "" : "none";
+    if (keyRow) keyRow.style.display = keyed ? "" : "none";
+    if (keyLabel) keyLabel.textContent = isGe ? "Gemini API key" : isOa ? "OpenAI API key" : "DeepSeek API key";
+    if (keyHint) keyHint.textContent = isGe ? "Free tier with your Google account — get a key at aistudio.google.com/apikey. Sent to Google with your key." : isOa ? "Sent to your OpenAI-compatible endpoint with your key." : "Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.";
+    if (oaRow) oaRow.style.display = (isOa || isGe) ? "" : "none";
     if (baseInp) baseInp.value = s.baseUrl;
     if (modelInp) modelInp.value = s.model;
-    if (extrasRow) extrasRow.style.display = (isDs || isOa) ? "" : "none";
+    if (extrasRow) extrasRow.style.display = keyed ? "" : "none";
     syncAiFreeWarning();
-    if (provLabel) provLabel.textContent = isDs ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : isOa ? (s.key ? "OpenAI ✓" : "OpenAI (add key)") : "Free";
+    if (provLabel) provLabel.textContent = isGe ? (s.key ? "Gemini ✓" : "Gemini (add key)") : isDs ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : isOa ? (s.key ? "OpenAI ✓" : "OpenAI (add key)") : "Free";
   };
   if (prov) prov.addEventListener("change", () => {
     try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {}
