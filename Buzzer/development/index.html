@@ -1245,7 +1245,6 @@ let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: ST
 let stdStateName = "";
 let stdDepth = null;   // legacy JSON "depth" (on Lite this is the max-position SETTING, not actual position)
 let stdRailPos = null; // actual rail position 0-100 from the StrPos characteristic
-let railPollBusy = false; // prevents overlapping rail-position reads
 let firmwareKind = "unknown"; // "lite" | "ossm" | "rust" | "unknown"
 let stdRunning = false;
 let lastNonZeroSpeed = 0;
@@ -6978,7 +6977,8 @@ function aiPosStopAndRecord() {
       monitor("AI pos: recorded shallowest (min/start) point " + aiPos.min, "ai");
       aiAddMsg("assistant", aiPosGotText("min", aiPos.min));
       if (aiSpeakEnabled()) aiSpeak(aiPosGotText("min", aiPos.min));
-      aiPosGlide(); // glide deeper to find the deepest point
+      // Show the recorded start point for a moment before gliding deeper.
+      setTimeout(() => { if (aiPos.active && aiPos.phase === "max" && aiPos.max === null) aiPosGlide(); }, 900);
     } else if (aiPos.phase === "max" && aiPos.max === null) {
       aiPos.max = cur;
       aiPos.phase = "speed";
@@ -7731,26 +7731,27 @@ function syncCompSlidersVisibility() {
 function syncCompRailPos() {
   const el = $("compRailPos");
   if (!el) return;
-  const busy = !!(aiPos && (aiPos.active || aiPos.moving));
-  // Show the live rail position in the space the sliders normally occupy while
-  // positioning is running (the sliders are hidden then).
+  const busy = !!(aiPos && aiPos.active);
+  // Show the readout in the space the sliders normally occupy while positioning.
   el.style.display = busy ? "flex" : "none";
   if (!busy) return;
-  // A direct read returns the live physical position; the notifications alone
-  // can report the commanded target (e.g. 100) while the rail is still moving.
-  pollRailPos();
   const val = $("compRailPosValue");
-  if (val) val.textContent = (typeof stdRailPos === "number") ? String(stdRailPos) : "—";
-}
-async function pollRailPos() {
-  if (!stdRailChar || railPollBusy) return;
-  if (stdRailChar.properties && !stdRailChar.properties.read) return;
-  railPollBusy = true;
-  try {
-    const v = parseFloat(await readStr(stdRailChar));
-    if (isFinite(v)) stdRailPos = Math.round(clamp(v, 0, 100));
-  } catch (e) {}
-  railPollBusy = false;
+  if (!val) return;
+  const min = (aiPos && typeof aiPos.min === "number") ? aiPos.min : null;
+  const max = (aiPos && typeof aiPos.max === "number") ? aiPos.max : null;
+  // The firmware only reports the TARGET while the rail is moving, so we don't
+  // show a live number during motion. Show "Moving" (plus the last set point)
+  // and reveal the physical number once the rail has stopped at a point.
+  const moving = !!(aiPos && (aiPos.moving || aiPos.phase === "retract"));
+  if (moving) {
+    val.textContent = (min !== null) ? ("Moving · " + min) : "Moving";
+  } else if (max !== null) {
+    val.textContent = String(max);
+  } else if (min !== null) {
+    val.textContent = String(min);
+  } else {
+    val.textContent = "—";
+  }
 }
 function buildCompSliders() {
   const wrap = $("compSliders");
