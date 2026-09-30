@@ -9998,6 +9998,21 @@ function addonRender() {
   if (e) { e.innerHTML = ""; if (addonEnabled("eject")) e.appendChild(addonBuildSection("eject")); }
 }
 
+function addonFistActive() {
+  const st = ADDON_STATE["fist"];
+  return addonEnabled("fist") && !!(st && (st.connected || st.on));
+}
+
+function addonFistSafetyText() {
+  const f = compFreedom();
+  const perLevel = (f === "wild" || f === "full")
+    ? "\n- You are in WILD or FULL SUBMISSION mode right now — that extra freedom does NOT extend to fisting. While the Fist-IT addon is active you must temper your initiative a LOT: never raise its speed, rotation or intensity on your own, and even when the user asks, increase them only in small, slow steps."
+    : (f === "playful"
+      ? "\n- You are in PLAYFUL mode right now. You may still vary the fisting intensity on your own, but any larger increase must be gradual and gentle — never a sharp jump."
+      : "");
+  return "\n\nFISTING SAFETY (CRITICAL — applies only while the Fist-IT addon is connected/running): fisting is delicate and dangerous; sudden movement in or out, or sudden speed/rotation changes, can cause internal injury or even death. While Fist-IT is active, control it very gently: change only ONE of its sliders at a time, in small steps (roughly 10% of that slider's range or less), and ramp up gradually. NEVER send a large jump in a single \"set\" command — spread any big change over several turns." + perLevel;
+}
+
 function addonContext() {
   const parts = [];
   for (const a of ADDON_DEFS) {
@@ -10006,8 +10021,10 @@ function addonContext() {
     parts.push("- " + a.name + ": " + a.desc + ". Sliders: " + sl + ".");
   }
   if (!parts.length) return "";
-  return "\n\nOPTIONAL ADDONS (you may control these too):\n" + parts.join("\n")
+  let out = "\n\nOPTIONAL ADDONS (you may control these too):\n" + parts.join("\n")
     + "\nUse the \"addon\" field: {\"addon\":{\"device\":\"fist\"|\"eject\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}}. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
+  if (addonFistActive()) out += addonFistSafetyText();
+  return out;
 }
 
 function aiApplyAddon(p) {
@@ -10022,8 +10039,19 @@ function aiApplyAddon(p) {
   else if (action === "set" || action === "value") {
     const key = String(p.key || "").toLowerCase();
     const s = a.sliders.find(x => x.key === key);
-    const v = Number(p.value);
-    if (s && isFinite(v)) { addonSlider(id, key, clamp(Math.round(v), s.min, s.max)); }
+    let v = Number(p.value);
+    if (s && isFinite(v)) {
+      v = clamp(Math.round(v), s.min, s.max);
+      // Fisting safety: while Fist-IT is connected/running, ramp AI changes in small steps.
+      if (id === "fist" && (st.connected || st.on)) {
+        st.sliderValues = st.sliderValues || {};
+        const cur = (typeof st.sliderValues[key] === "number") ? st.sliderValues[key] : s.min;
+        const step = Math.max(1, Math.round((s.max - s.min) * 0.1));
+        const delta = v - cur;
+        if (Math.abs(delta) > step) v = Math.round(cur + Math.sign(delta) * step);
+      }
+      addonSlider(id, key, v);
+    }
   }
 }
 
