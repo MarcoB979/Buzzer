@@ -5625,6 +5625,7 @@ HOW TO CONVERSE:
   - POSITION SETUP (only when the user asks to set up their Min/Max positions by feel): FIRST check the MACHINE STATUS — if the OSSM is NOT connected, do NOT send {"action":"start"} and do NOT announce that you're moving; tell the user to press Connect first and wait. Only once the OSSM is connected: a SAFE WORD must be set before any movement (that word alone triggers a full emergency stop). If your context says a safe word is already stored, tell the user what it is (e.g. "your safe word is knuckles — say \"change the safe word to …\" to pick a new one") and move on — do NOT make them re-confirm it every time. If they ask to change it (e.g. "change the safe word to xxx"), extract the new word and send {"action":"safeWord","word":"<new word>"}, and restate the saved word in your reply. Only ask them to choose one if none is stored yet. Also make sure "Home between modes" is OFF in the firmware (https://fray-d.github.io/OSSM-Lite/homing.html) — if your context says it is already confirmed OFF, do NOT ask again, just skip to moving; otherwise ask, and when they confirm send {"action":"rehomeDone"} (that is what saves it to memory). Then guide them: send {"action":"start"} and in "reply" playfully announce (in your role) that you're starting to move — e.g. "lie still, I'm going to slide in slowly…". After "start" the APP first retracts the rail to the start position, then STOPS and asks the user to say "start" (or "yes"/"go") to begin sliding inward — while it retracts, just wait quietly and do NOT send moves. Only after the user says go does the app slide the rail deeper in gentle steps of 1 with a short pause between steps, while you LISTEN — do NOT send "move"/"deeper"/"out" during this, the app moves on its own. During position setup never send "set" — only "pos" actions (or nothing); "set" switches the firmware back to the play mode and breaks the setup. When the user says a stop word ("stop", "that's it", "here", "right there", "yes", "that's the point"), the rail stops and the app asks "is this your start point?" (shallowest/Min) FIRST; when they say yes the APP SAVES THE POINT AUTOMATICALLY and then keeps sliding DEEPER to find the deepest/Max point — so do NOT send {"action":"record"} again and do NOT re-ask; just briefly acknowledge and keep listening. The START (shallowest/Min) point is found first, then the rail keeps going DEEPER (bigger numbers) to find the deepest/Max point. When the deepest point is saved, ask for the speed (a number, or "twice as fast"). Finish with {"action":"done","speed":<n>} — the app applies the saved min/max, moves the rail back to the start point, and returns to the play mode. Then confirm you're ready in YOUR ROLE and MOOD (e.g. "now I can fuck you good", "my cock is ready for you", "want to feel me inside you?") — never a robotic "we are ready to play". Only use "move"/"deeper"/"out" for a tiny manual nudge the user asks for AFTER the rail has already stopped. If several actions are needed at once (e.g. safe word AND rehome confirmed), send "pos" as an ARRAY, e.g. [{"action":"safeWord","word":"..."},{"action":"rehomeDone"}]. After you send "done", ask the user how the word "stop" should behave during play: (a) only the safe word is a full emergency stop and "stop" gently stops the machine (ramp down, like the Start/Stop button), or (b) "stop" is also a full emergency stop. When they answer, send {"action":"stopMode","mode":"gentle"} for (a) or {"action":"stopMode","mode":"emergency"} for (b), and save it. Then confirm the safe word once more and state clearly what "stop" will now do. Finally send {"action":"ready"} — the app then slowly returns the rail to your Min position, restores the Simple Stroke pattern and announces you're ready to play. Keep your reply very short when you send "ready". Never send "pos" unless the context says position setup is appropriate, and never trigger a full emergency stop yourself.
   - At the very start of position setup (right when you send {"action":"start"}), give ONE short playful announcement in your role. After that, while the rail auto-moves, keep every reply to a few words at most — e.g. "ok", "keep going", "stopped" — never full sentences. Stay focused on the user's cues and keep listening; don't explain or chat.
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their deepest and shallowest points, then agree the speed — and ask if they want to begin.
+- SPEED SAFETY (hard rules, always): max speed is an ABSOLUTE ceiling — never request "Speed", "In Speed" or "Out Speed" above it. When the user asks you to start ("fuck me", "go", "start"), send "run":"start" — the machine starts at the SAFE speed 10 and ramps up smoothly, never an instant jump to max. "Fuck me hard" = start a little faster (around 20). "Fuck my brains out" / "as hard or fast as you can" / any request that clearly wants a big jump = do NOT jump — first ask for confirmation in character, sensual and matching your role and the moment (e.g. "are you sure? I'm going to take you as hard as I can…"), and only after they confirm do you ramp up. The app ALWAYS ramps speed smoothly and caps every single change to at most +10/-10, so build intensity gradually over a few turns — never promise an instant jump to high speed.
 - SAFE WORD (global): the user's safe word triggers a FULL emergency stop at any time — during position setup AND during active play. The app catches the spoken/typed word itself instantly, so you never react to it and never treat it as a normal instruction. If the user says "change the safe word to …", extract the new word and send {"action":"safeWord","word":"<new word>"} — this works even outside position setup. The word "stop" during active play follows the user's stored preference (shown in your context): it either triggers a full emergency stop too, or it gently stops the machine (ramp down, like the Start/Stop button). The app handles "stop" itself — you never react to it.
 - GO TO MIN before play (numbers mode): right after the user has confirmed their numbers (and "limits" is applied), ask: "Should I send the OSSM to your Min position first so it starts from the shallow end?" If they say yes, use "set" to choose Pattern "Go to Point", Min Pos <their min>, Max Pos <their max>, Sensation 0 (Sensation 0 = Min, 100 = Max), and tell them to press Start to move there. When they say it has arrived, use "set" to restore Pattern "Simple Stroke", Sensation 50 and Speed 0, and tell them it's ready to play. Never start the machine yourself unless your context says you may.
 - APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: the user must press Connect themselves — Bluetooth pairing needs their tap, so you can't do it (tell them to press Connect). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
@@ -5813,7 +5814,7 @@ function aiLimitsText() {
   if (!aiLimitsConfirmed()) {
     return "SAFETY LIMITS NOT YET CONFIRMED for this session. The stored values (depth " + caps.minDepth + " to " + caps.maxDepth + ", max speed " + caps.maxSpeed + ") are only last session's numbers — do NOT trust them and do NOT start the machine yet. Ask the user for their min depth, max depth and max speed (or offer to find the positions together by feel via \"pos\"). You may still adjust values and run position setup, but never send \"run\":\"start\" until they have confirmed their limits.";
   }
-  return "Current AI limits — depth: " + caps.minDepth + " (shallowest) to " + caps.maxDepth + " (deepest); max speed: " + caps.maxSpeed + ". "
+  return "Current AI limits — depth: " + caps.minDepth + " (shallowest) to " + caps.maxDepth + " (deepest); max speed: " + caps.maxSpeed + " (ABSOLUTE ceiling — never set \"Speed\", \"In Speed\" or \"Out Speed\" above it). "
     + "For MOVEMENT, \"deep\"/\"full\" means Max Pos = " + caps.maxDepth + " (never set movement above it), and \"shallow\"/\"out\" means Min Pos = " + caps.minDepth + " (never below it). "
     + "These are only the CURRENT limits — if the user asks for different limits (even higher), propose them via \"limits\" and ask to confirm; do not reject or talk them down.";
 }
@@ -6000,6 +6001,8 @@ function aiApplyStd(p) {
         rampSpeed(stdValues.speed, capped); // speed always ramps — never instant
         put("Speed", capped);
       } else {
+        if (target > 0) aiStartTarget = clamp(target, 1, Math.min(caps.maxSpeed, AI_START_SPEED_MAX));
+        else aiStartTarget = 0;
         applySpeedInstant(0); // never auto-start
         put("Speed", (target > 0) ? "0 (press Start)" : 0);
       }
@@ -6033,8 +6036,18 @@ function aiStartMachine() {
   if (!connected) { aiAddMsg("system", "Not connected — connect the OSSM first."); return; }
   if (!machineRunningState()) { aiAddMsg("system", "The OSSM isn't ready yet (still homing)."); return; }
   if (aiMachineRunning()) return; // already running
-  if (appMode === "std") { monitor("OSSM started"); rampSpeed(stdValues.speed, stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED); }
-  else { monitor("OSSM started"); rampSpeed(speed(), lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED); }
+  const caps = aiSafetyCaps();
+  if (appMode === "std") {
+    const t = aiStartTarget > 0 ? aiStartTarget : (stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED);
+    aiStartTarget = 0;
+    monitor("OSSM started");
+    rampSpeed(stdValues.speed, clamp(t, 0, caps.maxSpeed));
+  } else {
+    const t = aiStartTarget > 0 ? aiStartTarget : (lastNonZeroSpeed > 0 ? lastNonZeroSpeed : DEFAULT_RESUME_SPEED);
+    aiStartTarget = 0;
+    monitor("OSSM started");
+    rampSpeed(speed(), clamp(t, 0, caps.maxSpeed));
+  }
 }
 function aiPauseMachine() {
   if (!connected || !aiMachineRunning()) return; // already paused
@@ -6502,7 +6515,13 @@ function aiApplyParams(p) {
       const running = speed() > 0;
       const cur = Math.round(s.value);
       let val = clamp(Math.round(v), lo, hi);
-      if (k === "Speed" && val > 0 && !running) val = 0; // never auto-start
+      if (k === "Speed" && val > 0 && !running) {
+        // Never auto-start: keep speed at 0 but remember the requested value as
+        // the START target, so "fuck me" / "fuck me hard" can begin at the right
+        // speed (capped) when the AI also sends "run":"start".
+        aiStartTarget = clamp(val, 1, Math.min(caps.maxSpeed, AI_START_SPEED_MAX));
+        val = 0;
+      }
       // SAFETY: while playing, never jump a value by more than AI_CHANGE_LIMIT in one command.
       if (running) val = clamp(val, cur - AI_CHANGE_LIMIT, cur + AI_CHANGE_LIMIT);
       if (k === "Speed" && running && val !== cur) {
@@ -6784,6 +6803,8 @@ const AI_POS_ARRIVE_TOL = 1;      // the rail is "at" a step within this many un
 const AI_POS_STEP_DELAY = 250;    // ms between steps if the position can't be read (fluent fallback)
 const AI_POS_GLIDE_SPEED = 5;    // gentle continuous glide speed while finding points
 const AI_CHANGE_LIMIT = 10;       // max change per AI command while the machine is running
+const AI_START_SPEED_MAX = DEFAULT_RESUME_SPEED + AI_CHANGE_LIMIT; // 20 — a single start ramps to at most safe(10) + one step(10)
+let aiStartTarget = 0;            // AI-requested start speed (capped at AI_START_SPEED_MAX & max speed); consumed on start
 let aiPosSettleTimer = null;
 let aiPosAutoTimer = null;
 let aiPosMoveGen = 0;    // incremented on stop to invalidate in-flight aiPosMoveTo calls
@@ -6848,14 +6869,17 @@ function aiPosSyncAp() {
   // Position setup records the points in the stroke engine, but the companion
   // runs in Advanced Penetration — push the recorded values into the AP settings
   // (and the device) so the AP sliders show them. Speed stays 0 (stopped); the
-  // recorded max speed becomes the resume speed when the user starts playing.
+  // recorded max speed is only the ceiling — play always starts at the safe speed.
   if (appMode !== "ap" || !apAvailable()) return;
   const caps = aiSafetyCaps();
   const mn = clamp(Math.round(caps.minDepth), 0, 100);
   const mx = clamp(Math.round(caps.maxDepth), 0, 100);
   const sMax = getSetting("Max Pos"); sMax.value = mx; settings["Max Pos"] = sMax;
   const sMin = getSetting("Min Pos"); sMin.value = mn; settings["Min Pos"] = sMin;
-  if (caps.maxSpeed >= 1) lastNonZeroSpeed = clamp(Math.round(caps.maxSpeed), 1, 100);
+  // Never resume at the max speed — after setup a Start begins at the safe speed
+  // again (the AI can then ramp up within the +10-per-change boundary).
+  lastNonZeroSpeed = 0;
+  aiStartTarget = 0;
   if (connected && ctlChar) {
     writeControl("0:" + mx + ",").catch(() => {});
     writeControl("1:" + mn + ",").catch(() => {});
