@@ -9306,7 +9306,7 @@ async function compDirtyTalkFire() {
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid },
-      { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Only set \"reply\" — every other field null." }
+      { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Normally only set \"reply\". BUT if your line says you're about to do something — go deeper, go harder, go faster, or hold it deep — then also include the matching \"set\" (a small, safe step within the confirmed limits) so it actually happens. Never send \"run\" or \"limits\" here." }
     ];
     const res = await aiCall(msgs);
     if (res && res.reply) {
@@ -9319,6 +9319,9 @@ async function compDirtyTalkFire() {
         companionLiveExpress(res.reply);
       }
     }
+    // If the dirty line promised an action (deeper/harder/hold), make it happen.
+    if (res && res.params) { aiApplySet(res.params); buildCompSliders(); }
+    if (res && res.addon) aiApplyAddon(res.addon);
   } catch (e) {}
   compDirtyBusy = false;
   compDirtyTalkSchedule();
