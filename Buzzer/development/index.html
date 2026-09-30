@@ -5945,7 +5945,12 @@ function aiPosContext() {
       const c = aiSafetyCaps();
       base += " POSITION SETUP COMPLETE — the user's positions are saved and confirmed: min depth " + c.minDepth + " (shallowest), max depth " + c.maxDepth + " (deepest), max speed " + c.maxSpeed + ". These ARE their current limits — use them and do NOT ask for them again. When the user asks to start (\"fuck me\", \"go\", \"start\"), send \"run\":\"start\".";
     } else {
-      base += " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers. Use {\"action\":\"start\"} ONCE to begin; the app then drives everything automatically (retract to 0, glide inward, read the ACTUAL position at each \"stop\", then ask for max speed and return to the start point by itself). After you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
+      base += " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers.";
+      if (!sw) {
+        base += " CRITICAL: no safe word is stored yet, so before any movement you MUST ask the user to choose a safe word — do NOT send {\"action\":\"start\"} and do NOT describe any movement yet. Once they answer with a word, send {\"action\":\"safeWord\",\"word\":\"<the word>\"} and restate it, then send {\"action\":\"start\"}.";
+      } else {
+        base += " Use {\"action\":\"start\"} ONCE to begin; the app then drives everything automatically (retract to 0, glide inward, read the ACTUAL position at each \"stop\", then ask for max speed and return to the start point by itself). After you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
+      }
     }
     return base;
   }
@@ -6420,6 +6425,16 @@ function aiPosStartAskText() {
   const L = AI_POS_START_ASK[aiStoredLang()] || AI_POS_START_ASK.en;
   return L;
 }
+const AI_POS_NEED_SAFEWORD = {
+  en: "Before I move anything, we need a safe word — tell me a word that will stop everything instantly.",
+  nl: "Voordat ik iets beweeg, hebben we een veiligheidswoord nodig — zeg me een woord dat alles meteen stopt.",
+  de: "Bevor ich etwas bewege, brauchen wir ein Sicherheitswort — sag mir ein Wort, das alles sofort stoppt.",
+  fr: "Avant de bouger quoi que ce soit, il nous faut un mot de sécurité — dis-moi un mot qui arrête tout immédiatement."
+};
+function aiPosNeedSafeWordText() {
+  const L = AI_POS_NEED_SAFEWORD[aiStoredLang()] || AI_POS_NEED_SAFEWORD.en;
+  return L;
+}
 const AI_POS_SPEED_SET = {
   en: "Max speed {n} — saved. Returning to your start position, then we're ready.",
   nl: "Max snelheid {n} — opgeslagen. Ik ga terug naar je startpunt, daarna zijn we klaar.",
@@ -6620,10 +6635,12 @@ function aiAddMsg(role, html) {
 // Show a system note AND push it into the active conversation so the AI is
 // told about an app-side decision (e.g. a blocked action) and stops narrating
 // something that didn't actually happen.
-function aiInjectSystem(text) {
-  const msg = { role: "system", content: text, ts: Date.now() };
+function aiInjectSystem(visibleText, directive) {
+  // directive is pushed into the LLM conversation (invisible to the user);
+  // visibleText is the clean, user-facing note shown in the chat.
+  if (visibleText) aiAddMsg("system", escapeHtml(visibleText));
+  const msg = { role: "system", content: directive || visibleText || "", ts: Date.now() };
   if (compModeActive) compMessages.push(msg); else aiMessages.push(msg);
-  aiAddMsg("system", escapeHtml(text));
   aiDebugPersistSoon();
 }
 
@@ -7521,15 +7538,21 @@ function aiPosApplyEnvelope(P, canRun) {
   else if (a === "done") aiLog("positions saved & limits applied");
   else if (a === "ready") aiLog("position setup finished — returning to start");
   if ((a === "start" || a === "move" || a === "ready") && !connected) {
-    aiInjectSystem("POSITION SETUP DID NOT START: the OSSM is not connected. Do not describe any movement — tell the user to press Connect first.");
+    aiInjectSystem(
+      "I can't move the OSSM — it isn't connected yet. Connect it and tell me to go again.",
+      "APP BLOCKED POSITION SETUP: the OSSM is not connected. Do NOT describe any movement — tell the user to press Connect first."
+    );
     if (aiSpeakEnabled()) aiSpeak("Connect the OSSM first, then I'll move it.");
     return;
   }
   if (a === "start") {
     if (!aiPosSafeWord()) {
       aiLog("blocked position setup start — no safe word set yet");
-      aiInjectSystem("POSITION SETUP DID NOT START: no safe word has been set yet. Do not describe any movement — ask the user to choose a safe word first.");
-      aiSpeak("First, what is your safe word?");
+      aiInjectSystem(
+        aiPosNeedSafeWordText(),
+        "APP BLOCKED POSITION SETUP: no safe word is set. Do NOT describe any movement. Ask the user to choose a safe word now; when they give one, send {\"action\":\"safeWord\",\"word\":\"<the word>\"}, then send {\"action\":\"start\"}."
+      );
+      aiSpeak(aiPosNeedSafeWordText());
       return;
     }
     aiPosReturnAp = (appMode === "ap");
