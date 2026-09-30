@@ -1231,14 +1231,29 @@ let funPreviewShown = false;
 try { funPreviewShown = localStorage.getItem("ossm-fun-preview-shown") === "1"; } catch (e) {}
 const STD_SAFE_MAX = 20;
 const STD_SAFE_MIN = 0;
-let stdValues = { speed: 0, max: STD_SAFE_MAX, min: STD_SAFE_MIN, sensation: 50, pattern: 0 };
+let stdValues = { speed: 0, max: STD_SAFE_MAX, min: STD_SAFE_MIN, sensation: 0, pattern: 0 };
 try {
   const sv = JSON.parse(localStorage.getItem("ossm-std-values") || "{}");
-  if (typeof sv.sensation === "number") stdValues.sensation = Math.round(sv.sensation);
+  if (typeof sv.sensation === "number") {
+    // One-time migration from the old 0..100 scale (50 = neutral) to -100..100.
+    stdValues.sensation = (localStorage.getItem("ossm-sensation-v2") === "1")
+      ? Math.round(sv.sensation)
+      : Math.round(sv.sensation * 2 - 100);
+  }
   if (typeof sv.pattern === "number") stdValues.pattern = Math.round(sv.pattern);
 } catch (e) {}
+try { localStorage.setItem("ossm-sensation-v2", "1"); } catch (e) {}
 function saveStdValues() {
   try { localStorage.setItem("ossm-std-values", JSON.stringify({ sensation: stdValues.sensation, pattern: stdValues.pattern })); } catch (e) {}
+}
+// Sensation is shown/edited as -100..+100 (0 = neutral) to match the M5 remote
+// and the StrokeEngine's internal range. The device's set:sensation command
+// takes 0..100 (50 = neutral), so we convert on the wire.
+function sensationToDevice(v) {
+  return Math.round((clamp(Math.round(v), -100, 100) + 100) / 2);
+}
+function sensationFromDevice(v) {
+  return clamp(Math.round(v * 2 - 100), -100, 100);
 }
 let stdPendingSafeSync = false;
 let stdPatterns = STD_PATTERN_FALLBACK.map((name, idx) => ({ name, idx, desc: STD_PATTERN_DESC_FALLBACK[idx] || "" }));
@@ -1666,7 +1681,7 @@ function parseStdState(raw) {
   if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
   if (typeof j.depth === "number") stdDepth = Math.round(j.depth);
   if (typeof j.position === "number" && !stdRailChar) stdRailPos = Math.round(j.position);
-  if (typeof j.sensation === "number") stdValues.sensation = Math.round(j.sensation);
+  if (typeof j.sensation === "number") stdValues.sensation = sensationFromDevice(j.sensation);
   if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
   if (typeof j.state === "string") stdStateName = j.state;
   stdRunning = stdValues.speed > 0.5;
@@ -2465,9 +2480,9 @@ function buildStdSliders() {
     saveStdValues();
     drawGraph();
   }, { up:"minUp", down:"minDown" }));
-  wrap.appendChild(sliderEl("Sensation", 0, 100, stdValues.sensation, "#c084fc", (v) => {
+  wrap.appendChild(sliderEl("Sensation", -100, 100, stdValues.sensation, "#c084fc", (v) => {
     stdValues.sensation = v;
-    stdWrite("set:sensation:" + v);
+    stdWrite("set:sensation:" + sensationToDevice(v));
     saveStdValues();
     drawGraph();
   }, { up:"sensationUp", down:"sensationDown" }));
@@ -3004,7 +3019,7 @@ function drawStdGraph() {
 
   const depth = maxVal;
   const stroke = Math.max(0, maxVal - minVal);
-  const sensation = stdValues.sensation * 2 - 100;
+  const sensation = stdValues.sensation;
   const pattern = stdValues.pattern;
 
   // Only draw the motion line for patterns we know how to render.
@@ -3091,14 +3106,20 @@ const funState = {
   videoUrl: null, videoName: "", scriptName: "",
   castUrl: null, castRelay: null, uploading: false, localFile: null, fileMeta: null, hls: null,
   rawActions: [], actions: [],
-  maxSpeed: 100, maxDepth: 20, minDepth: 0, buffer: 100, sensation: 50,
+  maxSpeed: 100, maxDepth: 20, minDepth: 0, buffer: 100, sensation: 0,
   reverse: false, simplify: true,
   offsetMs: 0,
   lastSentPos: null, rampTo: null,
   nextIdx: 0, playing: false, timer: null, prePosAt: null, startedOnce: false
 };
 try { const b = parseFloat(localStorage.getItem("ossm-fun-buffer")); if (isFinite(b) && b >= 0) funState.buffer = Math.min(FUN_BUFFER_MAX, Math.round(b)); } catch (e) {}
-try { const s = parseFloat(localStorage.getItem("ossm-fun-sensation")); if (isFinite(s) && s >= 0 && s <= 100) funState.sensation = Math.round(s); } catch (e) {}
+try {
+  const s = parseFloat(localStorage.getItem("ossm-fun-sensation"));
+  if (isFinite(s)) {
+    funState.sensation = clamp(Math.round(localStorage.getItem("ossm-fun-sensation-v2") === "1" ? s : (s * 2 - 100)), -100, 100);
+    try { localStorage.setItem("ossm-fun-sensation-v2", "1"); } catch (e) {}
+  }
+} catch (e) {}
 
 function getFavorites() {
   try {
@@ -3476,10 +3497,10 @@ function buildFunControls() {
   bufMinus.onclick = () => setFunBuffer(funState.buffer - 25);
   bufPlus.onclick = () => setFunBuffer(funState.buffer + 25);
 
-  funSmoothSlider = sliderEl("Smoothness", 0, 100, funState.sensation, "#38bdf8", v => {
+  funSmoothSlider = sliderEl("Smoothness", -100, 100, funState.sensation, "#38bdf8", v => {
     funState.sensation = v;
     try { localStorage.setItem("ossm-fun-sensation", String(v)); } catch (e) {}
-    stdWrite("set:sensation:" + v);
+    stdWrite("set:sensation:" + sensationToDevice(v));
   }, { up:"smoothnessUp", down:"smoothnessDown" });
   slidersBox.appendChild(funSmoothSlider);
 
@@ -3732,9 +3753,9 @@ let funSmoothSlider = null;
 let funMaxDepthSlider = null;
 let funMinDepthSlider = null;
 function funSetSensation(v) {
-  funState.sensation = clamp(Math.round(v), 0, 100);
+  funState.sensation = clamp(Math.round(v), -100, 100);
   try { localStorage.setItem("ossm-fun-sensation", String(funState.sensation)); } catch (e) {}
-  if (connected && stdCmd) stdWrite("set:sensation:" + funState.sensation);
+  if (connected && stdCmd) stdWrite("set:sensation:" + sensationToDevice(funState.sensation));
   if (funSmoothSlider && funSmoothSlider.setValue) funSmoothSlider.setValue(funState.sensation);
 }
 
@@ -3928,7 +3949,7 @@ function funStartStreaming() {
   stdWrite("set:max:" + funState.maxDepth);
   stdWrite("set:min:" + funState.minDepth);
   stdWrite("set:buffer:" + funState.buffer);
-  stdWrite("set:sensation:" + funState.sensation);
+  stdWrite("set:sensation:" + sensationToDevice(funState.sensation));
   if (funState.timer) clearInterval(funState.timer);
   funState.timer = setInterval(funStreamTick, 20);
   $("btnStart").textContent = "Stop";
@@ -4002,7 +4023,7 @@ function funPrePosition() {
   stdWrite("set:max:" + funState.maxDepth);
   stdWrite("set:min:" + funState.minDepth);
   stdWrite("set:buffer:" + funState.buffer);
-  stdWrite("set:sensation:" + funState.sensation);
+  stdWrite("set:sensation:" + sensationToDevice(funState.sensation));
   // Stream position 100 maps to the configured max depth.
   writeStream("100:" + dur);
   funState.prePosAt = target;
@@ -5548,7 +5569,7 @@ function applyStdSafeValues() {
     stdWriteReliable("set:speed:0");
     stdWriteReliable("set:max:" + stdValues.max);
     stdWriteReliable("set:min:" + stdValues.min);
-    stdWriteReliable("set:sensation:" + stdValues.sensation);
+    stdWriteReliable("set:sensation:" + sensationToDevice(stdValues.sensation));
     stdWriteReliable("set:pattern:" + stdValues.pattern);
   }
   updateStartButton();
@@ -5627,7 +5648,7 @@ HOW TO CONVERSE:
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their deepest and shallowest points, then agree the speed — and ask if they want to begin.
 - SPEED SAFETY (hard rules, always): max speed is an ABSOLUTE ceiling — never request "Speed", "In Speed" or "Out Speed" above it. When the user asks you to start ("fuck me", "go", "start"), send "run":"start" — the machine starts at the SAFE speed 10 and ramps up smoothly, never an instant jump to max. "Fuck me hard" = start a little faster (around 20). "Fuck my brains out" / "as hard or fast as you can" / any request that clearly wants a big jump = do NOT jump — first ask for confirmation in character, sensual and matching your role and the moment (e.g. "are you sure? I'm going to take you as hard as I can…"), and only after they confirm do you ramp up. The app ALWAYS ramps speed smoothly and caps every single change to at most +10/-10, so build intensity gradually over a few turns — never promise an instant jump to high speed.
 - SAFE WORD (global): the user's safe word triggers a FULL emergency stop at any time — during position setup AND during active play. The app catches the spoken/typed word itself instantly, so you never react to it and never treat it as a normal instruction. If the user says "change the safe word to …", extract the new word and send {"action":"safeWord","word":"<new word>"} — this works even outside position setup. The word "stop" during active play follows the user's stored preference (shown in your context): it either triggers a full emergency stop too, or it gently stops the machine (ramp down, like the Start/Stop button). The app handles "stop" itself — you never react to it.
-- GO TO MIN before play (numbers mode): right after the user has confirmed their numbers (and "limits" is applied), ask: "Should I send the OSSM to your Min position first so it starts from the shallow end?" If they say yes, use "set" to choose Pattern "Go to Point", Min Pos <their min>, Max Pos <their max>, Sensation 0 (Sensation 0 = Min, 100 = Max), and tell them to press Start to move there. When they say it has arrived, use "set" to restore Pattern "Simple Stroke", Sensation 50 and Speed 0, and tell them it's ready to play. Never start the machine yourself unless your context says you may.
+- GO TO MIN before play (numbers mode): right after the user has confirmed their numbers (and "limits" is applied), ask: "Should I send the OSSM to your Min position first so it starts from the shallow end?" If they say yes, use "set" to choose Pattern "Go to Point", Min Pos <their min>, Max Pos <their max>, Sensation -100 (Sensation -100 = Min, +100 = Max), and tell them to press Start to move there. When they say it has arrived, use "set" to restore Pattern "Simple Stroke", Sensation 0 and Speed 0, and tell them it's ready to play. Never start the machine yourself unless your context says you may.
 - APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: the user must press Connect themselves — Bluetooth pairing needs their tap, so you can't do it (tell them to press Connect). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
@@ -5932,7 +5953,7 @@ function aiModeContext(cur) {
   const running = (appMode === "std") ? (stdValues.speed > 0.5) : (speed() > 0);
   if (appMode === "std") {
     const patternList = stdPatterns.map(p => '- "' + p.name + '": ' + (p.desc || "custom")).join("\n");
-    return "CURRENT MODE: Standard. In \"set\" you may only use these keys: \"Max Pos\" (depth 0-100), \"Min Pos\" (withdrawal 0-100), \"Speed\" (0-100), \"Sensation\" (0-100), \"Pattern\" (one exact pattern name). Do NOT use In Speed, Out Speed, In Accel, Out Accel or modifier keys in this mode.\n"
+    return "CURRENT MODE: Standard. In \"set\" you may only use these keys: \"Max Pos\" (depth 0-100), \"Min Pos\" (withdrawal 0-100), \"Speed\" (0-100), \"Sensation\" (-100..100, 0 = neutral), \"Pattern\" (one exact pattern name). Do NOT use In Speed, Out Speed, In Accel, Out Accel or modifier keys in this mode.\n"
       + "PATTERNS (name — what it does):\n" + patternList + "\n"
       + "INTENT in Standard mode: \"harder\"/\"pound me\"/\"hard\" = more forceful, harder-hitting thrusts (pounding), NOT just speed — prefer a pounding/intense pattern from the list and/or raise \"Sensation\" and \"Speed\". \"faster\"/\"sneller\"/\"quicker\" (speed only) = raise \"Speed\". \"softer\"/\"gentle\"/\"zacht\" = the simplest gentle pattern with lower Speed and Sensation. \"tease me\"/\"teasing\" = a teasing/pounding pattern with lower Sensation. \"deeper\" = raise \"Max Pos\"; \"shallower\" = lower \"Max Pos\".\n"
       + aiLimitsText() + "\n"
@@ -6015,8 +6036,8 @@ function aiApplyStd(p) {
         put("Speed", (target > 0) ? "0 (press Start)" : 0);
       }
     } else if (k === "Sensation") {
-      const v = clamp(Math.round(Number(raw)), 0, 100);
-      stdValues.sensation = v; stdWrite("set:sensation:" + v); put("Sensation", v);
+      const v = clamp(Math.round(Number(raw)), -100, 100);
+      stdValues.sensation = v; stdWrite("set:sensation:" + sensationToDevice(v)); put("Sensation", v);
     } else if (k === "Pattern") {
       const idx = aiPatternIndex(raw);
       if (idx >= 0) {
@@ -6104,8 +6125,8 @@ function aiLocalStd(text) {
   if (fast && slow) p["Speed"] = 55;
   else if (fast) p["Speed"] = 75;
   else if (slow) p["Speed"] = 30;
-  const sm = t.match(/(?:sensation|sensatie)\D{0,12}(\d+)/);
-  if (sm) p["Sensation"] = clamp(parseInt(sm[1], 10), 0, 100);
+  const sm = t.match(/(?:sensation|sensatie)\D{0,12}(-?\d+)/);
+  if (sm) p["Sensation"] = clamp(parseInt(sm[1], 10), -100, 100);
   return p;
 }
 function aiIsStop(text) {
@@ -7273,7 +7294,7 @@ async function aiPosFinishReturn() {
     stdWriteReliable("set:max:" + mx);
     stdWriteReliable("set:pattern:" + simpleIdx);
     stdValues.pattern = simpleIdx;
-    stdValues.sensation = 50;
+    stdValues.sensation = 0;
     stdWriteReliable("set:sensation:50");
     stdWriteReliable("set:speed:0");
     saveStdValues();
@@ -8065,7 +8086,7 @@ function buildCompSliders() {
     wrap.appendChild(sliderEl("Max Pos", 0, caps.maxDepth, Math.round(stdValues.max), "#ff0c00", (v) => { stdValues.max = clamp(v, 0, caps.maxDepth); stdWrite("set:max:" + stdValues.max); saveStdValues(); }));
     wrap.appendChild(sliderEl("Min Pos", caps.minDepth, caps.maxDepth, Math.round(stdValues.min), "#ff8100", (v) => { stdValues.min = clamp(v, caps.minDepth, caps.maxDepth); stdWrite("set:min:" + stdValues.min); saveStdValues(); }));
     wrap.appendChild(sliderEl("Speed", 0, caps.maxSpeed, Math.round(stdValues.speed), "#7dd3fc", (v) => { applySpeedInstant(clamp(v, 0, caps.maxSpeed)); }));
-    wrap.appendChild(sliderEl("Sensation", 0, 100, Math.round(stdValues.sensation), "#00ff00", (v) => { stdValues.sensation = clamp(v, 0, 100); stdWrite("set:sensation:" + stdValues.sensation); saveStdValues(); }));
+    wrap.appendChild(sliderEl("Sensation", -100, 100, Math.round(stdValues.sensation), "#00ff00", (v) => { stdValues.sensation = clamp(v, -100, 100); stdWrite("set:sensation:" + sensationToDevice(stdValues.sensation)); saveStdValues(); }));
     return;
   }
   const defs = [
@@ -10531,11 +10552,12 @@ function gpStdStep(field, d, mag) {
     return;
   }
   if (appMode !== "std") return;
-  stdValues[field] = clamp(stdValues[field] + d * mag, 0, 100);
+  const sensField = field === "sensation";
+  stdValues[field] = clamp(stdValues[field] + d * mag, sensField ? -100 : 0, 100);
   if (field === "max" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   if (field === "min" && stdValues.min > stdValues.max) stdValues.min = stdValues.max;
   saveStdValues();
-  stdWrite("set:" + field + ":" + stdValues[field]);
+  stdWrite("set:" + field + ":" + (sensField ? sensationToDevice(stdValues[field]) : stdValues[field]));
 }
 function gpCyclePattern(delta) {
   if (appMode !== "std") return;
