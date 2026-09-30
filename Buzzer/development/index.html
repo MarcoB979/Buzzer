@@ -10262,7 +10262,12 @@ async function addonSend(id, command, value) {
   const a = ADDON_DEFS.find(x => x.id === id);
   const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
   if (!st.rx || !st.connected) { monitor(a.name + ": not connected", "warn"); return false; }
-  try { await st.rx.writeValue(addonEncode(command, value, a.target)); return true; }
+  // Serialize writes per addon — Web Bluetooth rejects concurrent writeValue
+  // calls on the same characteristic with "GATT operation already in progress".
+  st.writeQueue = st.writeQueue || Promise.resolve();
+  const run = st.writeQueue.then(() => st.rx.writeValue(addonEncode(command, value, a.target)));
+  st.writeQueue = run.catch(() => {});
+  try { await run; return true; }
   catch (e) { monitor(a.name + ": " + (e && e.message ? e.message : e), "err"); return false; }
 }
 
