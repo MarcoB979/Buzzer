@@ -359,7 +359,6 @@
   .ai-set-divider { border-top: 1px solid var(--border-color); margin: 10px 0 2px; }
   .ai-set-section { font-size: .66rem; text-transform: uppercase; letter-spacing: 1px; color: #7dd3fc; }
   .addon-icon { font-size: 1.5rem; line-height: 1; vertical-align: -0.12em; margin-right: 3px; display: inline-block; }
-  .addon-title { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: .82rem; margin: 2px 0 5px; }
   .ai-enable { display: flex; align-items: center; gap: 6px; }
   .ai-settings-body input[type=checkbox] { width: auto; }
   .ai-help { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; background: #334155; color: #e2e8f0; border: 1px solid var(--border-color); font-size: .72rem; font-weight: bold; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; line-height: 1; }
@@ -1087,10 +1086,16 @@
       </div>
     </details>
 
-    <details class="presets-panel" id="addonsPanel" style="display:none;">
-      <summary>🔌 Addons</summary>
+    <details class="presets-panel" id="addonFistPanel" style="display:none;">
+      <summary><span class="summary-left">✊ Fist-IT</span></summary>
       <div class="ai-settings-body">
         <div id="addonFistBody"></div>
+      </div>
+    </details>
+
+    <details class="presets-panel" id="addonEjectPanel" style="display:none;">
+      <summary><span class="summary-left">🍆💦 Eject Cumpump</span></summary>
+      <div class="ai-settings-body">
         <div id="addonEjectBody"></div>
       </div>
     </details>
@@ -9965,16 +9970,6 @@ function addonBuildSection(id) {
   const a = ADDON_DEFS.find(x => x.id === id);
   const st = ADDON_STATE[id] || (ADDON_STATE[id] = { sliderValues:{} });
   const wrap = document.createElement("div");
-  const title = document.createElement("div");
-  title.className = "addon-title";
-  const iconEl = document.createElement("span");
-  iconEl.className = "addon-icon";
-  iconEl.textContent = a.icon || "";
-  const nameEl = document.createElement("span");
-  nameEl.textContent = a.name;
-  title.appendChild(iconEl);
-  title.appendChild(nameEl);
-  wrap.appendChild(title);
   const status = document.createElement("div");
   status.className = "ai-set-hint";
   status.textContent = st.connected ? (st.on ? "● Running" : "● Connected — ready") : "Not connected";
@@ -9995,8 +9990,9 @@ function addonBuildSection(id) {
 }
 
 function addonRender() {
-  const panel = $("addonsPanel");
-  if (panel) panel.style.display = addonAnyEnabled() ? "" : "none";
+  const fp = $("addonFistPanel"), ep = $("addonEjectPanel");
+  if (fp) fp.style.display = addonEnabled("fist") ? "" : "none";
+  if (ep) ep.style.display = addonEnabled("eject") ? "" : "none";
   const f = $("addonFistBody"), e = $("addonEjectBody");
   if (f) { f.innerHTML = ""; if (addonEnabled("fist")) f.appendChild(addonBuildSection("fist")); }
   if (e) { e.innerHTML = ""; if (addonEnabled("eject")) e.appendChild(addonBuildSection("eject")); }
