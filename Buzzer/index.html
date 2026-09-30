@@ -6813,6 +6813,27 @@ function aiIsKeyedProvider() {
   const p = aiProviderSettings().provider;
   return p === "deepseek" || p === "openai";
 }
+function aiFreeBlocked() {
+  if (aiProviderSettings().provider !== "free") return false;
+  const f = compFreedom();
+  if (f === "wild" || f === "full") return true;
+  return addonEnabled("fist");
+}
+function syncAiFreeWarning() {
+  const el = $("aiFreeWarning");
+  if (!el) return;
+  const s = aiProviderSettings();
+  if (s.provider !== "free") { el.style.display = "none"; return; }
+  if (aiFreeBlocked()) {
+    el.textContent = "⛔ Free (Pollinations) is DISABLED in this mode — Fist-IT and Wild/Full-submission initiative need a private, quality model. Switch to DeepSeek or OpenAI (compatible).";
+  } else {
+    el.textContent = "⚠ Free (Pollinations) is a shared, unauthenticated public service with no privacy guarantee. For private use, choose DeepSeek or OpenAI (compatible) and add your own key.";
+  }
+  el.style.display = "";
+}
+function aiFreeBlockedMessage() {
+  return "One sec — with Fisting (Fist-IT) or Wild/Full-submission mode on, I can't run on the free Pollinations AI. Please switch to DeepSeek or OpenAI (compatible) in the AI assistant settings and add your key, then come back and I'm all yours.";
+}
 function aiCanRunActive() {
   return aiCanRun() && aiIsKeyedProvider();
 }
@@ -6853,7 +6874,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -6882,7 +6903,7 @@ async function aiCallOpenAI(messages) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, lang: parsed.lang, error: null };
         lastErr = "the model replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -6897,6 +6918,9 @@ async function aiCallOpenAI(messages) {
 
 async function aiCall(messages) {
   const { provider, key } = aiProviderSettings();
+  if (aiFreeBlocked()) {
+    return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, lang: null, error: "Safety rule: Free (Pollinations) is disabled while Fist-IT is on or initiative is Wild/Full — switch to DeepSeek or OpenAI." };
+  }
   if (provider === "deepseek" && key) {
     return aiCallDeepSeek(messages, key);
   }
@@ -6911,7 +6935,7 @@ async function aiCall(messages) {
       const raw = await r.text();
       if (r.ok) {
         const parsed = aiExtractJson(raw);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon) return { raw, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(2500); // wait out the free tier's one-at-a-time queue
@@ -8121,7 +8145,11 @@ function companionOpen() {
   buildCompSliders();
   syncCompSlidersVisibility();
   syncCompVideo();
-  if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) { compSetupGreeted = true; compStartSetup(); }
+  if (aiFreeBlocked()) {
+    compAddMsg("assistant", aiFreeBlockedMessage());
+  } else if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) {
+    compSetupGreeted = true; compStartSetup();
+  }
   refreshStashLibrary();
   companionSave();
 }
@@ -9024,6 +9052,13 @@ async function compSend() {
     const safetyLine = aiLimitsConfirmed() ? "" : ("\n\nSAFETY (critical, in-character): the user has NOT confirmed their safety limits this session yet, so you must NEVER start the machine (\"run\":\"start\") until that is done. Only bring this up when they actually want to start playing — not at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say \"stop\" at their shallowest (start) point first, then it keeps sliding deeper and they say \"stop\" again at their deepest point (while moving, keep it to a few words — ok, a little more, is this the spot? — never full sentences). That flow is the \"pos\" (position setup) envelope. Alternatively they can just tell you the three numbers (min depth, max depth, max speed).");
     compMessages.push({ role: "user", content: text, ts: Date.now() });
     aiDebugPersistSoon();
+    if (aiFreeBlocked()) {
+      if (th) th.remove();
+      compAddMsg("assistant", aiFreeBlockedMessage());
+      refocusChat();
+      compBusy = false;
+      return;
+    }
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...compMessages
@@ -9291,6 +9326,13 @@ async function aiSend(opts) {
     const cur = aiCurrentState();
     aiMessages.push({ role: "user", content: text, ts: Date.now() });
     aiDebugPersistSoon();
+    if (aiFreeBlocked()) {
+      if (th) th.remove();
+      aiAddMsg("assistant", aiFreeBlockedMessage());
+      refocusChat();
+      aiBusy = false;
+      return;
+    }
     const memOn = aiMemoryActive();
     const mem = memOn ? aiMemory() : "";
     const memLine = memOn
@@ -9854,10 +9896,18 @@ function aiDebugRestore() {
     if (baseInp) baseInp.value = s.baseUrl;
     if (modelInp) modelInp.value = s.model;
     if (extrasRow) extrasRow.style.display = (isDs || isOa) ? "" : "none";
-    if (freeWarn) freeWarn.style.display = (s.provider === "free") ? "" : "none";
+    syncAiFreeWarning();
     if (provLabel) provLabel.textContent = isDs ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : isOa ? (s.key ? "OpenAI ✓" : "OpenAI (add key)") : "Free";
   };
-  if (prov) prov.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {} syncAiSettingsUI(); });
+  if (prov) prov.addEventListener("change", () => {
+    try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {}
+    syncAiSettingsUI();
+    if (aiFreeBlocked()) {
+      aiPauseMachine(); // if the OSSM is moving, ramp it down gently and stop
+      if (compModeActive) compAddMsg("assistant", aiFreeBlockedMessage());
+      else aiAddMsg("system", aiFreeBlockedMessage());
+    }
+  });
   if (keyInp) keyInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-key", keyInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
   if (baseInp) baseInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-base-url", baseInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
   if (modelInp) modelInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-model", modelInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
@@ -9905,11 +9955,12 @@ function aiDebugRestore() {
         if (freedomWarn(v)) { freedomPending = v; return; }
       }
       compSetFreedom(v);
+      syncAiFreeWarning();
     });
     const freedomClose = () => { const ov = $("freedomOverlay"); if (ov) ov.style.display = "none"; };
     const freedomAccept = $("freedomAccept");
     const freedomCancel = $("freedomCancel");
-    if (freedomAccept) freedomAccept.onclick = () => { if (freedomPending) compSetFreedom(freedomPending); freedomPending = null; freedomClose(); };
+    if (freedomAccept) freedomAccept.onclick = () => { if (freedomPending) compSetFreedom(freedomPending); freedomPending = null; freedomClose(); syncAiFreeWarning(); };
     if (freedomCancel) freedomCancel.onclick = () => { if (freedomPending) compFreedomSel.value = compFreedom(); freedomPending = null; freedomClose(); };
     const fov = $("freedomOverlay");
     if (fov) fov.addEventListener("click", (e) => { if (e.target === fov) { if (freedomPending) compFreedomSel.value = compFreedom(); freedomPending = null; freedomClose(); } });
@@ -10138,7 +10189,7 @@ function aiApplyAddon(p) {
 
 const addonFistChk = $("addonFistEnabled");
 const addonEjectChk = $("addonEjectEnabled");
-if (addonFistChk) { addonFistChk.checked = addonEnabled("fist"); addonFistChk.addEventListener("change", () => { addonSetEnabled("fist", addonFistChk.checked); addonRender(); }); }
+if (addonFistChk) { addonFistChk.checked = addonEnabled("fist"); addonFistChk.addEventListener("change", () => { addonSetEnabled("fist", addonFistChk.checked); addonRender(); syncAiFreeWarning(); }); }
 if (addonEjectChk) { addonEjectChk.checked = addonEnabled("eject"); addonEjectChk.addEventListener("change", () => { addonSetEnabled("eject", addonEjectChk.checked); addonRender(); }); }
 addonRender();
 
