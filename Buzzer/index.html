@@ -11724,6 +11724,10 @@ function sessionCodeFromUrl() { try { return new URLSearchParams(location.search
 function sessionGuestById(id) { return sess.guests.find(g => g.id === id); }
 function sessionBroadcast(obj) { for (const g of sess.guests) { try { if (g.conn && g.conn.open) g.conn.send(obj); } catch (e) {} } }
 function sessionSend(obj) { try { if (sess.hostConn && sess.hostConn.open) sess.hostConn.send(obj); } catch (e) {} }
+function sessionSendPrefs() {
+  if (sess.role !== "guest") return;
+  sessionSend({ t: "prefs", mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo });
+}
 function sessionBroadcastPeers() {
   const list = sess.guests.map(g => ({ id: g.id, name: g.name, role: g.role }));
   sessionBroadcast({ t: "peers", list });
@@ -11824,7 +11828,7 @@ function sessionOnGuestConn(conn) {
   conn.on("open", () => {
     const id = conn.peer;
     sess.guests = sess.guests.filter(x => x.id !== id);
-    sess.guests.push({ id, conn, name: "Guest", role: "watch" });
+    sess.guests.push({ id, conn, name: "Guest", role: "watch", mirror: false, watch: false });
     try { conn.send({ t: "welcome", role: "watch" }); } catch (e) {}
     sessionBroadcastPeers();
     sessionAppendChat("", "Guest joined", true);
@@ -11846,7 +11850,13 @@ function sessionOnGuestData(conn, d) {
   if (!g) return;
   if (d.t === "hello") {
     if (typeof d.name === "string" && d.name.trim()) g.name = d.name.trim().slice(0, 24);
+    if (typeof d.mirror === "boolean") g.mirror = d.mirror;
+    if (typeof d.watch === "boolean") g.watch = d.watch;
     sessionBroadcastPeers();
+    sessionRender();
+  } else if (d.t === "prefs") {
+    if (typeof d.mirror === "boolean") g.mirror = d.mirror;
+    if (typeof d.watch === "boolean") g.watch = d.watch;
     sessionRender();
   } else if (d.t === "chat") {
     const text = String(d.text || "").slice(0, 500);
@@ -11889,7 +11899,7 @@ async function sessionJoin(code) {
     const conn = peer.connect(code, { reliable: true });
     sess.hostConn = conn;
     conn.on("open", () => {
-      try { conn.send({ t: "hello", name: sess.myName }); } catch (e) {}
+      try { conn.send({ t: "hello", name: sess.myName, mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo }); } catch (e) {}
       sessionEnsureCalls();
       sessionRender();
     });
@@ -12159,12 +12169,21 @@ function sessionRender() {
     if (sess.role === "host") {
       if (!sess.guests.length) plist.textContent = "No guests yet — share the code or link.";
       else {
+        const mkFlag = (icon, on, tip) => {
+          const s = document.createElement("span");
+          s.textContent = icon;
+          s.title = tip + (on ? " — on" : " — off");
+          s.style.cssText = "margin-left:4px;opacity:" + (on ? "1" : ".35") + ";";
+          return s;
+        };
         for (const g of sess.guests) {
           const row = document.createElement("div");
           row.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0;flex-wrap:wrap;";
           const nm = document.createElement("span");
           nm.textContent = g.name + (g.role === "control" ? " 🎮" : " 👁");
           row.appendChild(nm);
+          row.appendChild(mkFlag("🎛", !!g.mirror, "Mirror host to their device"));
+          row.appendChild(mkFlag("▶", !!g.watch, "Follow host video"));
           const toggle = mk(g.role === "control" ? "Watch only" : "Allow control");
           toggle.onclick = () => sessionSetRole(g.id, g.role === "control" ? "watch" : "control");
           const kick = mk("Kick"); kick.classList.add("danger"); kick.onclick = () => sessionKick(g.id);
@@ -12251,9 +12270,9 @@ function sessionRender() {
 
   body.appendChild(wrap);
   const mt = $("sessionMirrorToggle");
-  if (mt) { mt.checked = !!sess.mirrorDevice; mt.addEventListener("change", () => { sess.mirrorDevice = mt.checked; if (!mt.checked) sess.applied = null; }); }
+  if (mt) { mt.checked = !!sess.mirrorDevice; mt.addEventListener("change", () => { sess.mirrorDevice = mt.checked; if (!mt.checked) sess.applied = null; sessionSendPrefs(); }); }
   const wt = $("sessionWatchToggle");
-  if (wt) { wt.checked = !!sess.watchVideo; wt.addEventListener("change", () => { sess.watchVideo = wt.checked; }); }
+  if (wt) { wt.checked = !!sess.watchVideo; wt.addEventListener("change", () => { sess.watchVideo = wt.checked; sessionSendPrefs(); }); }
   sessionUpdateStatus();
 }
 
