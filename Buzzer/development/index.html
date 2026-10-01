@@ -9384,7 +9384,7 @@ function companionLiveFrame(now) {
   if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "smile") target = Math.max(target, 0.25);
   companionLive.mouth += (target - companionLive.mouth) * (speaking ? 0.55 : 0.30);
   companionLive.mouth = Math.max(0, Math.min(1, companionLive.mouth));
-  const open = companionLive.mouth;
+  const open = companionLive.mouth * 0.5;
 
   // --- frown ---
   const isFrown = !!(companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "frown");
@@ -9476,7 +9476,7 @@ function companionLiveFrame(now) {
       const lidW = eyeWpx * 1.25;
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
-      const coverH = (lidSrcH + eyeHpx * 0.55) * blink * s;  // just cover the eye opening
+      const coverH = (lidSrcH + eyeHpx * 0.55) * blink * s * 0.5;  // subtle half-blink
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2), lidW * s, coverH);
       if (blink > 0.2) {
         ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
