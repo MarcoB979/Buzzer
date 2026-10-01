@@ -240,7 +240,7 @@
     }
     body.force-landscape .phone-container > .header-row { grid-area: header; margin-bottom: 0; }
     body.force-landscape .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-    body.force-landscape .col-left { grid-area: left; max-height: calc(var(--app-vh) - 20px); }
+    body.force-landscape .col-left { grid-area: left; max-height: calc(var(--app-vh) - 20px); overflow-y: auto; }
     body.force-landscape .col-center { grid-area: center; }
     body.force-landscape .col-right { grid-area: right; max-height: calc(var(--app-vh) - 20px); overflow-y: auto; }
     body.force-landscape .col > * { margin: 0; }
@@ -521,14 +521,14 @@
     .phone-container.hide-right { grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr); grid-template-areas: "header header" "left center"; grid-template-rows: auto minmax(auto, 1fr); }
     .phone-container.hide-left.hide-right { grid-template-columns: minmax(40%, 1fr); grid-template-areas: "header" "center"; grid-template-rows: auto minmax(auto, 1fr); }
     .col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-    .col-left  { max-height: calc(var(--app-vh) - 20px); }
+    .col-left  { max-height: calc(var(--app-vh) - 20px); overflow-y: auto; }
     .phone-container.hide-left  .col-left  { display: none; }
     .phone-container.hide-right .col-right { display: none; }
     .col > * { margin: 0; }
     #col-left > *, #col-center > *, #col-right > * { order: 0; }
     .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; background: #1e293b; border: 2px solid #64748b; border-radius: 8px; color: #f1f5f9; font-size: 1rem; font-weight: bold; cursor: pointer; padding: 0; }
     .col-title { display: block; text-align: center; font-size: .78rem; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); padding: 2px 0 6px; }
-    #sliders-wrapper { flex: 1 1 auto; overflow-y: auto; }
+    #sliders-wrapper { flex: 0 0 auto; overflow: visible; }
     .start-stop-row { position: static; padding-top: 0; flex-shrink: 0; }
     .speed-line { margin-top: auto; flex-shrink: 0; }
     .meter-bar { height: 105px; }
