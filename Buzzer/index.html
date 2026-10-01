@@ -3596,7 +3596,7 @@ function buildFunControls() {
   castRow.appendChild(castBtn);
   const shareBtn = document.createElement("button");
   shareBtn.type = "button"; shareBtn.className = "fun-btn"; shareBtn.id = "funShareBtn";
-  shareBtn.textContent = "📤 Share";
+  shareBtn.textContent = "� Share";
   shareBtn.title = "Share this video with your session guests (uploads local files to your Worker for a public link)";
   shareBtn.onclick = sessionShareVideo;
   if (sess.role !== "host") shareBtn.style.display = "none";
@@ -11795,7 +11795,12 @@ function sessionAppendChat(who, text, sys) {
 async function sessionCamOn(on) {
   try {
     if (on) {
-      if (!sess.stream) sess.stream = await navigator.mediaDevices.getUserMedia(liteVideoConstraints());
+      if (!sess.stream) {
+        sess.stream = await navigator.mediaDevices.getUserMedia(liteVideoConstraints());
+        // Start muted unless the user has explicitly turned the mic on —
+        // otherwise turning on the camera also silently broadcasts audio.
+        if (!sess.micOn) sess.stream.getAudioTracks().forEach(t => { try { t.enabled = false; } catch (e) {} });
+      }
       sess.camOn = true;
       sessionEnsureCalls();
     } else {
@@ -12193,7 +12198,7 @@ function sessionRender() {
     btnRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;";
     if (sess.role === "host") { const cp = mk("🔗 Copy link"); cp.onclick = () => sessionCopyLink(); btnRow.appendChild(cp); }
     const camBtn = mk(sess.camOn ? "📷 Camera off" : "📷 Camera on"); camBtn.onclick = () => sessionCamOn(!sess.camOn);
-    const micBtn = mk(sess.micOn ? "🎙 Mic off" : "🎙 Mic on"); micBtn.onclick = () => sessionMicOn(!sess.micOn);
+    const micBtn = mk(sess.micOn ? "🔇 Mute mic" : "🎤 Unmute mic"); micBtn.onclick = () => sessionMicOn(!sess.micOn);
     const leaveBtn = mk("✕ " + (sess.role === "host" ? "End session" : "Leave")); leaveBtn.classList.add("danger"); leaveBtn.onclick = () => sessionLeave();
     btnRow.appendChild(camBtn); btnRow.appendChild(micBtn); btnRow.appendChild(leaveBtn);
     wrap.appendChild(btnRow);
