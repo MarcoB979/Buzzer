@@ -70,6 +70,7 @@
   #addonEjectPanel { order: 11; }
   #addonCoyotePanel { order: 12; }
   #addonButtplugPanel { order: 13; }
+  #sessionPanel { order: 15; }
   #kofi-wrap { order: 14; }
   #presets-panel { order: 8; }
   #generalSettings { order: 21; }
@@ -786,6 +787,12 @@
       <summary><span class="summary-left">🔌 Buttplug.io</span></summary>
       <div class="ai-settings-body">
         <div id="addonButtplugBody"></div>
+      </div>
+    </details>
+    <details class="presets-panel" id="sessionPanel">
+      <summary><span class="summary-left">📡 Sessions</span></summary>
+      <div class="ai-settings-body">
+        <div id="sessionBody"></div>
       </div>
     </details>
     <details class="presets-panel" id="presets-panel">
@@ -11607,6 +11614,349 @@ function addonButtplugIntentText() {
   return "\n\nBUTTPLUG.IO — INTENT: any Buttplug-compatible toy connected through Intiface can be controlled. Drive them with the \"addon\" field: {\"device\":\"buttplug\",\"action\":\"set\",\"name\":\"<part of the device name>\",\"key\":\"vibrate\"|\"rotate\"|\"oscillate\"|\"constrict\"|\"inflate\"|\"position\"|\"temperature\"|\"spray\"|\"led\",\"value\":<0-100>}. Use {\"device\":\"buttplug\",\"action\":\"stop_device\",\"name\":\"<name>\"} to stop one device, or {\"device\":\"buttplug\",\"action\":\"stop\"} to stop everything. If a device isn't there, ask the user to turn it on / connect it in Intiface.";
 }
 
+// ---------- Sessions (PeerJS: host/join, mutual webcam, roles, chat) ----------
+let sess = {
+  role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch",
+  guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {}
+};
+function sessionLib() {
+  if (window.Peer) return Promise.resolve(window.Peer);
+  if (window.PeerJS_PROMISE) return window.PeerJS_PROMISE;
+  window.PeerJS_PROMISE = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/peerjs@1.5.5/dist/peerjs.min.js";
+    s.onload = () => { if (window.Peer) resolve(window.Peer); else { window.PeerJS_PROMISE = null; reject(new Error("PeerJS loaded but Peer is undefined")); } };
+    s.onerror = () => { window.PeerJS_PROMISE = null; reject(new Error("failed to load PeerJS script")); };
+    document.head.appendChild(s);
+  });
+  return window.PeerJS_PROMISE;
+}
+function sessionRandomCode() { const c = "abcdefghjkmnpqrstuvwxyz23456789"; let s = ""; for (let i = 0; i < 6; i++) s += c[Math.floor(Math.random() * c.length)]; return s; }
+function sessionICE() { return [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }]; }
+function sessionCodeFromUrl() { try { return new URLSearchParams(location.search).get("session") || ""; } catch (e) { return ""; } }
+function sessionGuestById(id) { return sess.guests.find(g => g.id === id); }
+function sessionBroadcast(obj) { for (const g of sess.guests) { try { if (g.conn && g.conn.open) g.conn.send(obj); } catch (e) {} } }
+function sessionSend(obj) { try { if (sess.hostConn && sess.hostConn.open) sess.hostConn.send(obj); } catch (e) {} }
+function sessionBroadcastPeers() {
+  const list = sess.guests.map(g => ({ id: g.id, name: g.name, role: g.role }));
+  sessionBroadcast({ t: "peers", list });
+}
+function sessionAppendChat(who, text, sys) {
+  sess.messages.push({ who, text, sys });
+  if (sess.messages.length > 200) sess.messages.splice(0, sess.messages.length - 200);
+  const log = $("sessionChatLog");
+  if (log) {
+    const div = document.createElement("div");
+    div.className = "ai-set-hint";
+    div.style.cssText = "margin:1px 0;word-break:break-word;";
+    if (sys) div.style.color = "#94a3b8";
+    div.textContent = sys ? text : (who + ": " + text);
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+  }
+}
+async function sessionCamOn(on) {
+  try {
+    if (on) {
+      if (!sess.stream) sess.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      sess.camOn = true;
+      const targets = sess.role === "host" ? sess.guests.map(g => g.id) : (sess.hostId ? [sess.hostId] : []);
+      for (const t of targets) { try { sess.peer.call(t, sess.stream); } catch (e) {} }
+    } else {
+      sess.camOn = false;
+      if (sess.stream) { try { sess.stream.getTracks().forEach(t => t.stop()); } catch (e) {} sess.stream = null; }
+    }
+  } catch (e) {
+    sess.camOn = false;
+    monitor("Session: camera unavailable (" + (e && e.message ? e.message : e) + ")", "err");
+  }
+  sessionRender();
+}
+function sessionMicOn(on) {
+  sess.micOn = on;
+  if (sess.stream) sess.stream.getAudioTracks().forEach(t => { try { t.enabled = on; } catch (e) {} });
+  sessionRender();
+}
+async function sessionAnswerCall(call) {
+  let s = sess.stream;
+  if (!s) { try { s = new MediaStream(); } catch (e) { s = null; } }
+  if (s) { try { call.answer(s); } catch (e) {} }
+  call.on("stream", remote => { sess.remoteStreams[call.peer] = remote; sessionRender(); });
+  call.on("close", () => { delete sess.remoteStreams[call.peer]; sessionRender(); });
+}
+async function sessionHost() {
+  let Peer;
+  try { Peer = await sessionLib(); } catch (e) { monitor("Session: could not load PeerJS (" + (e && e.message ? e.message : e) + ")", "err"); return; }
+  if (!Peer) { monitor("Session: could not load PeerJS", "err"); return; }
+  if (sess.peer) { try { sess.peer.destroy(); } catch (e) {} }
+  sess.role = "host";
+  sess.myName = ($("sessionName") && $("sessionName").value.trim()) || sess.myName || "Host";
+  try { localStorage.setItem("ossm-session-name", sess.myName); } catch (e) {}
+  const code = "buzzer-" + sessionRandomCode();
+  const peer = new Peer(code, { config: { iceServers: sessionICE() } });
+  sess.peer = peer; sess.code = code;
+  peer.on("open", id => { sess.code = id; monitor("Session: hosting as " + id); sessionRender(); });
+  peer.on("error", err => {
+    if (err && err.type === "unavailable-id") { try { peer.destroy(); } catch (e) {} setTimeout(() => { if (sess.role === "host") sessionHost(); }, 400); }
+    else if (err && err.type === "peer-unavailable") { monitor("Session: that code doesn't exist", "warn"); }
+    else if (err && err.type !== "network") { monitor("Session: " + (err && err.message ? err.message : err), "err"); }
+  });
+  peer.on("connection", conn => sessionOnGuestConn(conn));
+  peer.on("call", call => sessionAnswerCall(call));
+  sessionRender();
+}
+function sessionOnGuestConn(conn) {
+  conn.on("open", () => {
+    const id = conn.peer;
+    sess.guests = sess.guests.filter(x => x.id !== id);
+    sess.guests.push({ id, conn, name: "Guest", role: "watch" });
+    try { conn.send({ t: "welcome", role: "watch" }); } catch (e) {}
+    sessionBroadcastPeers();
+    sessionAppendChat("", "Guest joined", true);
+    if (sess.camOn && sess.stream) { try { sess.peer.call(id, sess.stream); } catch (e) {} }
+    sessionRender();
+  });
+  conn.on("data", d => sessionOnGuestData(conn, d));
+  conn.on("close", () => {
+    const g = sessionGuestById(conn.peer);
+    if (g) { sess.guests = sess.guests.filter(x => x.id !== g.id); sessionAppendChat("", g.name + " left", true); delete sess.remoteStreams[g.id]; }
+    sessionBroadcastPeers();
+    sessionRender();
+  });
+  conn.on("error", () => {});
+}
+function sessionOnGuestData(conn, d) {
+  if (!d || typeof d !== "object") return;
+  const g = sessionGuestById(conn.peer);
+  if (!g) return;
+  if (d.t === "hello") {
+    if (typeof d.name === "string" && d.name.trim()) g.name = d.name.trim().slice(0, 24);
+    sessionBroadcastPeers();
+    sessionRender();
+  } else if (d.t === "chat") {
+    const text = String(d.text || "").slice(0, 500);
+    sessionAppendChat(g.name, text);
+    for (const o of sess.guests) { if (o.id !== g.id && o.conn && o.conn.open) { try { o.conn.send({ t: "chat", name: g.name, text }); } catch (e) {} } }
+  } else if (d.t === "cmd") {
+    if (g.role !== "control") { sessionAppendChat("", "(control not allowed for " + g.name + ")", true); return; }
+    sessionApplyRemoteCmd(d, g.name);
+  }
+}
+function sessionApplyRemoteCmd(d, who) {
+  if (!d || !d.kind) return;
+  if (d.kind === "estop") { monitor("Session: " + who + " triggered emergency stop", "warn"); emergencyStop(); sessionAppendChat("", who + " triggered emergency stop", true); }
+  else if (d.kind === "speed") { const v = clamp(Math.round(Number(d.v)), 0, 100); setSpeed(v); sessionAppendChat("", who + " set speed to " + v, true); }
+  else if (d.kind === "start") { toggleStart(); }
+}
+async function sessionJoin(code) {
+  let Peer;
+  try { Peer = await sessionLib(); } catch (e) { monitor("Session: could not load PeerJS (" + (e && e.message ? e.message : e) + ")", "err"); return; }
+  if (!Peer) { monitor("Session: could not load PeerJS", "err"); return; }
+  if (sess.peer) { try { sess.peer.destroy(); } catch (e) {} }
+  sess.role = "guest";
+  sess.hostId = code;
+  sess.myName = ($("sessionName") && $("sessionName").value.trim()) || sess.myName || "Guest";
+  try { localStorage.setItem("ossm-session-name", sess.myName); } catch (e) {}
+  const peer = new Peer({ config: { iceServers: sessionICE() } });
+  sess.peer = peer;
+  peer.on("open", () => {
+    const conn = peer.connect(code, { reliable: true });
+    sess.hostConn = conn;
+    conn.on("open", () => {
+      try { conn.send({ t: "hello", name: sess.myName }); } catch (e) {}
+      if (sess.camOn && sess.stream) { try { peer.call(code, sess.stream); } catch (e) {} }
+      sessionRender();
+    });
+    conn.on("data", d => sessionOnHostData(d));
+    conn.on("close", () => { monitor("Session: disconnected from host", "warn"); sessionLeave(); });
+    conn.on("error", () => {});
+  });
+  peer.on("error", err => {
+    if (err && err.type === "peer-unavailable") monitor("Session: that session code doesn't exist", "err");
+    else if (err && err.type !== "network") monitor("Session: " + (err && err.message ? err.message : err), "err");
+  });
+  peer.on("call", call => sessionAnswerCall(call));
+  sessionRender();
+}
+function sessionOnHostData(d) {
+  if (!d || typeof d !== "object") return;
+  if (d.t === "welcome") { sess.myRole = d.role || "watch"; sessionRender(); }
+  else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })); sessionRender(); }
+  else if (d.t === "chat") { sessionAppendChat(d.name || "host", String(d.text || "")); }
+  else if (d.t === "role") { sess.myRole = d.role || "watch"; sessionRender(); }
+  else if (d.t === "kick") { monitor("Session: host removed you", "warn"); sessionLeave(); }
+}
+async function sessionLeave() {
+  const p = sess.peer;
+  try { if (sess.stream) sess.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  sess.stream = null; sess.camOn = false; sess.micOn = false;
+  sess.remoteStreams = {}; sess.guests = []; sess.hostConn = null;
+  sess.role = null; sess.code = ""; sess.myRole = "watch";
+  try { if (p) p.destroy(); } catch (e) {}
+  sess.peer = null;
+  sessionRender();
+}
+function sessionSetRole(id, role) {
+  const g = sessionGuestById(id);
+  if (!g) return;
+  g.role = role;
+  if (g.conn && g.conn.open) { try { g.conn.send({ t: "role", role }); } catch (e) {} }
+  sessionBroadcastPeers();
+  sessionRender();
+}
+function sessionKick(id) {
+  const g = sessionGuestById(id);
+  if (g) { if (g.conn) { try { g.conn.send({ t: "kick" }); g.conn.close(); } catch (e) {} } }
+}
+function sessionCopyLink() {
+  const link = location.origin + location.pathname + "?session=" + sess.code;
+  try { if (navigator.clipboard) navigator.clipboard.writeText(link); } catch (e) {}
+  sessionAppendChat("", "Session link: " + link, true);
+}
+function sessionRender() {
+  const body = $("sessionBody");
+  if (!body) return;
+  body.innerHTML = "";
+  const wrap = document.createElement("div");
+  const mk = (txt) => { const b = document.createElement("button"); b.type = "button"; b.className = "ble-btn small"; b.textContent = txt; return b; };
+
+  const nameRow = document.createElement("div");
+  nameRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;";
+  const nameInput = document.createElement("input");
+  nameInput.type = "text"; nameInput.id = "sessionName";
+  nameInput.placeholder = "Your name";
+  nameInput.value = sess.myName || (function () { try { return localStorage.getItem("ossm-session-name") || ""; } catch (e) { return ""; } })();
+  nameInput.addEventListener("change", () => { sess.myName = nameInput.value.trim(); try { localStorage.setItem("ossm-session-name", sess.myName); } catch (e) {} });
+  nameRow.appendChild(nameInput);
+
+  if (!sess.role) {
+    const hostBtn = mk("▶ Host a session"); hostBtn.onclick = () => sessionHost();
+    nameRow.appendChild(hostBtn);
+    wrap.appendChild(nameRow);
+
+    const joinRow = document.createElement("div");
+    joinRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;";
+    const codeInput = document.createElement("input");
+    codeInput.type = "text"; codeInput.placeholder = "Session code";
+    codeInput.value = sessionCodeFromUrl();
+    const joinBtn = mk("Join");
+    joinBtn.onclick = () => { const c = codeInput.value.trim(); if (c) sessionJoin(c); };
+    joinRow.appendChild(codeInput); joinRow.appendChild(joinBtn);
+    wrap.appendChild(joinRow);
+
+    const hint = document.createElement("div");
+    hint.className = "ai-set-hint";
+    hint.textContent = "Share a live session: one person hosts, others join with the code. The host decides who may control. Both can enable their webcam.";
+    wrap.appendChild(hint);
+  } else {
+    const codeRow = document.createElement("div");
+    codeRow.className = "ai-set-hint";
+    codeRow.style.cssText = "margin:2px 0;";
+    codeRow.textContent = sess.role === "host" ? ("Session code: " + sess.code) : ("Connected to " + sess.hostId + (sess.myRole === "control" ? " · you can control" : " · watch only"));
+    wrap.appendChild(codeRow);
+
+    const btnRow = document.createElement("div");
+    btnRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;";
+    if (sess.role === "host") { const cp = mk("🔗 Copy link"); cp.onclick = () => sessionCopyLink(); btnRow.appendChild(cp); }
+    const camBtn = mk(sess.camOn ? "📷 Camera off" : "📷 Camera on"); camBtn.onclick = () => sessionCamOn(!sess.camOn);
+    const micBtn = mk(sess.micOn ? "🎙 Mic off" : "🎙 Mic on"); micBtn.onclick = () => sessionMicOn(!sess.micOn);
+    const leaveBtn = mk("✕ " + (sess.role === "host" ? "End session" : "Leave")); leaveBtn.classList.add("danger"); leaveBtn.onclick = () => sessionLeave();
+    btnRow.appendChild(camBtn); btnRow.appendChild(micBtn); btnRow.appendChild(leaveBtn);
+    wrap.appendChild(btnRow);
+
+    const plist = document.createElement("div");
+    plist.className = "ai-set-hint";
+    plist.style.cssText = "margin:2px 0;";
+    if (sess.role === "host") {
+      if (!sess.guests.length) plist.textContent = "No guests yet — share the code or link.";
+      else {
+        for (const g of sess.guests) {
+          const row = document.createElement("div");
+          row.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0;flex-wrap:wrap;";
+          const nm = document.createElement("span");
+          nm.textContent = g.name + (g.role === "control" ? " 🎮" : " 👁");
+          row.appendChild(nm);
+          const toggle = mk(g.role === "control" ? "Watch only" : "Allow control");
+          toggle.onclick = () => sessionSetRole(g.id, g.role === "control" ? "watch" : "control");
+          const kick = mk("Kick"); kick.classList.add("danger"); kick.onclick = () => sessionKick(g.id);
+          row.appendChild(toggle); row.appendChild(kick);
+          plist.appendChild(row);
+        }
+      }
+    } else {
+      plist.textContent = "Host" + (sess.guests.length ? " · " + sess.guests.map(g => g.name + (g.role === "control" ? " 🎮" : " 👁")).join(", ") : "");
+    }
+    wrap.appendChild(plist);
+
+    const videoWrap = document.createElement("div");
+    videoWrap.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;margin:4px 0;";
+    const attachVideo = (label, stream, muted) => {
+      const box = document.createElement("div");
+      box.style.cssText = "width:160px;";
+      const v = document.createElement("video");
+      v.autoplay = true; v.playsInline = true; v.muted = muted;
+      v.style.cssText = "width:160px;height:120px;background:#000;border-radius:6px;object-fit:cover;";
+      if (stream) { try { v.srcObject = stream; } catch (e) {} }
+      const cap = document.createElement("div"); cap.className = "ai-set-hint"; cap.textContent = label;
+      box.appendChild(v); box.appendChild(cap);
+      videoWrap.appendChild(box);
+    };
+    if (sess.stream && sess.camOn) attachVideo("You", sess.stream, true);
+    for (const [id, st] of Object.entries(sess.remoteStreams)) {
+      const g = sessionGuestById(id);
+      attachVideo(id === sess.hostId ? "Host" : (g ? g.name : id), st, false);
+    }
+    wrap.appendChild(videoWrap);
+
+    const chatLog = document.createElement("div");
+    chatLog.id = "sessionChatLog";
+    chatLog.style.cssText = "height:120px;overflow-y:auto;border:1px solid #334155;border-radius:6px;padding:4px 6px;margin:4px 0;font-size:.75rem;background:#0b1220;";
+    for (const msg of sess.messages) {
+      const div = document.createElement("div");
+      div.className = "ai-set-hint";
+      div.style.cssText = "margin:1px 0;word-break:break-word;";
+      if (msg.sys) div.style.color = "#94a3b8";
+      div.textContent = msg.sys ? msg.text : (msg.who + ": " + msg.text);
+      chatLog.appendChild(div);
+    }
+    chatLog.scrollTop = chatLog.scrollHeight;
+    wrap.appendChild(chatLog);
+
+    const chatRow = document.createElement("div");
+    chatRow.style.cssText = "display:flex;gap:6px;";
+    const chatInput = document.createElement("input");
+    chatInput.type = "text"; chatInput.placeholder = "Message…"; chatInput.style.cssText = "flex:1;min-width:0;";
+    const sendBtn = mk("Send");
+    const sendChat = () => {
+      const text = chatInput.value.trim().slice(0, 500);
+      if (!text) return;
+      chatInput.value = "";
+      sessionAppendChat(sess.myName || "Me", text);
+      if (sess.role === "host") sessionBroadcast({ t: "chat", name: sess.myName || "Host", text });
+      else sessionSend({ t: "chat", name: sess.myName || "Guest", text });
+    };
+    sendBtn.onclick = sendChat;
+    chatInput.addEventListener("keydown", e => { if (e.key === "Enter") sendChat(); });
+    chatRow.appendChild(chatInput); chatRow.appendChild(sendBtn);
+    wrap.appendChild(chatRow);
+
+    const ctrlRow = document.createElement("div");
+    ctrlRow.style.cssText = "display:flex;gap:6px;margin:4px 0;flex-wrap:wrap;";
+    if (sess.role === "host") {
+      const e = mk("⛔ Estop"); e.classList.add("danger"); e.onclick = () => { emergencyStop(); sessionBroadcast({ t: "chat", name: "system", text: "Host triggered emergency stop" }); };
+      ctrlRow.appendChild(e);
+    } else if (sess.myRole === "control") {
+      const e = mk("⛔ Estop"); e.classList.add("danger"); e.onclick = () => sessionSend({ t: "cmd", kind: "estop" });
+      const spd = mk("Speed 50"); spd.onclick = () => sessionSend({ t: "cmd", kind: "speed", v: 50 });
+      const st = mk("Start/Stop"); st.onclick = () => sessionSend({ t: "cmd", kind: "start" });
+      ctrlRow.appendChild(e); ctrlRow.appendChild(spd); ctrlRow.appendChild(st);
+    }
+    if (ctrlRow.childNodes.length) wrap.appendChild(ctrlRow);
+  }
+
+  body.appendChild(wrap);
+}
+
 function addonFistActive() {
   const st = ADDON_STATE["fist"];
   return addonEnabled("fist") && !!(st && (st.connected || st.on));
@@ -11716,6 +12066,7 @@ if (addonCoyoteChk) { addonCoyoteChk.checked = addonEnabled("coyote"); addonCoyo
 const addonButtplugChk = $("addonButtplugEnabled");
 if (addonButtplugChk) { addonButtplugChk.checked = addonEnabled("buttplug"); addonButtplugChk.addEventListener("change", () => { addonSetEnabled("buttplug", addonButtplugChk.checked); addonRender(); if (!addonButtplugChk.checked) buttplugDisconnect(); }); }
 addonRender();
+sessionRender();
 // Auto-reconnect to previously-paired devices on startup (no picker).
 if (addonEnabled("fist")) addonAutoConnect("fist");
 if (addonEnabled("eject")) addonAutoConnect("eject");
