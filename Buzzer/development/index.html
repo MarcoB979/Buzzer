@@ -9479,15 +9479,6 @@ function companionLiveFrame(now) {
       const srcY2 = top - lidSrcH;
       const coverH = eyeHpx * 1.15 * blink * s;      // lid comes down to just below mid-eye
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2) + 10, lidW * s, coverH);
-      if (blink > 0.2) {
-        ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
-        ctx.lineWidth = Math.max(1, eyeHpx * 0.08 * s);
-        const ly = ty(srcY2) + coverH + 10;
-        ctx.beginPath();
-        ctx.moveTo(tx(eix) - eyeWpx * 0.7 * s, ly);
-        ctx.quadraticCurveTo(tx(eix), ly + eyeHpx * 0.12 * s, tx(eix) + eyeWpx * 0.7 * s, ly);
-        ctx.stroke();
-      }
     });
   }
 
