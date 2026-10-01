@@ -11238,6 +11238,13 @@ function coyoteRender() {
   c.innerHTML = "";
   if (addonEnabled("coyote")) c.appendChild(coyoteBuildSection());
 }
+function coyoteAiStep() {
+  const f = compFreedom();
+  if (f === "full") return 10;
+  if (f === "wild") return 5;
+  if (f === "playful") return 3;
+  return 1; // strict
+}
 function aiApplyCoyote(action, p) {
   const st = coyoteState();
   if (action === "start" || action === "on") { if (!st.on) { aiLog("addon coyote: start"); coyoteStart(); } }
@@ -11250,9 +11257,8 @@ function aiApplyCoyote(action, p) {
       v = clamp(Math.round(v), s.min, s.max);
       if (key === "a_power" || key === "b_power") {
         const cur = coyoteSliderVal(key, COYOTE_DEFAULTS[key]);
-        const step = 10; // e-stim safety: max ±10 per AI turn
-        const delta = v - cur;
-        if (Math.abs(delta) > step) v = Math.round(cur + Math.sign(delta) * step);
+        const step = coyoteAiStep(); // raising cap depends on initiative mode; lowering is never capped
+        if (v > cur && (v - cur) > step) v = cur + step;
       }
       aiLog("addon coyote: set " + key + " " + v);
       coyoteSlider(key, v);
@@ -11264,7 +11270,7 @@ function addonCoyoteIntentText() {
   return "\n\nCOYOTE (e-stim) — INTENT: when the user asks for e-stim / electro / shocks / tingling, actually run it via the \"addon\" field. Start with {\"device\":\"coyote\",\"action\":\"start\"}, then set the channels — e.g. [{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_power\",\"value\":15},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_freq\",\"value\":50},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_wave\",\"value\":60}]. \"a_power\"/\"b_power\" = channel intensity (0-200); \"a_freq\"/\"b_freq\" = frequency in Hz (10-1000); \"a_wave\"/\"b_wave\" = waveform strength (0-100). \"limit\" = soft safety cap (1-200). To end: {\"device\":\"coyote\",\"action\":\"stop\"}.";
 }
 function addonCoyoteSafetyText() {
-  return "\n\nE-STIM SAFETY (CRITICAL — applies while the Coyote is connected/running): electricity is dangerous — wrong settings can injure. NEVER raise channel intensity (a_power/b_power) sharply: change it only in SMALL steps (the app caps each \"set\" to ±10) and ramp up gradually over several turns, always staying under the soft limit. Start very low and check in with the user. On the user's safe word the app zeroes the Coyote automatically, but you must also send {\"device\":\"coyote\",\"action\":\"stop\"} yourself. Never set a frequency or intensity outside the stated ranges, and never aim for the chest or head — assume the user has placed the electrodes safely themselves.";
+  return "\n\nE-STIM SAFETY (CRITICAL — applies while the Coyote is connected/running): electricity is dangerous — wrong settings can injure. NEVER raise channel intensity (a_power/b_power) sharply: the app caps every increase to a small step that grows with the initiative level (Strict ±1, Playful ±3, Wild ±5, Full ±10) — ramp up gradually over several turns, always staying under the soft limit. Lowering is never capped, so you can always reduce or stop instantly. Start very low and check in with the user. On the user's safe word the app zeroes the Coyote automatically, but you must also send {\"device\":\"coyote\",\"action\":\"stop\"} yourself. Never set a frequency or intensity outside the stated ranges, and never aim for the chest or head — assume the user has placed the electrodes safely themselves.";
 }
 window.addEventListener("pagehide", () => { if (addonEnabled("coyote")) coyoteKill(); });
 
