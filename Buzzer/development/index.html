@@ -11074,6 +11074,74 @@ function coyoteFreqValue(hz) {
   else v = 240;
   return clamp(Math.round(v), 10, 240);
 }
+// ---------- DG-Labs .pulse preset parser ----------
+// Dungeonlab+pulse:<rest>,<speed>,<balance>=<freqStart>,<freqEnd>,<duration>,<mode>,<enabled>/<strength>-<anchor>,...
+// Produces 100 ms frames: { f: frequency byte (10-240), s: strength (0-100) }.
+const COYOTE_FREQ_TABLE = (function () {
+  const t = [];
+  for (let i = 10; i <= 50; i++) t.push(i);
+  for (let i = 52; i <= 80; i += 2) t.push(i);
+  [85, 90, 95, 100].forEach(v => t.push(v));
+  for (let i = 110; i <= 200; i += 10) t.push(i);
+  [233, 266, 300, 333, 366, 400].forEach(v => t.push(v));
+  for (let i = 450; i <= 600; i += 50) t.push(i);
+  for (let i = 700; i <= 1000; i += 100) t.push(i);
+  return t;
+})();
+function coyoteFreqFromIndex(i) { return COYOTE_FREQ_TABLE[clamp(Math.floor(Number(i) || 0), 0, 83)] ?? 10; }
+function coyoteDurationFromIndex(i) { return clamp(Math.floor(Number(i) || 0), 0, 99) + 1; } // 100 ms units
+function coyotePeriodToByte(x) { // waveform period (ms, 10-1000) → device byte (10-240)
+  let o;
+  if (x >= 10 && x <= 100) o = x;
+  else if (x > 100 && x <= 600) o = (x - 100) / 5 + 100;
+  else if (x > 600 && x <= 1000) o = (x - 600) / 10 + 200;
+  else if (x < 10) o = 10;
+  else o = 240;
+  return clamp(Math.round(o), 10, 240);
+}
+function coyoteParsePulse(text) {
+  const clean = String(text || "").trim().replace(/^Dungeonlab\+pulse:/i, "");
+  if (!clean) throw new Error("empty file");
+  const parts = clean.split("+section+");
+  const eq = parts[0].indexOf("=");
+  if (eq === -1) throw new Error("not a Dungeonlab .pulse file");
+  const secStrs = [parts[0].slice(eq + 1)].concat(parts.slice(1));
+  const frames = [];
+  for (const secStr of secStrs) {
+    if (!secStr) continue;
+    const slash = secStr.indexOf("/");
+    if (slash === -1) continue;
+    const h = secStr.slice(0, slash).split(",");
+    if (h[4] === "0") continue; // disabled section
+    const startFreq = coyoteFreqFromIndex(h[0]); // period in ms
+    const endFreq = coyoteFreqFromIndex(h[1]);
+    const duration = coyoteDurationFromIndex(h[2]); // 100 ms units
+    const mode = Number(h[3]) || 1;
+    const points = [];
+    for (const item of secStr.slice(slash + 1).split(",")) {
+      if (!item) continue;
+      const s = item.split("-")[0];
+      points.push(clamp(Math.round(Number(s) || 0), 0, 100));
+    }
+    if (points.length < 2) continue;
+    const elemDur = points.length;
+    const elemCount = Math.max(1, Math.ceil(duration / elemDur));
+    const actualDur = elemCount * elemDur;
+    for (let ei = 0; ei < elemCount; ei++) {
+      for (let si = 0; si < points.length; si++) {
+        const currentTime = ei * elemDur + si;
+        let f;
+        if (mode === 2) f = startFreq + (endFreq - startFreq) * (currentTime / actualDur);
+        else if (mode === 3) f = startFreq + (endFreq - startFreq) * (si / elemDur);
+        else if (mode === 4) f = startFreq + (endFreq - startFreq) * (elemCount > 1 ? ei / (elemCount - 1) : 0);
+        else f = startFreq;
+        frames.push({ f: coyotePeriodToByte(f), s: points[si] });
+      }
+    }
+  }
+  if (!frames.length) throw new Error("no enabled sections found");
+  return { frames, durationMs: frames.length * 100 };
+}
 // BF command (7 bytes): soft limits + frequency/intensity balance. Written on
 // every connect and every Start — the device remembers the soft limit, so it
 // must be re-asserted to prevent an unexpected high limit.
@@ -11084,15 +11152,25 @@ function coyoteBuildBF() {
 // B0 command (20 bytes, sent every 100 ms): channel intensity + 4 waveform
 // slots (25 ms each) per channel.
 function coyoteBuildPacket() {
+  const st = coyoteState();
   const b = new Uint8Array(20);
   b[0] = 0xB0;
   b[1] = 0x0F; // serial 0 + absolute intensity mode for both channels
   b[2] = clamp(Math.round(coyoteSliderVal("a_power", COYOTE_DEFAULTS.a_power)), 0, 200);
   b[3] = clamp(Math.round(coyoteSliderVal("b_power", COYOTE_DEFAULTS.b_power)), 0, 200);
-  const aF = coyoteFreqValue(coyoteSliderVal("a_freq", COYOTE_DEFAULTS.a_freq));
-  const bF = coyoteFreqValue(coyoteSliderVal("b_freq", COYOTE_DEFAULTS.b_freq));
-  const aW = clamp(Math.round(coyoteSliderVal("a_wave", COYOTE_DEFAULTS.a_wave)), 0, 100);
-  const bW = clamp(Math.round(coyoteSliderVal("b_wave", COYOTE_DEFAULTS.b_wave)), 0, 100);
+  let aF, aW, bF, bW;
+  if (st.presetPlaying && st.preset && st.preset.frames && st.preset.frames.length) {
+    const fr = st.preset.frames[st.preset.idx % st.preset.frames.length];
+    st.preset.idx = (st.preset.idx + 1) % st.preset.frames.length;
+    aF = fr.f; aW = fr.s; // preset drives channel A's frequency + waveform strength
+    bF = coyoteFreqValue(coyoteSliderVal("b_freq", COYOTE_DEFAULTS.b_freq));
+    bW = clamp(Math.round(coyoteSliderVal("b_wave", COYOTE_DEFAULTS.b_wave)), 0, 100);
+  } else {
+    aF = coyoteFreqValue(coyoteSliderVal("a_freq", COYOTE_DEFAULTS.a_freq));
+    aW = clamp(Math.round(coyoteSliderVal("a_wave", COYOTE_DEFAULTS.a_wave)), 0, 100);
+    bF = coyoteFreqValue(coyoteSliderVal("b_freq", COYOTE_DEFAULTS.b_freq));
+    bW = clamp(Math.round(coyoteSliderVal("b_wave", COYOTE_DEFAULTS.b_wave)), 0, 100);
+  }
   for (let i = 0; i < 4; i++) { b[4 + i] = aF; b[8 + i] = aW; b[12 + i] = bF; b[16 + i] = bW; }
   return b;
 }
@@ -11195,6 +11273,8 @@ function coyoteStop() {
   const st = coyoteState();
   if (st.timer) { clearInterval(st.timer); st.timer = null; }
   st.on = false;
+  st.presetPlaying = false;
+  if (st.preset) st.preset.idx = 0;
   if (st.connected) coyoteWrite(st, coyoteKillPacket());
   coyoteRender();
 }
@@ -11205,13 +11285,45 @@ function coyoteSlider(key, v) {
   st.sliderValues[key] = v;
   if (key === "limit" && st.connected) coyoteWrite(st, coyoteBuildBF()); // soft limit applies immediately
 }
+function coyoteLoadPresetFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const p = coyoteParsePulse(String(reader.result || ""));
+      const st = coyoteState();
+      st.preset = { name: String(file.name || "preset").replace(/\.pulse$/i, ""), frames: p.frames, idx: 0 };
+      st.presetPlaying = false;
+      monitor("Coyote preset loaded: " + file.name + " (" + Math.round(p.durationMs / 1000) + "s)");
+      coyoteRender();
+    } catch (e) {
+      monitor("Coyote preset: " + (e && e.message ? e.message : e), "err");
+    }
+  };
+  reader.onerror = () => monitor("Coyote preset: could not read file", "err");
+  reader.readAsText(file);
+}
+function coyotePlayPreset() {
+  const st = coyoteState();
+  if (!st.preset || !st.preset.frames || !st.preset.frames.length) { monitor("Coyote: no preset loaded", "warn"); return; }
+  if (!st.connected) { coyoteConnect(); return; }
+  if (!st.on) coyoteStart(); // starts the 100 ms stream (first packet is slider-based and safe)
+  st.presetPlaying = true;
+  st.preset.idx = 0;
+  coyoteRender();
+}
+function coyoteStopPreset() {
+  const st = coyoteState();
+  st.presetPlaying = false;
+  if (st.preset) st.preset.idx = 0;
+  coyoteRender();
+}
 function coyoteBuildSection() {
   const st = coyoteState();
   const wrap = document.createElement("div");
   const status = document.createElement("div");
   status.className = "ai-set-hint";
   const bat = (typeof st.battery === "number") ? (" · battery " + st.battery + "%") : "";
-  status.textContent = st.connected ? (st.on ? "● Running" + bat : "● Connected — ready" + bat) : "Not connected";
+  status.textContent = st.connected ? (st.on ? (st.presetPlaying ? "● Running preset" + bat : "● Running" + bat) : "● Connected — ready" + bat) : "Not connected";
   wrap.appendChild(status);
   const btnRow = document.createElement("div");
   btnRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;";
@@ -11225,6 +11337,25 @@ function coyoteBuildSection() {
     const cur = coyoteSliderVal(s.key, COYOTE_DEFAULTS[s.key] !== undefined ? COYOTE_DEFAULTS[s.key] : s.min);
     wrap.appendChild(sliderEl(s.label, s.min, s.max, cur, "#38bdf8", (v) => coyoteSlider(s.key, v)));
   }
+  // Preset (DG-Labs .pulse waveform) — plays on channel A; intensity still comes from the A slider.
+  const presetRow = document.createElement("div");
+  presetRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;align-items:center;";
+  const loadBtn = mk("📄 Load .pulse preset");
+  const fileIn = document.createElement("input");
+  fileIn.type = "file"; fileIn.accept = ".pulse,.txt,text/plain"; fileIn.style.display = "none";
+  loadBtn.onclick = () => fileIn.click();
+  fileIn.addEventListener("change", () => { const f = fileIn.files && fileIn.files[0]; if (f) coyoteLoadPresetFile(f); });
+  presetRow.appendChild(loadBtn); presetRow.appendChild(fileIn);
+  if (st.preset && st.preset.frames) {
+    const lbl = document.createElement("span");
+    lbl.className = "ai-set-hint";
+    lbl.textContent = "🎵 " + st.preset.name + " · " + Math.round(st.preset.frames.length / 10) + "s";
+    presetRow.appendChild(lbl);
+    const play = mk(st.presetPlaying ? "⏹ Stop preset" : "▶ Play preset");
+    play.onclick = () => (st.presetPlaying ? coyoteStopPreset() : coyotePlayPreset());
+    presetRow.appendChild(play);
+  }
+  wrap.appendChild(presetRow);
   const warn = document.createElement("div");
   warn.className = "ai-set-hint";
   warn.style.color = "#fbbf24";
@@ -11249,6 +11380,8 @@ function aiApplyCoyote(action, p) {
   const st = coyoteState();
   if (action === "start" || action === "on") { if (!st.on) { aiLog("addon coyote: start"); coyoteStart(); } }
   else if (action === "stop" || action === "off") { if (st.on) { aiLog("addon coyote: stop"); coyoteStop(); } }
+  else if (action === "preset_play" || action === "play_preset") { aiLog("addon coyote: play preset"); coyotePlayPreset(); }
+  else if (action === "preset_stop" || action === "stop_preset") { aiLog("addon coyote: stop preset"); coyoteStopPreset(); }
   else if (action === "set" || action === "value") {
     const key = String(p.key || "").toLowerCase();
     const s = coyoteDef().sliders.find(x => x.key === key);
@@ -11267,7 +11400,7 @@ function aiApplyCoyote(action, p) {
   }
 }
 function addonCoyoteIntentText() {
-  return "\n\nCOYOTE (e-stim) — INTENT: when the user asks for e-stim / electro / shocks / tingling, actually run it via the \"addon\" field. Start with {\"device\":\"coyote\",\"action\":\"start\"}, then set the channels — e.g. [{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_power\",\"value\":15},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_freq\",\"value\":50},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_wave\",\"value\":60}]. \"a_power\"/\"b_power\" = channel intensity (0-200); \"a_freq\"/\"b_freq\" = frequency in Hz (10-1000); \"a_wave\"/\"b_wave\" = waveform strength (0-100). \"limit\" = soft safety cap (1-200). To end: {\"device\":\"coyote\",\"action\":\"stop\"}.";
+  return "\n\nCOYOTE (e-stim) — INTENT: when the user asks for e-stim / electro / shocks / tingling, actually run it via the \"addon\" field. Start with {\"device\":\"coyote\",\"action\":\"start\"}, then set the channels — e.g. [{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_power\",\"value\":15},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_freq\",\"value\":50},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_wave\",\"value\":60}]. \"a_power\"/\"b_power\" = channel intensity (0-200); \"a_freq\"/\"b_freq\" = frequency in Hz (10-1000); \"a_wave\"/\"b_wave\" = waveform strength (0-100). \"limit\" = soft safety cap (1-200). If a .pulse preset is loaded, {\"device\":\"coyote\",\"action\":\"preset_play\"} starts it on channel A and {\"device\":\"coyote\",\"action\":\"preset_stop\"} stops it. To end: {\"device\":\"coyote\",\"action\":\"stop\"}.";
 }
 function addonCoyoteSafetyText() {
   return "\n\nE-STIM SAFETY (CRITICAL — applies while the Coyote is connected/running): electricity is dangerous — wrong settings can injure. NEVER raise channel intensity (a_power/b_power) sharply: the app caps every increase to a small step that grows with the initiative level (Strict ±1, Playful ±3, Wild ±5, Full ±10) — ramp up gradually over several turns, always staying under the soft limit. Lowering is never capped, so you can always reduce or stop instantly. Start very low and check in with the user. On the user's safe word the app zeroes the Coyote automatically, but you must also send {\"device\":\"coyote\",\"action\":\"stop\"} yourself. Never set a frequency or intensity outside the stated ranges, and never aim for the chest or head — assume the user has placed the electrodes safely themselves.";
