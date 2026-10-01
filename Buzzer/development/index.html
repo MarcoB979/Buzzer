@@ -6501,8 +6501,11 @@ function aiApplyStd(p) {
     } else if (k === "Speed") {
       const target = clamp(Math.round(Number(raw)), 0, caps.maxSpeed);
       if (running) {
-        const capped = clamp(target, Math.round(stdValues.speed) - AI_CHANGE_LIMIT, Math.round(stdValues.speed) + AI_CHANGE_LIMIT);
-        rampSpeed(stdValues.speed, capped); // speed always ramps — never instant
+        const cur = Math.round(stdValues.speed);
+        // Slowing down is always safe — go straight to the requested speed.
+        // Speeding up stays capped (a single command can't jump too fast).
+        const capped = (target < cur) ? target : clamp(target, cur, cur + AI_CHANGE_LIMIT);
+        rampSpeed(cur, capped); // speed always ramps — never instant
         put("Speed", capped);
       } else {
         if (target > 0) aiStartTarget = clamp(target, 1, Math.min(caps.maxSpeed, AI_START_SPEED_MAX));
@@ -6605,10 +6608,14 @@ function aiLocalStd(text) {
   return p;
 }
 function aiIsStop(text) {
-  const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  const raw = (text || "").toLowerCase();
+  const t = raw.replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
   if (!t) return false;
-  if (t.split(" ").length > 5) return false;
-  return /\b(stop|halt|abort|freeze|stoppen|arrête|arrêt|anhalten|parar|detente|noodstop|emergency stop)\b/.test(t);
+  if (t.split(" ").length > 12) return false;
+  // Negation — "don't stop", "never stop", "keep going" etc. mean the opposite.
+  if (/\b(don'?t|do not|never|not|no|cannot|can'?t|keep|continue|go on|more|harder|faster)\b[\w ]{0,14}\b(stop|halt|end|freeze|stoppen)\b/.test(raw)) return false;
+  return /\b(stop|halt|abort|freeze|stoppen|arrête|arrêt|anhalten|parar|detente|noodstop|emergency stop)\b/.test(t)
+    || /\b(that'?s enough|i'?m done|i'?ve had enough|enough now)\b/.test(raw);
 }
 let aiVoicesCache = [];
 function aiTtsVoiceName() {
@@ -7318,8 +7325,12 @@ function aiApplyParams(p) {
         aiStartTarget = clamp(val, 1, Math.min(caps.maxSpeed, AI_START_SPEED_MAX));
         val = 0;
       }
-      // SAFETY: while playing, never jump a value by more than AI_CHANGE_LIMIT in one command.
-      if (running) val = clamp(val, cur - AI_CHANGE_LIMIT, cur + AI_CHANGE_LIMIT);
+      // SAFETY: while playing, never jump a value up by more than AI_CHANGE_LIMIT.
+      // Slowing down (any speed param) is always safe and allowed to drop freely.
+      if (running) {
+        const isSpeed = (k === "Speed" || k === "In Speed" || k === "Out Speed");
+        val = (isSpeed && val < cur) ? val : clamp(val, cur - AI_CHANGE_LIMIT, cur + AI_CHANGE_LIMIT);
+      }
       if (k === "Speed" && running && val !== cur) {
         rampSpeed(speed(), val); // speed always ramps — never an instant jump
         applied.push(k + " " + val + " (ramping)");
