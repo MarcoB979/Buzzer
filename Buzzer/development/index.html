@@ -7278,7 +7278,16 @@ function aiAddMsg(role, html) {
   d.innerHTML = html;
   h.appendChild(d);
   h.scrollTop = h.scrollHeight;
+  sessionBroadcastAi(role, html);
   return d;
+}
+function sessionBroadcastAi(role, html) {
+  if (sess.role !== "host" || !sess.guests.length) return;
+  if (role !== "assistant" && role !== "user") return;
+  let text = "";
+  try { const t = document.createElement("div"); t.innerHTML = html; text = (t.textContent || "").trim(); } catch (e) { text = String(html).replace(/<[^>]*>/g, "").trim(); }
+  if (!text) return;
+  sessionBroadcast({ t: "ai", role, text });
 }
 // Show a system note AND push it into the active conversation so the AI is
 // told about an app-side decision (e.g. a blocked action) and stops narrating
@@ -11793,7 +11802,8 @@ function sessionOnHostData(d) {
   else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })); sessionRender(); }
   else if (d.t === "chat") { sessionAppendChat(d.name || "host", String(d.text || "")); }
   else if (d.t === "role") { sess.myRole = d.role || "watch"; sessionRender(); }
-  else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorState(d); }
+  else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorState(d); sessionFollowVideo(d.video); }
+  else if (d.t === "ai") { sessionAppendChat(d.role === "user" ? "Host" : "Companion", String(d.text || "")); }
   else if (d.t === "apply") {
     if (d.kind === "estop") {
       if (sess.mirrorDevice && connected) { monitor("Session: host estop — stopping my device", "warn"); emergencyStop(); }
@@ -11835,7 +11845,13 @@ function sessionBroadcastSnapshot() {
   if (sess.role !== "host" || !sess.guests.length || !sess.peer) return;
   const base = {};
   for (let i = 0; i < BASE_NAMES.length; i++) base[SESSION_BASE_SHORT[i]] = Math.round(settingValue(baseKey(i)));
-  sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running: (appMode === "fun" ? !!funState.playing : speed() > 0), speed: speed(), base, compMode: !!compModeActive });
+  let video = null;
+  if (appMode === "fun") {
+    const v = $("funVideo");
+    const shareable = funState.videoUrl && !funState.videoUrl.startsWith("blob:") ? funState.videoUrl : null;
+    if (v || funState.videoName) video = { name: funState.videoName || "", url: shareable, playing: !!funState.playing, t: v ? Math.round(v.currentTime * 10) / 10 : 0 };
+  }
+  sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running: (appMode === "fun" ? !!funState.playing : speed() > 0), speed: speed(), base, compMode: !!compModeActive, video });
 }
 function sessionUpdateStatus() {
   const el = $("sessionStatusLine");
@@ -11851,9 +11867,28 @@ function sessionUpdateStatus() {
   parts.push("Speed " + s.speed);
   if (s.base) parts.push("Depth " + s.base.maxPos);
   parts.push(s.running ? "● Running" : "○ Idle");
+  if (s.video && s.video.name) parts.push("🎬 " + s.video.name + (s.video.playing ? " ▶" : " ⏸"));
   if (!s.connected) parts.push("OSSM not connected");
   if (s.compMode) parts.push("Companion");
   el.textContent = parts.join(" · ");
+}
+function sessionFollowVideo(v) {
+  if (!v || sess.role !== "guest" || !sess.watchVideo) return;
+  sess.hostVideo = v;
+  if (v.url && (!funState.videoUrl || funState.videoUrl !== v.url)) {
+    try {
+      if (appMode !== "fun") setModeFromDropdown("fun");
+      setFunVideo(v.url, v.name);
+    } catch (e) {}
+    return;
+  }
+  const vv = $("funVideo");
+  if (!vv || appMode !== "fun") return;
+  try {
+    if (v.playing && vv.paused) vv.play();
+    else if (!v.playing && !vv.paused) vv.pause();
+    if (Math.abs(vv.currentTime - v.t) > 2.5) vv.currentTime = v.t;
+  } catch (e) {}
 }
 function sessionMirrorState(s) {
   if (sess.role !== "guest" || !sess.mirrorDevice || !connected) return;
@@ -11936,6 +11971,11 @@ function sessionRender() {
       mirrorLabel.style.cssText = "font-size:.75rem;gap:8px;margin:2px 0;";
       mirrorLabel.innerHTML = '<span>🎛 Mirror host to my device</span><span class="switch"><input type="checkbox" id="sessionMirrorToggle"><span class="slider"></span></span>';
       wrap.appendChild(mirrorLabel);
+      const watchLabel = document.createElement("label");
+      watchLabel.className = "inline-toggle";
+      watchLabel.style.cssText = "font-size:.75rem;gap:8px;margin:2px 0;";
+      watchLabel.innerHTML = '<span>▶ Follow host video</span><span class="switch"><input type="checkbox" id="sessionWatchToggle"><span class="slider"></span></span>';
+      wrap.appendChild(watchLabel);
     }
 
     const plist = document.createElement("div");
@@ -12035,6 +12075,8 @@ function sessionRender() {
   body.appendChild(wrap);
   const mt = $("sessionMirrorToggle");
   if (mt) { mt.checked = !!sess.mirrorDevice; mt.addEventListener("change", () => { sess.mirrorDevice = mt.checked; if (!mt.checked) sess.applied = null; }); }
+  const wt = $("sessionWatchToggle");
+  if (wt) { wt.checked = !!sess.watchVideo; wt.addEventListener("change", () => { sess.watchVideo = wt.checked; }); }
   sessionUpdateStatus();
 }
 
