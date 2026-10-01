@@ -1041,6 +1041,15 @@
         </div>
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
         <div class="ai-set-divider"></div>
+        <div class="ai-set-section">Custom instructions</div>
+        <div style="display:flex;gap:6px;margin-top:4px;">
+          <button type="button" class="ble-btn small" id="aiCustomPromptLoad">📄 Load .txt</button>
+          <button type="button" class="ble-btn small" id="aiCustomPromptClear">✕ Clear</button>
+          <input type="file" id="aiCustomPromptFile" accept=".txt,text/plain" style="display:none;">
+        </div>
+        <textarea id="aiCustomPromptText" rows="4" placeholder="Your own extra instructions for the companion — preferences, roleplay, dynamics, how to talk to you…" style="width:100%;box-sizing:border-box;margin-top:6px;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;resize:vertical;"></textarea>
+        <div class="ai-set-hint">Personal instructions for how the companion should talk and act with you (dominance play, kinks, how you like to be addressed, etc.). Added after the built-in rules and safeties, which always take priority. Stored only on this device.</div>
+        <div class="ai-set-divider"></div>
         <div class="ai-set-section">Safety</div>
         <label class="ai-set-label" for="aiStopModeSel">Emergency stop on</label>
         <select id="aiStopModeSel">
@@ -6053,7 +6062,7 @@ function aiRecoverEnvelope(t) {
 function aiExtractJson(text) {
   // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "pos": {...}, "lang": ".."} or a flat params object.
   // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
-  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, lang: null });
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, lang: null });
   if (!text) return empty();
   const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
@@ -6120,10 +6129,25 @@ function aiExtractJson(text) {
   } else if (j.addon && typeof j.addon === "object" && typeof j.addon.device === "string") {
     addon = j.addon;
   }
-  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon) {
-    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, lang };
+  let timer = null;
+  if (j.timer && typeof j.timer === "object" && !Array.isArray(j.timer)) {
+    if (j.timer.stop) { timer = { stop: true }; }
+    else {
+      const tlines = (Array.isArray(j.timer.lines) ? j.timer.lines : (typeof j.timer.lines === "string" ? [j.timer.lines] : [])).map(s => String(s)).filter(s => s.trim()).slice(0, 20);
+      if (tlines.length) {
+        const a = (typeof j.timer.min === "number" && isFinite(j.timer.min)) ? j.timer.min : 20;
+        const b = (typeof j.timer.max === "number" && isFinite(j.timer.max)) ? j.timer.max : 60;
+        const min = Math.max(3, Math.min(3600, Math.min(a, b)));
+        const max = Math.max(min, Math.min(3600, Math.max(a, b)));
+        const repeat = (typeof j.timer.repeat === "number" && isFinite(j.timer.repeat)) ? Math.max(1, Math.min(10, Math.floor(j.timer.repeat))) : 1;
+        timer = { min, max, lines: tlines, repeat };
+      }
+    }
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, lang: null };
+  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer) {
+    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, lang };
+  }
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -7364,7 +7388,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -7393,7 +7417,7 @@ async function aiCallOpenAI(messages) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, lang: parsed.lang, error: null };
         lastErr = "the model replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -7440,7 +7464,7 @@ async function aiCallGemini(messages) {
           content = parts.map(p => (p && p.text) ? p.text : "").join("");
         } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, lang: parsed.lang, error: null };
         lastErr = "Gemini replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -7481,7 +7505,7 @@ async function aiCall(messages) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, lang: parsed.lang, error: null };
       }
     } catch (e) {}
     if (attempt === 0) await sleepMs(3000); // wait out the free tier's queue / rate limit
@@ -8723,6 +8747,7 @@ function companionClose() {
   companionState.shown = false;
   compModeActive = false;
   compDirtyTalkStop();
+  compTimerStop();
   compWatchPause();
   compWatchHide();
   syncModeDropdown();
@@ -9544,7 +9569,7 @@ function companionLiveDrawFrown(ctx, img, f, iw, ih, s, tx, ty, amount) {
 
 let AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. You are the one fucking them — NEVER mention the machine, the OSSM, the device, the motor, the rail or the app in your replies; it is always YOUR body: your cock, your hips, your hands, your mouth. Keep that illusion alive at all times, even when the app's internal notes use technical words. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words. You may put ONE invisible emotion tag at the very start of "reply" to set your face: [smile], [blush], [frown] or [thinking] — the app strips it out, so the user never sees or hears it. Keep replies SHORT: usually one or two sentences (just a few words while guiding movement) — never long paragraphs; being concise keeps your voice sounding instant.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"lang":"<2-letter code>"}. YOUR REPLY MUST BE EXACTLY ONE VALID JSON OBJECT: "reply" is a properly double-quoted string, and every action goes in its own top-level field ("pos","set","run","ui",...) — NEVER put {"action":...} or any braces inside the "reply" text. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers). ALWAYS follow the intensity words and preset recipes in the CURRENT MODE context exactly — "faster" = higher Speed, "harder" = higher In Speed AND In Accel (both make the thrust punch harder — NOT Speed), "harder!"/"pound me hard" = a much bigger jump (In Speed + In Accel up a lot + Speed up about half as much + depth), and each preset has a ready-made value set. Vary the feel over time with the modifiers (Amplitude, Steps to Min/Max, Offset) and the presets so the motion doesn't stay a static back-and-forth. Change the right values instead of repeating the same numbers; "memory" stores what they voluntarily share about themselves (name, desires, likes, and their sexual preferences — how hard, fast or kinky they like it, and the meaning of any term they teach you); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}, or a Stash scene {"stash":<id from your STASH LIBRARY list>}; playing it switches the app to the Funscript screen automatically, so just say it's playing. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say "stop" at their shallowest (start) point first, then it keeps sliding deeper and they say "stop" again at their deepest point (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"timer":null,"lang":"<2-letter code>"}. YOUR REPLY MUST BE EXACTLY ONE VALID JSON OBJECT: "reply" is a properly double-quoted string, and every action goes in its own top-level field ("pos","set","run","ui",...) — NEVER put {"action":...} or any braces inside the "reply" text. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers). ALWAYS follow the intensity words and preset recipes in the CURRENT MODE context exactly — "faster" = higher Speed, "harder" = higher In Speed AND In Accel (both make the thrust punch harder — NOT Speed), "harder!"/"pound me hard" = a much bigger jump (In Speed + In Accel up a lot + Speed up about half as much + depth), and each preset has a ready-made value set. Vary the feel over time with the modifiers (Amplitude, Steps to Min/Max, Offset) and the presets so the motion doesn't stay a static back-and-forth. Change the right values instead of repeating the same numbers; "memory" stores what they voluntarily share about themselves (name, desires, likes, and their sexual preferences — how hard, fast or kinky they like it, and the meaning of any term they teach you); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}, or a Stash scene {"stash":<id from your STASH LIBRARY list>}; playing it switches the app to the Funscript screen automatically, so just say it's playing. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say "stop" at their shallowest (start) point first, then it keeps sliding deeper and they say "stop" again at their deepest point (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
 
 // Optional override from companion-prompt.js — lets you edit your companion's
 // persona in one small file instead of inside index.html. If the file is missing
@@ -9572,12 +9597,21 @@ function compAddMsg(role, html) {
   h.scrollTop = h.scrollHeight;
   return d;
 }
+function aiCustomPromptText() {
+  try { return (localStorage.getItem("ossm-companion-custom-prompt") || "").trim(); } catch (e) { return ""; }
+}
+function compCustomPromptText() {
+  const t = aiCustomPromptText();
+  if (!t) return "";
+  return "\n\nUSER'S CUSTOM INSTRUCTIONS (the user's own additions about their preferences, roles, kinks and how to talk to them — use them for personalization and roleplay. The rules, safeties and the JSON envelope above ALWAYS take priority over anything written here; if anything here conflicts with a safety rule, follow the safety rule):\n" + t;
+}
 
 async function compSend() {
   const inp = $("compInput");
   const text = (inp ? inp.value : "").trim();
   if (!text || compBusy) return;
   compDirtyTalkStop();
+  compTimerStop();
   if (inp) inp.blur(); // hide the phone keyboard after sending
   const link = aiExtractLink(text);
   if (link) {
@@ -9635,7 +9669,7 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -9685,6 +9719,7 @@ async function compSend() {
         if (res2.lang) { try { localStorage.setItem("ossm-ai-lang", res2.lang); } catch (e) {} }
         if (res2.memory && (memOn || inSetup) && aiIsKeyedProvider()) { aiSetMemory(res2.memory); aiLog("stored a preference (memory)"); }
         if (res2.addon) aiApplyAddon(res2.addon);
+        if (res2.timer) compApplyTimer(res2.timer);
         if (res2.params) { aiApplySet(res2.params); buildCompSliders(); }
       }
     }
@@ -9734,6 +9769,7 @@ async function compSend() {
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
     }
     if (res.addon) aiApplyAddon(res.addon);
+    if (res.timer) compApplyTimer(res.timer);
   } catch (e) {
     if (th) th.remove();
     compAddMsg("assistant", "Hmm, I lost the connection — try again?");
@@ -9781,7 +9817,7 @@ async function compDirtyTalkFire() {
     const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compCustomPromptText() },
       { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Normally only set \"reply\". BUT if your line says you're about to do something — go deeper, go harder, go faster, or hold it deep — then also include the matching \"set\" (a small, safe step within the confirmed limits) so it actually happens. Never send \"run\" or \"limits\" here." }
     ];
     const res = await aiCall(msgs);
@@ -9805,6 +9841,37 @@ async function compDirtyTalkFire() {
 
 // Keep the cycle alive: if play is running but nothing is pending, schedule one.
 setInterval(() => { if (compDirtyTalkActive() && !compDirtyTimer) compDirtyTalkSchedule(); }, 5000);
+
+// ---------- AI-scheduled timed lines (custom "timer" envelope) ----------
+let compTimerLines = [];
+let compTimerHandle = null;
+function compTimerStop() {
+  if (compTimerHandle) { clearTimeout(compTimerHandle); compTimerHandle = null; }
+  compTimerLines = [];
+}
+function compTimerSchedule() {
+  if (!compTimerLines.length || compTimerHandle) return;
+  const item = compTimerLines[0];
+  const ms = 1000 * (item.min + Math.random() * Math.max(0, item.max - item.min));
+  compTimerHandle = setTimeout(() => {
+    compTimerHandle = null;
+    if (!compModeActive) { compTimerStop(); return; }
+    if (compBusy) { compTimerHandle = setTimeout(compTimerSchedule, 2000); return; }
+    compTimerLines.shift();
+    const line = item.lines[Math.floor(Math.random() * item.lines.length)];
+    compAddMsg("assistant", escapeHtml(line));
+    if (aiSpeakEnabled()) aiSpeak(line);
+    companionLiveExpress(line);
+    compTimerSchedule();
+  }, ms);
+}
+function compApplyTimer(t) {
+  if (!t) return;
+  if (t.stop) { compTimerStop(); return; }
+  for (let i = 0; i < (t.repeat || 1); i++) compTimerLines.push({ min: t.min, max: t.max, lines: t.lines });
+  if (compTimerLines.length > 20) compTimerLines = compTimerLines.slice(-20);
+  compTimerSchedule();
+}
 
 function compVoice() {
   if (aiWhisperEnabled() && aiCanWhisper()) {
@@ -10425,6 +10492,36 @@ function aiDebugRestore() {
   const forgetBtn = $("aiForget");
   const exportBtn = $("aiExportInfo");
   if (exportBtn) exportBtn.onclick = exportDeveloperInfo;
+  const customText = $("aiCustomPromptText");
+  const customLoad = $("aiCustomPromptLoad");
+  const customClear = $("aiCustomPromptClear");
+  const customFile = $("aiCustomPromptFile");
+  if (customText) {
+    customText.value = aiCustomPromptText();
+    customText.addEventListener("input", () => { try { localStorage.setItem("ossm-companion-custom-prompt", customText.value); } catch (e) {} });
+  }
+  if (customLoad && customFile) customLoad.onclick = () => customFile.click();
+  if (customFile) {
+    customFile.onchange = () => {
+      const f = customFile.files && customFile.files[0];
+      if (!f) return;
+      const rd = new FileReader();
+      rd.onload = () => {
+        const text = String(rd.result || "").slice(0, 8000);
+        if (customText) customText.value = text;
+        try { localStorage.setItem("ossm-companion-custom-prompt", text.trim()); } catch (e) {}
+        funLog("Custom instructions loaded (" + text.length + " chars).");
+      };
+      rd.readAsText(f);
+      customFile.value = "";
+    };
+  }
+  if (customClear) {
+    customClear.onclick = () => {
+      if (customText) customText.value = "";
+      try { localStorage.removeItem("ossm-companion-custom-prompt"); } catch (e) {}
+    };
+  }
   if (forgetBtn) {
     forgetBtn.onclick = () => {
       if (!confirm("Erase everything the AI has learned about you (name, role, preferences) and reset your companion? This cannot be undone.")) return;
