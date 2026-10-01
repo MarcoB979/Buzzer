@@ -69,7 +69,8 @@
   #addonFistPanel { order: 10; }
   #addonEjectPanel { order: 11; }
   #addonCoyotePanel { order: 12; }
-  #kofi-wrap { order: 13; }
+  #addonButtplugPanel { order: 13; }
+  #kofi-wrap { order: 14; }
   #presets-panel { order: 8; }
   #generalSettings { order: 21; }
   #aiSettings { order: 22; }
@@ -781,6 +782,12 @@
         <div id="addonCoyoteBody"></div>
       </div>
     </details>
+    <details class="presets-panel" id="addonButtplugPanel" style="display:none;">
+      <summary><span class="summary-left">🔌 Buttplug.io</span></summary>
+      <div class="ai-settings-body">
+        <div id="addonButtplugBody"></div>
+      </div>
+    </details>
     <details class="presets-panel" id="presets-panel">
       <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
       <div id="presetList"></div>
@@ -1032,6 +1039,10 @@
         <label class="inline-toggle" style="font-size:.75rem;gap:8px;">
           <span><span class="addon-icon">⚡</span>Coyote e-stim addon</span>
           <span class="switch"><input type="checkbox" id="addonCoyoteEnabled"><span class="slider"></span></span>
+        </label>
+        <label class="inline-toggle" style="font-size:.75rem;gap:8px;">
+          <span><span class="addon-icon">🔌</span>Buttplug.io addon</span>
+          <span class="switch"><input type="checkbox" id="addonButtplugEnabled"><span class="slider"></span></span>
         </label>
         <div class="ai-set-hint">Optional hardware addons controlled over Bluetooth — they work in every mode. Enable one to show its control panel.</div>
       </div>
@@ -2227,6 +2238,7 @@ function emergencyStop() {
     castContext.endCurrentSession(true);
   }
   if (addonEnabled("coyote")) coyoteKill();
+  if (addonEnabled("buttplug")) buttplugStopAll();
   updateStartButton();
   log("⚠ Emergency stop — returning to menu.");
   // Return to a ready state shortly after, so the screen doesn't sit on
@@ -10886,7 +10898,10 @@ const ADDON_DEFS = [
       {key:"a_wave", label:"A wave strength (0-100)", min:0, max:100},
       {key:"b_wave", label:"B wave strength (0-100)", min:0, max:100},
       {key:"limit", label:"Soft limit (safety cap)", min:1, max:200}
-    ] }
+    ] },
+  { id:"buttplug", name:"Buttplug.io", deviceName:"Intiface", icon:"🔌", type:"buttplug",
+    desc:"any Buttplug.io-compatible device through an Intiface server",
+    sliders:[] }
 ];
 const ADDON_STATE = {};
 function addonEnabled(id) { try { return localStorage.getItem("ossm-addon-" + id) === "1"; } catch (e) { return false; } }
@@ -11041,14 +11056,16 @@ function addonBuildSection(id) {
 }
 
 function addonRender() {
-  const fp = $("addonFistPanel"), ep = $("addonEjectPanel"), cp = $("addonCoyotePanel");
+  const fp = $("addonFistPanel"), ep = $("addonEjectPanel"), cp = $("addonCoyotePanel"), bp = $("addonButtplugPanel");
   if (fp) fp.style.display = addonEnabled("fist") ? "" : "none";
   if (ep) ep.style.display = addonEnabled("eject") ? "" : "none";
   if (cp) cp.style.display = addonEnabled("coyote") ? "" : "none";
+  if (bp) bp.style.display = addonEnabled("buttplug") ? "" : "none";
   const f = $("addonFistBody"), e = $("addonEjectBody");
   if (f) { f.innerHTML = ""; if (addonEnabled("fist")) f.appendChild(addonBuildSection("fist")); }
   if (e) { e.innerHTML = ""; if (addonEnabled("eject")) e.appendChild(addonBuildSection("eject")); }
   coyoteRender();
+  buttplugRender();
 }
 
 // ---------- Coyote (DG-Labs e-stim, V3 protocol) ----------
@@ -11405,7 +11422,190 @@ function addonCoyoteIntentText() {
 function addonCoyoteSafetyText() {
   return "\n\nE-STIM SAFETY (CRITICAL — applies while the Coyote is connected/running): electricity is dangerous — wrong settings can injure. NEVER raise channel intensity (a_power/b_power) sharply: the app caps every increase to a small step that grows with the initiative level (Strict ±1, Playful ±3, Wild ±5, Full ±10) — ramp up gradually over several turns, always staying under the soft limit. Lowering is never capped, so you can always reduce or stop instantly. Start very low and check in with the user. On the user's safe word the app zeroes the Coyote automatically, but you must also send {\"device\":\"coyote\",\"action\":\"stop\"} yourself. Never set a frequency or intensity outside the stated ranges, and never aim for the chest or head — assume the user has placed the electrodes safely themselves.";
 }
-window.addEventListener("pagehide", () => { if (addonEnabled("coyote")) coyoteKill(); });
+window.addEventListener("pagehide", () => { if (addonEnabled("coyote")) coyoteKill(); if (addonEnabled("buttplug")) buttplugStopAll(); });
+
+// ---------- Buttplug.io (any Buttplug-compatible device via Intiface) ----------
+function buttplugState() { return ADDON_STATE["buttplug"] || (ADDON_STATE["buttplug"] = {}); }
+function buttplugUrl() { try { return localStorage.getItem("ossm-buttplug-url") || "ws://127.0.0.1:12345/"; } catch (e) { return "ws://127.0.0.1:12345/"; } }
+function buttplugSetUrl(u) { try { localStorage.setItem("ossm-buttplug-url", u); } catch (e) {} }
+function buttplugLib() {
+  if (window.BP) return Promise.resolve(window.BP);
+  if (window.BP_PROMISE) return window.BP_PROMISE;
+  window.BP_PROMISE = import("https://cdn.jsdelivr.net/npm/buttplug@5.0.2/dist/web/buttplug.mjs")
+    .then(m => { window.BP = m; return m; })
+    .catch(e => { window.BP_PROMISE = null; throw e; });
+  return window.BP_PROMISE;
+}
+async function buttplugConnect() {
+  const st = buttplugState();
+  if (st.client && st.client.connected) { await buttplugDisconnect(); return; }
+  monitor("Buttplug: loading library…");
+  let BP;
+  try { BP = await buttplugLib(); }
+  catch (e) { monitor("Buttplug: could not load library (" + (e && e.message ? e.message : e) + ")", "err"); return; }
+  monitor("Buttplug: connecting to " + buttplugUrl() + "…");
+  try {
+    const connector = new BP.ButtplugBrowserWebsocketClientConnector(buttplugUrl());
+    const client = new BP.ButtplugClient("Buzzer");
+    client.addListener("deviceadded", () => buttplugRender());
+    client.addListener("deviceremoved", () => buttplugRender());
+    client.addListener("disconnect", () => { st.connected = false; monitor("Buttplug: disconnected", "warn"); buttplugRender(); });
+    await client.connect(connector);
+    st.client = client;
+    st.connected = true;
+    await client.startScanning();
+    monitor("Buttplug: connected — scanning for devices…");
+  } catch (e) {
+    st.client = null; st.connected = false;
+    monitor("Buttplug: " + (e && e.message ? e.message : e) + " (is Intiface Central running?)", "err");
+  }
+  buttplugRender();
+}
+async function buttplugDisconnect() {
+  const st = buttplugState();
+  try { if (st.client) await st.client.disconnect(); } catch (e) {}
+  st.client = null; st.connected = false;
+  buttplugRender();
+}
+async function buttplugStopAll() {
+  const st = buttplugState();
+  try { if (st.client && st.client.connected) await st.client.stopAllDevices(); } catch (e) {}
+}
+function buttplugDevices() {
+  const st = buttplugState();
+  if (!st.client || !st.client.connected || !st.client.devices) return [];
+  try { return Array.from(st.client.devices.values()); } catch (e) { return []; }
+}
+function buttplugFindDevice(name) {
+  if (!name) return null;
+  const n = String(name).toLowerCase();
+  return buttplugDevices().find(d =>
+    (d.name && String(d.name).toLowerCase().indexOf(n) >= 0) ||
+    (d.displayName && String(d.displayName).toLowerCase().indexOf(n) >= 0)) || null;
+}
+function buttplugFeatureOutputs(device) {
+  const out = new Map();
+  try {
+    for (const f of device.features.values()) {
+      for (const [type, info] of f.outputs) {
+        if (!out.has(type)) out.set(type, info);
+      }
+    }
+  } catch (e) {}
+  return out;
+}
+function buttplugRun(device, type, percent01) {
+  const BP = window.BP;
+  if (!BP || !device) return Promise.resolve();
+  const frac = clamp(Number(percent01) || 0, 0, 1);
+  let cmd;
+  switch (type) {
+    case "Vibrate": cmd = BP.DeviceOutput.Vibrate().percent(frac); break;
+    case "Rotate": cmd = BP.DeviceOutput.Rotate().percent(frac); break;
+    case "Oscillate": cmd = BP.DeviceOutput.Oscillate().percent(frac); break;
+    case "Constrict": cmd = BP.DeviceOutput.Constrict().percent(frac); break;
+    case "Inflate": cmd = BP.DeviceOutput.Inflate().percent(frac); break;
+    case "Temperature": cmd = BP.DeviceOutput.Temperature().percent(frac); break;
+    case "Led": cmd = BP.DeviceOutput.Led().percent(frac); break;
+    case "Spray": cmd = BP.DeviceOutput.Spray().percent(frac); break;
+    case "Position": cmd = BP.DeviceOutputCommand.createPercent("Position", frac, 1000); break;
+    default: return Promise.resolve();
+  }
+  return device.runOutput(cmd).catch(e => { monitor("Buttplug: " + (e && e.message ? e.message : e), "err"); });
+}
+function buttplugVal(dev, type) {
+  const st = buttplugState();
+  st.values = st.values || {};
+  st.values[dev.index] = st.values[dev.index] || {};
+  return (typeof st.values[dev.index][type] === "number") ? st.values[dev.index][type] : 0;
+}
+function buttplugSet(dev, type, v) {
+  const st = buttplugState();
+  st.values = st.values || {};
+  st.values[dev.index] = st.values[dev.index] || {};
+  st.values[dev.index][type] = v;
+  return buttplugRun(dev, type, v / 100);
+}
+function buttplugBuildSection() {
+  const st = buttplugState();
+  const wrap = document.createElement("div");
+  const mk = (txt) => { const b = document.createElement("button"); b.type = "button"; b.className = "ble-btn small"; b.textContent = txt; return b; };
+
+  const status = document.createElement("div");
+  status.className = "ai-set-hint";
+  status.textContent = st.connected ? "● Connected to Intiface" : "Not connected";
+  wrap.appendChild(status);
+
+  const urlRow = document.createElement("div");
+  urlRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;";
+  const urlInput = document.createElement("input");
+  urlInput.type = "text"; urlInput.value = buttplugUrl();
+  urlInput.placeholder = "ws://127.0.0.1:12345/";
+  urlInput.style.cssText = "flex:1;min-width:0;";
+  urlInput.addEventListener("change", () => buttplugSetUrl(urlInput.value.trim() || "ws://127.0.0.1:12345/"));
+  const conn = mk(st.connected ? "Disconnect" : "Connect");
+  conn.onclick = () => buttplugConnect();
+  urlRow.appendChild(urlInput); urlRow.appendChild(conn);
+  wrap.appendChild(urlRow);
+
+  const hint = document.createElement("div");
+  hint.className = "ai-set-hint";
+  hint.textContent = "Run Intiface Central (or Engine) serving the address above, then Connect. Your toys appear below with a slider per capability.";
+  wrap.appendChild(hint);
+
+  if (st.connected) {
+    const devices = buttplugDevices();
+    if (!devices.length) {
+      const d = document.createElement("div"); d.className = "ai-set-hint"; d.textContent = "Scanning… turn your toys on to be discovered.";
+      wrap.appendChild(d);
+    }
+    for (const dev of devices) {
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px solid #334155;border-radius:8px;padding:6px 8px;margin:4px 0;";
+      const title = document.createElement("div");
+      title.style.cssText = "font-size:.8rem;margin-bottom:2px;font-weight:600;";
+      title.textContent = dev.displayName || dev.name;
+      card.appendChild(title);
+      for (const [type, info] of buttplugFeatureOutputs(dev)) {
+        const range = info && info.valueRange ? (" (" + info.valueRange[0] + "-" + info.valueRange[1] + ")") : "";
+        card.appendChild(sliderEl(type + range, 0, 100, buttplugVal(dev, type), "#a78bfa", (v) => buttplugSet(dev, type, v)));
+      }
+      const stopBtn = mk("Stop"); stopBtn.onclick = () => { try { dev.stop(); } catch (e) {} };
+      card.appendChild(stopBtn);
+      wrap.appendChild(card);
+    }
+    const stopAll = mk("⛔ Stop all"); stopAll.classList.add("danger"); stopAll.onclick = () => buttplugStopAll();
+    wrap.appendChild(stopAll);
+  }
+  return wrap;
+}
+function buttplugRender() {
+  const c = $("addonButtplugBody");
+  if (!c) return;
+  c.innerHTML = "";
+  if (addonEnabled("buttplug")) c.appendChild(buttplugBuildSection());
+}
+function aiApplyButtplug(action, p) {
+  if (action === "start" || action === "on" || action === "connect") { aiLog("addon buttplug: connect"); buttplugConnect(); }
+  else if (action === "stop" || action === "off") { aiLog("addon buttplug: stop all"); buttplugStopAll(); }
+  else if (action === "stop_device" || action === "device_stop") {
+    const d = buttplugFindDevice(p.name);
+    if (d) { aiLog("addon buttplug: stop " + (d.displayName || d.name)); try { d.stop(); } catch (e) {} }
+  }
+  else if (action === "set" || action === "value") {
+    const d = buttplugFindDevice(p.name);
+    if (!d) { aiLog("addon buttplug: device not found: " + (p.name || "")); return; }
+    const key = String(p.key || "vibrate").toLowerCase();
+    const alias = { vibrate:"Vibrate", vibration:"Vibrate", rotate:"Rotate", rotation:"Rotate", oscillate:"Oscillate", constrict:"Constrict", squeeze:"Constrict", inflate:"Inflate", position:"Position", linear:"Position", stroke:"Position", depth:"Position", temperature:"Temperature", heat:"Temperature", spray:"Spray", led:"Led", light:"Led" };
+    const type = alias[key] || (key.charAt(0).toUpperCase() + key.slice(1));
+    const v = clamp(Math.round(Number(p.value)), 0, 100);
+    aiLog("addon buttplug: " + (d.displayName || d.name) + " " + type + " " + v);
+    buttplugSet(d, type, v);
+  }
+}
+function addonButtplugIntentText() {
+  return "\n\nBUTTPLUG.IO — INTENT: any Buttplug-compatible toy connected through Intiface can be controlled. Drive them with the \"addon\" field: {\"device\":\"buttplug\",\"action\":\"set\",\"name\":\"<part of the device name>\",\"key\":\"vibrate\"|\"rotate\"|\"oscillate\"|\"constrict\"|\"inflate\"|\"position\"|\"temperature\"|\"spray\"|\"led\",\"value\":<0-100>}. Use {\"device\":\"buttplug\",\"action\":\"stop_device\",\"name\":\"<name>\"} to stop one device, or {\"device\":\"buttplug\",\"action\":\"stop\"} to stop everything. If a device isn't there, ask the user to turn it on / connect it in Intiface.";
+}
 
 function addonFistActive() {
   const st = ADDON_STATE["fist"];
@@ -11452,14 +11652,15 @@ function addonContext() {
   for (const a of ADDON_DEFS) {
     if (!addonEnabled(a.id)) continue;
     const sl = a.sliders.map(s => '"' + s.key + '" (' + s.min + "-" + s.max + ")").join(", ");
-    parts.push("- " + a.name + ": " + a.desc + ". Sliders: " + sl + ".");
+    parts.push("- " + a.name + ": " + a.desc + (sl ? ". Sliders: " + sl + "." : "."));
   }
   if (!parts.length) return "";
   let out = "\n\nOPTIONAL ADDONS (you may control these too):\n" + parts.join("\n")
-    + "\nUse the \"addon\" field — one object {\"device\":\"fist\"|\"eject\"|\"coyote\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}, or an ARRAY of such objects to do several at once. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
+    + "\nUse the \"addon\" field — one object {\"device\":\"fist\"|\"eject\"|\"coyote\"|\"buttplug\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}, or an ARRAY of such objects to do several at once. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
   if (addonEnabled("fist")) out += addonFistIntentText();
   if (addonEnabled("eject")) out += addonEjectIntentText();
   if (addonEnabled("coyote")) out += addonCoyoteIntentText();
+  if (addonEnabled("buttplug")) out += addonButtplugIntentText();
   if (addonFistActive()) out += addonFistSafetyText();
   if (coyoteActive()) out += addonCoyoteSafetyText();
   return out;
@@ -11475,6 +11676,7 @@ function aiApplyAddonOne(p) {
   if (!p || typeof p !== "object" || Array.isArray(p)) return;
   const id = String(p.device || "").toLowerCase();
   if (id === "coyote") { aiApplyCoyote(String(p.action || "").toLowerCase(), p); return; }
+  if (id === "buttplug") { aiApplyButtplug(String(p.action || "").toLowerCase(), p); return; }
   const a = ADDON_DEFS.find(x => x.id === id);
   if (!a || !addonEnabled(id)) return;
   const action = String(p.action || "").toLowerCase();
@@ -11511,6 +11713,8 @@ const addonCoyoteChk = $("addonCoyoteEnabled");
 if (addonFistChk) { addonFistChk.checked = addonEnabled("fist"); addonFistChk.addEventListener("change", () => { addonSetEnabled("fist", addonFistChk.checked); addonRender(); syncAiFreeWarning(); if (addonFistChk.checked) addonAutoConnect("fist"); }); }
 if (addonEjectChk) { addonEjectChk.checked = addonEnabled("eject"); addonEjectChk.addEventListener("change", () => { addonSetEnabled("eject", addonEjectChk.checked); addonRender(); if (addonEjectChk.checked) addonAutoConnect("eject"); }); }
 if (addonCoyoteChk) { addonCoyoteChk.checked = addonEnabled("coyote"); addonCoyoteChk.addEventListener("change", () => { addonSetEnabled("coyote", addonCoyoteChk.checked); addonRender(); if (addonCoyoteChk.checked) coyoteAutoConnect(); else { const cst = coyoteState(); coyoteKill(); if (cst.device && cst.device.gatt) { try { cst.device.gatt.disconnect(); } catch (e) {} } coyoteDisconnected(); } }); }
+const addonButtplugChk = $("addonButtplugEnabled");
+if (addonButtplugChk) { addonButtplugChk.checked = addonEnabled("buttplug"); addonButtplugChk.addEventListener("change", () => { addonSetEnabled("buttplug", addonButtplugChk.checked); addonRender(); if (!addonButtplugChk.checked) buttplugDisconnect(); }); }
 addonRender();
 // Auto-reconnect to previously-paired devices on startup (no picker).
 if (addonEnabled("fist")) addonAutoConnect("fist");
