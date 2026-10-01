@@ -7349,7 +7349,7 @@ function sessionBroadcastAi(role, html) {
   let text = "";
   try { const t = document.createElement("div"); t.innerHTML = html; text = (t.textContent || "").trim(); } catch (e) { text = String(html).replace(/<[^>]*>/g, "").trim(); }
   if (!text) return;
-  sessionBroadcast({ t: "ai", role, text });
+  sessionBroadcast({ t: "ai", role, text, comp: !!compModeActive });
 }
 // Show a system note AND push it into the active conversation so the AI is
 // told about an app-side decision (e.g. a blocked action) and stops narrating
@@ -8840,7 +8840,7 @@ function companionRestorePanels() {
   col.insertBefore(sp, anchor);
   col.insertBefore(fp, anchor);
 }
-function companionOpen() {
+function companionOpen(mirrored) {
   const v = $("companionView");
   if (v) v.style.display = "";
   companionMovePanels();
@@ -8862,7 +8862,7 @@ function companionOpen() {
   }
   if (aiFreeBlocked()) {
     compAddMsg("assistant", aiFreeBlockedMessage());
-  } else if (!compSetupState() && compMessages.length === 0 && !compSetupGreeted) {
+  } else if (!mirrored && !compSetupState() && compMessages.length === 0 && !compSetupGreeted) {
     compSetupGreeted = true; compStartSetup();
   }
   refreshStashLibrary();
@@ -11910,8 +11910,13 @@ function sessionOnHostData(d) {
   else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })).filter(x => x.id !== (sess.peer && sess.peer.id)); sessionRender(); sessionEnsureCalls(); }
   else if (d.t === "chat") { sessionAppendChat(d.name || "host", String(d.text || "")); }
   else if (d.t === "role") { sess.myRole = d.role || "watch"; sessionRender(); }
-  else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorUi(d); sessionMirrorState(d); sessionFollowVideo(d.video); }
-  else if (d.t === "ai") { sessionAppendChat(d.role === "user" ? "Host" : "Companion", String(d.text || "")); }
+  else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorUi(d); sessionMirrorState(d); sessionFollowVideo(d.video); sessionSyncCompanion(d); }
+  else if (d.t === "ai") {
+    const aiText = String(d.text || "");
+    sessionAppendChat(d.role === "user" ? "Host" : "Companion", aiText);
+    if (d.comp) sessionSyncCompanion({ compMode: true });
+    if (compModeActive) compAddMsg(d.role === "user" ? "user" : "assistant", (d.role === "user" ? "<b>Host:</b> " : "") + escapeHtml(aiText));
+  }
   else if (d.t === "apply") {
     if (d.kind === "estop") {
       if (sess.mirrorDevice && connected) { monitor("Session: host estop — stopping my device", "warn"); emergencyStop(); }
@@ -11928,6 +11933,7 @@ async function sessionLeave() {
   sess.stream = null; sess.camOn = false; sess.micOn = false;
   sess.remoteStreams = {}; sess.guests = []; sess.hostConn = null;
   sess.role = null; sess.code = ""; sess.myRole = "watch"; sess.hostState = null;
+  if (sess.compSynced) { sess.compSynced = false; if (compModeActive) { try { companionClose(); } catch (e) {} } }
   try { if (p) p.destroy(); } catch (e) {}
   sess.peer = null;
   sessionRender();
@@ -11989,6 +11995,18 @@ function sessionUpdateStatus() {
   if (s.compMode) parts.push("Companion");
   el.textContent = parts.join(" · ");
 }
+function sessionSyncCompanion(s) {
+  if (sess.role !== "guest") return;
+  if (s.compMode) {
+    if (!sess.compSynced) {
+      sess.compSynced = true;
+      if (!compModeActive) { try { companionOpen(true); } catch (e) {} }
+    }
+  } else if (sess.compSynced) {
+    sess.compSynced = false;
+    if (compModeActive) { try { companionClose(); } catch (e) {} }
+  }
+}
 function sessionFollowVideo(v) {
   if (!v || sess.role !== "guest" || !sess.watchVideo) return;
   sess.hostVideo = v;
@@ -11999,8 +12017,13 @@ function sessionFollowVideo(v) {
     } catch (e) {}
     return;
   }
+  if (!v.url && v.name && sess.localVideoNote !== v.name) {
+    sess.localVideoNote = v.name;
+    monitor("Host is playing \"" + v.name + "\" from their device — load the same file locally to follow it", "warn");
+  }
+  if (appMode !== "fun") return;
   const vv = $("funVideo");
-  if (!vv || appMode !== "fun") return;
+  if (!vv) return;
   try {
     if (v.playing && vv.paused) vv.play();
     else if (!v.playing && !vv.paused) vv.pause();
