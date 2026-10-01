@@ -149,7 +149,7 @@ function extractVideo(html) {
   m = flat.match(/https?:\/\/[^"'\\\s<>]+\.(?:mp4|m3u8)[^"'\\\s<>]*/i);
   if (m) return { url: m[0], type: /m3u8/i.test(m[0]) ? "hls" : "mp4" };
 
-  return { error: "No direct video URL found in this page." };
+  return { error: "No direct video URL found in this page — the site may have changed or blocked the request. Try a direct .mp4/.m3u8 link instead." };
 }
 
 // ---- Funscripthub proxy (free JSON API, no auth) ----
