@@ -9474,11 +9474,11 @@ function companionLiveFrame(now) {
       if (box) { top = box.top; eyeHpx = Math.min(Math.max(box.bottom - box.top, f.eyeDist * iw * 0.12), f.eyeDist * iw * 0.28); eyeWpx = eyeHpx * 2.4; }
       else { eyeHpx = f.eyeDist * iw * 0.20; top = eiy - eyeHpx * 0.5; eyeWpx = f.eyeDist * iw * 0.85; }
       const lidSrcH = eyeHpx * 0.5;                 // pure skin strip just above the eye
-      const lidW = eyeWpx * 0.156;                  // 25% of previous width
+      const lidW = eyeWpx * 0.625;                  // narrower, subtler lid
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
-      const coverH = (eyeHpx * 1.15 * s - 10) * blink;   // lid height (10px shorter)
-      ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2) + 4, ty(srcY2) + 42, lidW * s, coverH);
+      const coverH = eyeHpx * 1.15 * blink * s;      // lid comes down to just below mid-eye
+      ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2), lidW * s, coverH);
       if (blink > 0.2) {
         ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
         ctx.lineWidth = Math.max(1, eyeHpx * 0.08 * s);
