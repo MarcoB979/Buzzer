@@ -11703,6 +11703,8 @@ async function sessionHost() {
   });
   peer.on("connection", conn => sessionOnGuestConn(conn));
   peer.on("call", call => sessionAnswerCall(call));
+  if (sess.snapTimer) clearInterval(sess.snapTimer);
+  sess.snapTimer = setInterval(() => sessionBroadcastSnapshot(), 400);
   sessionRender();
 }
 function sessionOnGuestConn(conn) {
@@ -11744,8 +11746,15 @@ function sessionOnGuestData(conn, d) {
 }
 function sessionApplyRemoteCmd(d, who) {
   if (!d || !d.kind) return;
+  const num = (lo, hi) => clamp(Math.round(Number(d.v)), lo, hi);
   if (d.kind === "estop") { monitor("Session: " + who + " triggered emergency stop", "warn"); emergencyStop(); sessionAppendChat("", who + " triggered emergency stop", true); }
-  else if (d.kind === "speed") { const v = clamp(Math.round(Number(d.v)), 0, 100); setSpeed(v); sessionAppendChat("", who + " set speed to " + v, true); }
+  else if (d.kind === "speed") { const v = num(0, 100); setSpeed(v); sessionAppendChat("", who + " set speed to " + v, true); }
+  else if (d.kind === "depth" || d.kind === "maxpos") { setBase(0, num(0, 100)); }
+  else if (d.kind === "minpos") { setBase(1, num(0, 100)); }
+  else if (d.kind === "inspeed") { setBase(2, num(1, 100)); }
+  else if (d.kind === "outspeed") { setBase(3, num(1, 100)); }
+  else if (d.kind === "inaccel") { setBase(4, num(0, 100)); }
+  else if (d.kind === "outaccel") { setBase(5, num(0, 100)); }
   else if (d.kind === "start") { toggleStart(); }
 }
 async function sessionJoin(code) {
@@ -11784,14 +11793,16 @@ function sessionOnHostData(d) {
   else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })); sessionRender(); }
   else if (d.t === "chat") { sessionAppendChat(d.name || "host", String(d.text || "")); }
   else if (d.t === "role") { sess.myRole = d.role || "watch"; sessionRender(); }
+  else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); }
   else if (d.t === "kick") { monitor("Session: host removed you", "warn"); sessionLeave(); }
 }
 async function sessionLeave() {
   const p = sess.peer;
+  if (sess.snapTimer) { clearInterval(sess.snapTimer); sess.snapTimer = null; }
   try { if (sess.stream) sess.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   sess.stream = null; sess.camOn = false; sess.micOn = false;
   sess.remoteStreams = {}; sess.guests = []; sess.hostConn = null;
-  sess.role = null; sess.code = ""; sess.myRole = "watch";
+  sess.role = null; sess.code = ""; sess.myRole = "watch"; sess.hostState = null;
   try { if (p) p.destroy(); } catch (e) {}
   sess.peer = null;
   sessionRender();
@@ -11812,6 +11823,31 @@ function sessionCopyLink() {
   const link = location.origin + location.pathname + "?session=" + sess.code;
   try { if (navigator.clipboard) navigator.clipboard.writeText(link); } catch (e) {}
   sessionAppendChat("", "Session link: " + link, true);
+}
+const SESSION_BASE_SHORT = ["maxPos", "minPos", "inSpeed", "outSpeed", "inAccel", "outAccel"];
+function sessionBroadcastSnapshot() {
+  if (sess.role !== "host" || !sess.guests.length || !sess.peer) return;
+  const base = {};
+  for (let i = 0; i < BASE_NAMES.length; i++) base[SESSION_BASE_SHORT[i]] = Math.round(settingValue(baseKey(i)));
+  sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running: (appMode === "fun" ? !!funState.playing : speed() > 0), speed: speed(), base, compMode: !!compModeActive });
+}
+function sessionUpdateStatus() {
+  const el = $("sessionStatusLine");
+  if (!el) return;
+  if (sess.role === "host") {
+    el.textContent = "Hosting · " + sess.guests.length + " guest" + (sess.guests.length === 1 ? "" : "s");
+    return;
+  }
+  const s = sess.hostState;
+  if (!s) { el.textContent = "Waiting for host state…"; return; }
+  const parts = [];
+  parts.push(s.mode === "fun" ? "Funscript" : (s.mode === "std" ? "Standard" : "Advanced"));
+  parts.push("Speed " + s.speed);
+  if (s.base) parts.push("Depth " + s.base.maxPos);
+  parts.push(s.running ? "● Running" : "○ Idle");
+  if (!s.connected) parts.push("OSSM not connected");
+  if (s.compMode) parts.push("Companion");
+  el.textContent = parts.join(" · ");
 }
 function sessionRender() {
   const body = $("sessionBody");
@@ -11854,6 +11890,12 @@ function sessionRender() {
     codeRow.style.cssText = "margin:2px 0;";
     codeRow.textContent = sess.role === "host" ? ("Session code: " + sess.code) : ("Connected to " + sess.hostId + (sess.myRole === "control" ? " · you can control" : " · watch only"));
     wrap.appendChild(codeRow);
+
+    const statusLine = document.createElement("div");
+    statusLine.id = "sessionStatusLine";
+    statusLine.className = "ai-set-hint";
+    statusLine.style.cssText = "margin:2px 0;color:#cbd5e1;";
+    wrap.appendChild(statusLine);
 
     const btnRow = document.createElement("div");
     btnRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;";
@@ -11952,9 +11994,14 @@ function sessionRender() {
       ctrlRow.appendChild(e); ctrlRow.appendChild(spd); ctrlRow.appendChild(st);
     }
     if (ctrlRow.childNodes.length) wrap.appendChild(ctrlRow);
+    if (sess.role === "guest" && sess.myRole === "control") {
+      wrap.appendChild(sliderEl("Speed", 0, 100, sess.ctrlSpeed || 0, "#fbbf24", v => { sess.ctrlSpeed = v; sessionSend({ t: "cmd", kind: "speed", v }); }));
+      wrap.appendChild(sliderEl("Depth", 0, 100, sess.ctrlDepth || 10, "#ff0c00", v => { sess.ctrlDepth = v; sessionSend({ t: "cmd", kind: "depth", v }); }));
+    }
   }
 
   body.appendChild(wrap);
+  sessionUpdateStatus();
 }
 
 function addonFistActive() {
