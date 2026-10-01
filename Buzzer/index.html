@@ -11729,7 +11729,7 @@ let sess = {
   role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch",
   guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {},
   camFacing: "user", camDeviceId: null,
-  play: { status: null, role: null, otherName: "", railMine: 0, railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1 }
+  play: { status: null, role: null, otherName: "", otherUserId: "", railMine: 0, railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1, myHasCal: false, otherHasCal: false, usedStored: false }
 };
 function sessionLib() {
   if (window.Peer) return Promise.resolve(window.Peer);
@@ -11761,8 +11761,56 @@ function railLengthMm() {
 function setRailLengthMm(v) {
   try { localStorage.setItem("ossm-rail-length-mm", String(Math.round(Number(v) || 0))); } catch (e) {}
 }
+function myUserId() {
+  try {
+    let id = localStorage.getItem("ossm-user-id");
+    if (!id) { id = "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10); localStorage.setItem("ossm-user-id", id); }
+    return id;
+  } catch (e) { return "u" + Math.random().toString(36).slice(2, 10); }
+}
+function speedMmS() { try { const v = parseFloat(localStorage.getItem("ossm-speed-mm-s")); return isFinite(v) && v > 0 ? Math.round(v) : 0; } catch (e) { return 0; } }
+function setSpeedMmS(v) { try { localStorage.setItem("ossm-speed-mm-s", String(Math.round(Number(v) || 0))); } catch (e) {} }
+function playPairKey() {
+  const a = myUserId(), b = sess.play.otherUserId || "";
+  if (!b) return "";
+  return [a, b].sort().join("|");
+}
+function playSaveCal() {
+  const key = playPairKey();
+  if (!key) return;
+  try {
+    localStorage.setItem("ossm-play-pair-" + key, JSON.stringify({
+      railMine: sess.play.railMine, railOther: sess.play.railOther,
+      speedMine: sess.play.speedMine, speedOther: sess.play.speedOther,
+      stroke: playAgreedStroke(), autoFeelMm: sess.play.autoFeelMm, syncF: sess.play.syncF
+    }));
+  } catch (e) {}
+}
+function playLoadCal() {
+  const key = playPairKey();
+  if (!key) return null;
+  try {
+    const j = JSON.parse(localStorage.getItem("ossm-play-pair-" + key) || "null");
+    return (j && typeof j === "object") ? j : null;
+  } catch (e) { return null; }
+}
+function playUseStoredCal() {
+  const c = playLoadCal();
+  if (!c) { monitor("No stored calibration for this pair", "warn"); return; }
+  sess.play.railMine = Math.round(Number(c.railMine) || 0);
+  sess.play.railOther = Math.round(Number(c.railOther) || 0);
+  sess.play.speedMine = Math.round(Number(c.speedMine) || 0);
+  sess.play.speedOther = Math.round(Number(c.speedOther) || 0);
+  sess.play.strokeMine = Math.round(Number(c.stroke) || 0);
+  sess.play.strokeOther = Math.round(Number(c.stroke) || 0);
+  sess.play.autoFeelMm = Math.round(Number(c.autoFeelMm) || 0);
+  const sf = Number(c.syncF);
+  sess.play.syncF = (isFinite(sf) && sf > 0) ? sf : 1;
+  sess.play.usedStored = true;
+  sessionRender();
+}
 function playReset() {
-  sess.play = { status: null, role: null, otherName: "", railMine: railLengthMm(), railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1 };
+  sess.play = { status: null, role: null, otherName: "", otherUserId: "", railMine: railLengthMm(), railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: speedMmS(), speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1, myHasCal: false, otherHasCal: false, usedStored: false };
 }
 function playSend(obj) {
   if (sess.role === "host") sessionBroadcast(obj); else sessionSend(obj);
@@ -11774,7 +11822,7 @@ function playRequest() {
   sess.play.status = "requested";
   sess.play.role = "requester";
   sess.play.otherName = sess.role === "host" ? ((sess.guests[0] && sess.guests[0].name) || "Guest") : "Host";
-  playSend({ t: "play", act: "request", name: sess.myName || (sess.role === "host" ? "Host" : "Guest") });
+  playSend({ t: "play", act: "request", name: sess.myName || (sess.role === "host" ? "Host" : "Guest"), uid: myUserId() });
   sessionAppendChat("", "🎮 " + (sess.myName || "You") + " requested to play together", true);
   sessionRender();
 }
@@ -11789,7 +11837,9 @@ function playRespond(accept) {
   sess.play.status = "setup";
   sess.play.role = "invitee";
   sess.play.railMine = railLengthMm();
-  playSend({ t: "play", act: "accept", rail: sess.play.railMine, name: sess.myName });
+  playSend({ t: "play", act: "accept", rail: sess.play.railMine, name: sess.myName, uid: myUserId() });
+  sess.play.myHasCal = !!playLoadCal();
+  playSend({ t: "play", act: "hascal", has: sess.play.myHasCal });
   sessionRender();
 }
 function playAgreedStroke() {
@@ -11836,12 +11886,21 @@ function playMaybeStart() {
     sess.mirrorDevice = true;
     playApplyPositions();
     if (sess.role === "host") { const cap = playHostCap(); if (cap > 0) setStdSpeed(Math.min(Math.round(stdValues.speed), cap)); }
+    playSaveCal();
     sessionSendPrefs();
     sessionAppendChat("", "🎮 Mutual play started — stroke " + playAgreedStroke() + " mm", true);
   }
 }
 function playToggleReady() {
   if (sess.play.status !== "setup") return;
+  const missing = [];
+  if (!sess.play.railMine) missing.push("your rail length");
+  if (!sess.play.railOther) missing.push("partner's rail length");
+  if (!sess.play.strokeMine) missing.push("your stroke");
+  if (!sess.play.strokeOther) missing.push("partner's stroke");
+  if (!(sess.play.speedMine > 0)) missing.push("your speed");
+  if (!(sess.play.speedOther > 0)) missing.push("partner's speed");
+  if (missing.length) { monitor("Mutual play: still need " + missing.join(", "), "warn"); sessionRender(); return; }
   sess.play.myReady = !sess.play.myReady;
   playSend({ t: "play", act: "ready", ready: sess.play.myReady });
   playMaybeStart();
@@ -11882,6 +11941,7 @@ async function playMeasureSpeed() {
   const mmPerSec = Math.round(peak / 100 * rail);
   if (mmPerSec <= 0) { monitor("Speed calibration failed — no movement detected. Enter it manually.", "warn"); sessionRender(); return; }
   sess.play.speedMine = mmPerSec;
+  setSpeedMmS(mmPerSec);
   playSend({ t: "play", act: "speed", mms: mmPerSec });
   monitor("Measured top speed: " + mmPerSec + " mm/s");
   sessionRender();
@@ -11893,6 +11953,7 @@ function playOnMsg(d, fromName) {
     playReset();
     sess.play.status = "invited";
     sess.play.role = "invitee";
+    sess.play.otherUserId = String(d.uid || "");
     sess.play.otherName = String(d.name || fromName || "them");
     sessionAppendChat("", "🎮 " + sess.play.otherName + " requested to play together", true);
   } else if (act === "decline") {
@@ -11905,8 +11966,11 @@ function playOnMsg(d, fromName) {
       sess.play.status = "setup";
       sess.play.role = "requester";
       sess.play.railOther = Math.round(Number(d.rail) || 0);
+      sess.play.otherUserId = String(d.uid || "");
       sess.play.otherName = String(d.name || sess.play.otherName || "them");
       if (sess.play.railMine) playSend({ t: "play", act: "rail", rail: sess.play.railMine });
+      sess.play.myHasCal = !!playLoadCal();
+      playSend({ t: "play", act: "hascal", has: sess.play.myHasCal });
     }
   } else if (act === "rail") {
     sess.play.railOther = Math.round(Number(d.rail) || 0);
@@ -11914,6 +11978,8 @@ function playOnMsg(d, fromName) {
     sess.play.strokeOther = Math.round(Number(d.mm) || 0);
   } else if (act === "speed") {
     sess.play.speedOther = Math.round(Number(d.mms) || 0);
+  } else if (act === "hascal") {
+    sess.play.otherHasCal = !!d.has;
   } else if (act === "tune") {
     const f = Number(d.f);
     if (isFinite(f) && f > 0) sess.play.syncF = clamp(f, 0.25, 4);
@@ -11976,6 +12042,15 @@ function playRender(wrap) {
     row.appendChild(acc); row.appendChild(dec);
     sec.appendChild(row);
   } else if (p.status === "setup" || p.status === "playing") {
+    if (p.status === "setup" && p.myHasCal && p.otherHasCal && !p.usedStored) {
+      const sc = playLoadCal();
+      sec.appendChild(hint("✓ Stored calibration found for this pair" + (sc && sc.stroke ? " — stroke " + sc.stroke + " mm" : ""), "#4ade80"));
+      const crow = document.createElement("div"); crow.style.cssText = "display:flex;gap:6px;margin:4px 0;";
+      const use = mk("Use stored"); use.onclick = () => playUseStoredCal();
+      const rec = mk("Re-calibrate"); rec.onclick = () => { sess.play.myHasCal = false; sess.play.usedStored = false; sessionRender(); };
+      crow.appendChild(use); crow.appendChild(rec);
+      sec.appendChild(crow);
+    }
     if (p.railMine) sec.appendChild(hint("Your rail: " + p.railMine + " mm" + (p.railOther ? " · Partner's rail: " + p.railOther + " mm" : " · waiting for partner's rail…")));
     else sec.appendChild(hint("Confirm your rail length above — it defines your machine's real stroke.", "#fbbf24"));
 
@@ -11983,7 +12058,10 @@ function playRender(wrap) {
     if (p.status === "setup" && p.railMine && p.railOther && isFinite(cap)) {
       const srow = document.createElement("div"); srow.style.cssText = "display:flex;gap:6px;margin:2px 0;";
       const sinput = document.createElement("input"); sinput.type = "number"; sinput.placeholder = "Stroke length (mm)"; sinput.value = p.strokeMine || cap; sinput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:.75rem;";
-      const ssave = mk("Set stroke"); ssave.onclick = () => { const mm = Math.round(Number(sinput.value) || 0); if (mm <= 0) return; sess.play.strokeMine = Math.min(mm, cap); playSend({ t: "play", act: "stroke", mm: sess.play.strokeMine }); sessionRender(); };
+      const commitStroke = () => { const mm = Math.round(Number(sinput.value) || 0); if (mm <= 0) return; sess.play.strokeMine = Math.min(mm, cap); playSend({ t: "play", act: "stroke", mm: sess.play.strokeMine }); sessionRender(); };
+      const ssave = mk("Set stroke"); ssave.onclick = commitStroke;
+      sinput.addEventListener("keydown", e => { if (e.key === "Enter") commitStroke(); });
+      sinput.addEventListener("change", commitStroke);
       srow.appendChild(sinput); srow.appendChild(ssave);
       sec.appendChild(srow);
       const agreed = playAgreedStroke();
@@ -11991,7 +12069,10 @@ function playRender(wrap) {
 
       const vrow = document.createElement("div"); vrow.style.cssText = "display:flex;gap:6px;margin:2px 0;";
       const vinput = document.createElement("input"); vinput.type = "number"; vinput.placeholder = "Top speed mm/s at 100%"; vinput.value = p.speedMine || ""; vinput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:.75rem;";
-      const vsave = mk("Save"); vsave.onclick = () => { const mms = Math.round(Number(vinput.value) || 0); sess.play.speedMine = mms; playSend({ t: "play", act: "speed", mms }); sessionRender(); };
+      const commitSpeed = () => { const mms = Math.round(Number(vinput.value) || 0); sess.play.speedMine = mms; setSpeedMmS(mms); playSend({ t: "play", act: "speed", mms }); sessionRender(); };
+      const vsave = mk("Save"); vsave.onclick = commitSpeed;
+      vinput.addEventListener("keydown", e => { if (e.key === "Enter") commitSpeed(); });
+      vinput.addEventListener("change", commitSpeed);
       const vauto = mk("Auto-measure"); vauto.title = "Run the rail at 100% for ~2s and measure the real top speed"; vauto.onclick = () => playMeasureSpeed();
       vrow.appendChild(vinput); vrow.appendChild(vsave); vrow.appendChild(vauto);
       sec.appendChild(vrow);
@@ -12012,9 +12093,17 @@ function playRender(wrap) {
       const canReady = !!(p.railMine && p.railOther && playAgreedStroke() && p.speedMine > 0 && p.speedOther > 0);
       const ready = mk(p.myReady ? "✅ Ready (undo)" : "Ready");
       ready.onclick = playToggleReady;
-      if (!canReady) ready.disabled = true;
       sec.appendChild(ready);
-      if (!canReady) sec.appendChild(hint("Ready unlocks when both rail lengths, stroke lengths and speeds are set."));
+      if (!canReady) {
+        const missing = [];
+        if (!p.railMine) missing.push("your rail");
+        if (!p.railOther) missing.push("partner's rail");
+        if (!p.strokeMine) missing.push("your stroke");
+        if (!p.strokeOther) missing.push("partner's stroke");
+        if (!(p.speedMine > 0)) missing.push("your speed");
+        if (!(p.speedOther > 0)) missing.push("partner's speed");
+        sec.appendChild(hint("Still needed: " + missing.join(", "), "#fbbf24"));
+      }
       sec.appendChild(hint(p.otherReady ? "Partner is ready ✓" : "Waiting for partner to be ready…", p.otherReady ? "#4ade80" : ""));
     } else {
       sec.appendChild(hint("▶ Playing together — stroke " + playAgreedStroke() + " mm", "#4ade80"));
