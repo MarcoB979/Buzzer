@@ -71,6 +71,7 @@
   #addonCoyotePanel { order: 12; }
   #addonButtplugPanel { order: 13; }
   #sessionPanel { order: 15; }
+  #socialPanel { order: 16; }
   #kofi-wrap { order: 14; }
   #presets-panel { order: 8; }
   #generalSettings { order: 21; }
@@ -793,6 +794,12 @@
       <summary><span class="summary-left">📡 Sessions</span></summary>
       <div class="ai-settings-body">
         <div id="sessionBody"></div>
+      </div>
+    </details>
+    <details class="presets-panel" id="socialPanel">
+      <summary><span class="summary-left">👥 Friends</span></summary>
+      <div class="ai-settings-body">
+        <div id="socialBody"></div>
       </div>
     </details>
     <details class="presets-panel" id="presets-panel">
@@ -12156,6 +12163,300 @@ function sessionRender() {
   sessionUpdateStatus();
 }
 
+// ---------- Social (Supabase: friends, presence, messaging) ----------
+let social = { client: null, profile: null, friends: [], requests: [], chatWith: null, messages: {}, unread: {}, channel: null, presenceTimer: null };
+function socialConfig() {
+  try { return { url: (localStorage.getItem('ossm-supabase-url') || '').trim(), key: (localStorage.getItem('ossm-supabase-key') || '').trim() }; }
+  catch (e) { return { url: '', key: '' }; }
+}
+function socialConfigured() { const c = socialConfig(); return !!(c.url && c.key); }
+function socialLib() {
+  if (window.supabase && window.supabase.createClient) return Promise.resolve(window.supabase);
+  if (window.SUPABASE_PROMISE) return window.SUPABASE_PROMISE;
+  window.SUPABASE_PROMISE = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js';
+    s.onload = () => { if (window.supabase && window.supabase.createClient) resolve(window.supabase); else { window.SUPABASE_PROMISE = null; reject(new Error('Supabase loaded but createClient missing')); } };
+    s.onerror = () => { window.SUPABASE_PROMISE = null; reject(new Error('failed to load Supabase')); };
+    document.head.appendChild(s);
+  });
+  return window.SUPABASE_PROMISE;
+}
+function socialRandomCode() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return 'BUZ-' + s.slice(0, 4) + '-' + s.slice(4);
+}
+async function socialConnect() {
+  if (!socialConfigured()) { monitor('Social: set the Supabase URL and key first', 'warn'); return; }
+  monitor('Social: connecting…');
+  let sb;
+  try { sb = await socialLib(); } catch (e) { monitor('Social: ' + (e && e.message ? e.message : e), 'err'); return; }
+  try {
+    const client = sb.createClient(socialConfig().url, socialConfig().key);
+    const { data: sessData } = await client.auth.getSession();
+    if (!sessData || !sessData.session) {
+      const { error: anonErr } = await client.auth.signInAnonymously();
+      if (anonErr) throw anonErr;
+    }
+    social.client = client;
+    await socialEnsureProfile();
+    await socialLoadFriends();
+    await socialLoadRequests();
+    await socialSubscribe();
+    socialHeartbeat();
+    if (social.presenceTimer) clearInterval(social.presenceTimer);
+    social.presenceTimer = setInterval(() => { socialHeartbeat(); socialLoadPresence(); }, 15000);
+    monitor('Social: connected');
+  } catch (e) {
+    social.client = null;
+    monitor('Social: ' + (e && e.message ? e.message : e), 'err');
+  }
+  socialRender();
+}
+async function socialEnsureProfile() {
+  const c = social.client;
+  const { data: { user } } = await c.auth.getUser();
+  if (!user) throw new Error('not signed in');
+  const { data: existing } = await c.from('profiles').select('*').eq('id', user.id).maybeSingle();
+  if (existing) { social.profile = existing; return; }
+  for (let i = 0; i < 5; i++) {
+    const code = socialRandomCode();
+    const { data: p, error } = await c.from('profiles').insert({ id: user.id, friend_code: code, display_name: 'Player' }).select().single();
+    if (!error) { social.profile = p; return; }
+    if (error && error.code === '23505') continue;
+    throw error;
+  }
+  throw new Error('could not allocate a friend code');
+}
+async function socialLoadFriends() {
+  const c = social.client;
+  const { data: { user } } = await c.auth.getUser();
+  const { data: rows } = await c.from('friendships').select('requester, addressee').eq('status', 'accepted').or(`requester.eq.${user.id},addressee.eq.${user.id}`);
+  social.friends = [];
+  for (const f of (rows || [])) {
+    const fid = f.requester === user.id ? f.addressee : f.requester;
+    const { data: p } = await c.from('profiles').select('id, friend_code, display_name').eq('id', fid).maybeSingle();
+    social.friends.push({ id: fid, name: p ? p.display_name : '?', code: p ? p.friend_code : '', online: false });
+  }
+  await socialLoadPresence();
+}
+async function socialLoadRequests() {
+  const c = social.client;
+  const { data: { user } } = await c.auth.getUser();
+  const { data: rows } = await c.from('friendships').select('requester').eq('addressee', user.id).eq('status', 'pending');
+  social.requests = [];
+  for (const f of (rows || [])) {
+    const { data: p } = await c.from('profiles').select('id, friend_code, display_name').eq('id', f.requester).maybeSingle();
+    social.requests.push({ id: f.requester, name: p ? p.display_name : '?', code: p ? p.friend_code : '' });
+  }
+}
+async function socialAddFriend(code) {
+  const c = social.client;
+  if (!c) return;
+  code = String(code || '').trim().toUpperCase();
+  if (!code) return;
+  const { data: p, error } = await c.from('profiles').select('id, display_name').eq('friend_code', code).maybeSingle();
+  if (error || !p) { monitor('Social: no profile with that code', 'warn'); return; }
+  const { data: { user } } = await c.auth.getUser();
+  if (p.id === user.id) { monitor('Social: that is your own code', 'warn'); return; }
+  const { error: insErr } = await c.from('friendships').insert({ requester: user.id, addressee: p.id, status: 'pending' });
+  if (insErr) { monitor('Social: ' + (insErr.message || insErr), 'err'); return; }
+  monitor('Social: friend request sent');
+  socialRender();
+}
+async function socialAccept(id) {
+  const c = social.client;
+  if (!c) return;
+  const { data: { user } } = await c.auth.getUser();
+  await c.from('friendships').update({ status: 'accepted' }).eq('requester', id).eq('addressee', user.id);
+  await socialLoadFriends(); await socialLoadRequests(); socialRender();
+}
+async function socialDecline(id) {
+  const c = social.client;
+  if (!c) return;
+  const { data: { user } } = await c.auth.getUser();
+  await c.from('friendships').delete().eq('requester', id).eq('addressee', user.id);
+  await socialLoadRequests(); socialRender();
+}
+async function socialHeartbeat() {
+  const c = social.client;
+  if (!c || !social.profile) return;
+  try { await c.from('presence').upsert({ user_id: social.profile.id, last_seen: new Date().toISOString() }); } catch (e) {}
+}
+async function socialLoadPresence() {
+  const c = social.client;
+  if (!c || !social.friends.length) return;
+  const ids = social.friends.map(f => f.id);
+  const { data } = await c.from('presence').select('user_id, last_seen').in('user_id', ids);
+  const now = Date.now();
+  for (const f of social.friends) {
+    const p = (data || []).find(x => x.user_id === f.id);
+    f.online = !!p && (now - new Date(p.last_seen).getTime()) < 45000;
+  }
+  socialRender();
+}
+async function socialSubscribe() {
+  const c = social.client;
+  if (!c || !social.profile) return;
+  try { if (social.channel) c.removeChannel(social.channel); } catch (e) {}
+  social.channel = c.channel('social-msgs')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: 'recipient=eq.' + social.profile.id }, payload => { if (payload && payload.new) socialOnIncoming(payload.new); })
+    .subscribe();
+}
+function socialOnIncoming(m) {
+  if (!m || !social.profile) return;
+  const other = m.sender === social.profile.id ? m.recipient : m.sender;
+  social.messages[other] = social.messages[other] || [];
+  social.messages[other].push(m);
+  if (m.sender !== social.profile.id) {
+    social.unread[other] = (social.unread[other] || 0) + 1;
+    if (social.chatWith !== other) monitor('Social: new message from ' + (socialFriendName(other) || 'a friend'));
+  }
+  socialRender();
+}
+function socialFriendName(id) {
+  const f = social.friends.find(x => x.id === id);
+  return f ? f.name : null;
+}
+async function socialOpenChat(id) {
+  const c = social.client;
+  if (!c) return;
+  social.chatWith = id;
+  social.unread[id] = 0;
+  const { data: { user } } = await c.auth.getUser();
+  const { data } = await c.from('messages').select('*').or(`sender.eq.${user.id},recipient.eq.${user.id},sender.eq.${id},recipient.eq.${id}`).order('created_at', { ascending: true }).limit(200);
+  social.messages[id] = (data || []).filter(m => (m.sender === id && m.recipient === user.id) || (m.sender === user.id && m.recipient === id));
+  await c.from('messages').update({ read_at: new Date().toISOString() }).eq('recipient', user.id).eq('sender', id).is('read_at', null);
+  socialRender();
+}
+async function socialSend(text) {
+  const c = social.client;
+  const id = social.chatWith;
+  if (!c || !id) return;
+  text = String(text || '').trim().slice(0, 1000);
+  if (!text) return;
+  const { data: { user } } = await c.auth.getUser();
+  social.messages[id] = social.messages[id] || [];
+  social.messages[id].push({ sender: user.id, recipient: id, body: text, created_at: new Date().toISOString() });
+  socialRender();
+  await c.from('messages').insert({ sender: user.id, recipient: id, body: text });
+}
+async function socialInviteSession() {
+  const id = social.chatWith;
+  if (!id || sess.role !== 'host' || !sess.code) { monitor('Social: host a session first to invite', 'warn'); return; }
+  const c = social.client;
+  const { data: { user } } = await c.auth.getUser();
+  const body = JSON.stringify({ t: 'session_invite', code: sess.code });
+  social.messages[id] = social.messages[id] || [];
+  social.messages[id].push({ sender: user.id, recipient: id, body, created_at: new Date().toISOString() });
+  socialRender();
+  await c.from('messages').insert({ sender: user.id, recipient: id, body });
+}
+function socialRender() {
+  const body = $('socialBody');
+  if (!body) return;
+  body.innerHTML = '';
+  const wrap = document.createElement('div');
+  const mk = (txt) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ble-btn small'; b.textContent = txt; return b; };
+  const hint = (txt) => { const d = document.createElement('div'); d.className = 'ai-set-hint'; d.textContent = txt; return d; };
+
+  const cfg = socialConfig();
+  const urlInput = document.createElement('input');
+  urlInput.type = 'text'; urlInput.placeholder = 'Supabase project URL'; urlInput.value = cfg.url;
+  const keyInput = document.createElement('input');
+  keyInput.type = 'password'; keyInput.placeholder = 'Supabase anon key'; keyInput.value = cfg.key;
+  const saveBtn = mk('Save & connect');
+  saveBtn.onclick = () => { try { localStorage.setItem('ossm-supabase-url', urlInput.value.trim()); localStorage.setItem('ossm-supabase-key', keyInput.value.trim()); } catch (e) {} socialConnect(); };
+  const cfgRow = document.createElement('div'); cfgRow.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin:2px 0 6px;';
+  cfgRow.appendChild(urlInput); cfgRow.appendChild(keyInput); cfgRow.appendChild(saveBtn);
+  wrap.appendChild(cfgRow);
+
+  if (!socialConfigured()) {
+    wrap.appendChild(hint('Create a free project at supabase.com, run the included supabase-schema.sql in its SQL editor, enable anonymous sign-ins, then paste the URL and anon key above.'));
+    body.appendChild(wrap); return;
+  }
+  if (!social.client) { const conn = mk('Connect'); conn.onclick = () => socialConnect(); wrap.appendChild(conn); body.appendChild(wrap); return; }
+  if (!social.profile) { wrap.appendChild(hint('Signing in…')); body.appendChild(wrap); return; }
+
+  const me = document.createElement('div'); me.className = 'ai-set-hint';
+  me.textContent = 'You: ' + (social.profile.display_name || 'Player') + ' · ' + social.profile.friend_code;
+  wrap.appendChild(me);
+  const copyBtn = mk('📋 Copy code'); copyBtn.onclick = () => { try { if (navigator.clipboard) navigator.clipboard.writeText(social.profile.friend_code); } catch (e) {} };
+  wrap.appendChild(copyBtn);
+
+  const addRow = document.createElement('div'); addRow.style.cssText = 'display:flex;gap:6px;margin:4px 0;';
+  const addInput = document.createElement('input'); addInput.type = 'text'; addInput.placeholder = 'Friend code (BUZ-XXXX-XXXX)';
+  const addBtn = mk('Add'); addBtn.onclick = () => socialAddFriend(addInput.value);
+  addRow.appendChild(addInput); addRow.appendChild(addBtn);
+  wrap.appendChild(addRow);
+
+  if (social.requests.length) {
+    wrap.appendChild(hint('Friend requests:'));
+    for (const r of social.requests) {
+      const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;margin:2px 0;';
+      const nm = document.createElement('span'); nm.className = 'ai-set-hint'; nm.textContent = r.name + ' (' + r.code + ')';
+      const acc = mk('Accept'); acc.onclick = () => socialAccept(r.id);
+      const dec = mk('Decline'); dec.classList.add('danger'); dec.onclick = () => socialDecline(r.id);
+      row.appendChild(nm); row.appendChild(acc); row.appendChild(dec);
+      wrap.appendChild(row);
+    }
+  }
+
+  if (!social.friends.length) wrap.appendChild(hint('No friends yet — add someone by their code.'));
+  for (const f of social.friends) {
+    const row = document.createElement('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;margin:2px 0;';
+    const dot = document.createElement('span'); dot.textContent = f.online ? '🟢' : '⚪';
+    const nm = document.createElement('span'); nm.className = 'ai-set-hint';
+    nm.textContent = f.name + (social.unread[f.id] ? ' (' + social.unread[f.id] + ')' : '');
+    const chat = mk('💬'); chat.onclick = () => socialOpenChat(f.id);
+    const inv = mk('🎮'); inv.title = 'Invite to session'; inv.onclick = () => { socialOpenChat(f.id).then(() => socialInviteSession()); };
+    row.appendChild(dot); row.appendChild(nm); row.appendChild(chat); row.appendChild(inv);
+    wrap.appendChild(row);
+  }
+
+  if (social.chatWith) {
+    const friend = social.friends.find(f => f.id === social.chatWith);
+    wrap.appendChild(hint('Chat with ' + (friend ? friend.name : 'friend') + ':'));
+    const log = document.createElement('div'); log.id = 'socialChatLog';
+    log.style.cssText = 'height:140px;overflow-y:auto;border:1px solid #334155;border-radius:6px;padding:4px 6px;margin:4px 0;font-size:.75rem;background:#0b1220;';
+    for (const m of (social.messages[social.chatWith] || [])) {
+      const div = document.createElement('div'); div.className = 'ai-set-hint'; div.style.cssText = 'margin:1px 0;word-break:break-word;';
+      const mine = m.sender === (social.profile && social.profile.id);
+      let handled = false;
+      if (m.body && m.body.charAt(0) === '{') {
+        try {
+          const j = JSON.parse(m.body);
+          if (j && j.t === 'session_invite' && j.code) {
+            div.textContent = '🎮 Session invite: ' + j.code + ' ';
+            const join = mk('Join'); join.onclick = () => sessionJoin(j.code);
+            div.appendChild(join);
+            handled = true;
+          }
+        } catch (e) {}
+      }
+      if (!handled) div.textContent = (mine ? 'You' : (friend ? friend.name : 'They')) + ': ' + m.body;
+      log.appendChild(div);
+    }
+    log.scrollTop = log.scrollHeight;
+    wrap.appendChild(log);
+    const chatRow = document.createElement('div'); chatRow.style.cssText = 'display:flex;gap:6px;';
+    const chatInput = document.createElement('input'); chatInput.type = 'text'; chatInput.placeholder = 'Message…'; chatInput.style.cssText = 'flex:1;min-width:0;';
+    const sendBtn = mk('Send');
+    const send = () => { const t = chatInput.value; chatInput.value = ''; socialSend(t); };
+    sendBtn.onclick = send; chatInput.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+    chatRow.appendChild(chatInput); chatRow.appendChild(sendBtn);
+    wrap.appendChild(chatRow);
+  }
+
+  body.appendChild(wrap);
+}
+function socialInit() {
+  socialRender();
+  if (socialConfigured()) socialConnect();
+}
+
 function addonFistActive() {
   const st = ADDON_STATE["fist"];
   return addonEnabled("fist") && !!(st && (st.connected || st.on));
@@ -12266,6 +12567,7 @@ const addonButtplugChk = $("addonButtplugEnabled");
 if (addonButtplugChk) { addonButtplugChk.checked = addonEnabled("buttplug"); addonButtplugChk.addEventListener("change", () => { addonSetEnabled("buttplug", addonButtplugChk.checked); addonRender(); if (!addonButtplugChk.checked) buttplugDisconnect(); }); }
 addonRender();
 sessionRender();
+socialInit();
 // Auto-reconnect to previously-paired devices on startup (no picker).
 if (addonEnabled("fist")) addonAutoConnect("fist");
 if (addonEnabled("eject")) addonAutoConnect("eject");
