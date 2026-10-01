@@ -883,6 +883,7 @@
             <input type="file" id="compVideoInput" accept="video/*" multiple style="display:none;">
             <button class="ble-btn small" id="compVideoClearBtn" type="button" title="Remove all talking videos" style="display:none;">✕</button>
           </div>
+          <div class="comp-social" id="compSocial" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
           <div class="comp-sliders" id="compSliders"></div>
           <div class="comp-railpos" id="compRailPos" style="display:none;">
             <div class="comp-railpos-label">Rail Position</div>
@@ -8819,9 +8820,32 @@ function compStartSetup() {
   compAddMsg("assistant", "Hey you 😊 — before we dive in, I'd love to know you a little. What should I call you, what kind of dynamic do you like, and what are you into? Then we'll make me look exactly how you want — hair, skin, style… you can even ask for animal ears.");
   if (aiSpeakEnabled()) aiSpeak("Hey you. Let's set me up. What should I call you, and what are you into?");
 }
+// Companion mode shares the live Sessions + Friends panels with the main UI by
+// moving them above the sliders while the companion is open (single instance,
+// so chat/video updates keep working), and restoring them on close.
+function companionMovePanels() {
+  const host = $("compSocial");
+  const sp = $("sessionPanel");
+  const fp = $("socialPanel");
+  if (!host || !sp || !fp) return;
+  host.appendChild(sp);
+  host.appendChild(fp);
+}
+function companionRestorePanels() {
+  const sp = $("sessionPanel");
+  const fp = $("socialPanel");
+  const anchor = $("presets-panel");
+  if (!sp || !fp || !anchor) return;
+  if (!sp.parentElement || sp.parentElement.id !== "compSocial") return;
+  const col = anchor.parentElement;
+  if (!col) return;
+  col.insertBefore(sp, anchor);
+  col.insertBefore(fp, anchor);
+}
 function companionOpen() {
   const v = $("companionView");
   if (v) v.style.display = "";
+  companionMovePanels();
   companionState.shown = true;
   compModeActive = true;
   // The companion drives the machine through Advanced Penetration (full control
@@ -8850,6 +8874,7 @@ function companionClose() {
   companionLiveStop();
   const v = $("companionView");
   if (v) v.style.display = "none";
+  companionRestorePanels();
   companionState.shown = false;
   compModeActive = false;
   compDirtyTalkStop();
