@@ -9448,7 +9448,7 @@ function companionLiveFrame(now) {
       ig.addColorStop(1, "rgba(0,0,0,0)");
       mctx.fillStyle = ig;
       mctx.beginPath();
-      mctx.ellipse(W2 / 2, H2 * split + drop / 2, W2 * 0.20, Math.max(1.5, drop * 0.7), 0, 0, Math.PI * 2);
+      mctx.ellipse(W2 / 2, H2 * split + drop / 2, W2 * 0.15, Math.max(1.5, drop * 0.7), 0, 0, Math.PI * 2);
       mctx.fill();
       mctx.drawImage(img, srcX, srcY + srcH * split, srcW, srcH * (1 - split), 0, H2 * split + drop, W2, H2 * (1 - split));
       // soft radial mask so it blends into the cheeks
@@ -9473,10 +9473,10 @@ function companionLiveFrame(now) {
       if (box) { top = box.top; eyeHpx = Math.min(Math.max(box.bottom - box.top, f.eyeDist * iw * 0.12), f.eyeDist * iw * 0.28); eyeWpx = eyeHpx * 2.4; }
       else { eyeHpx = f.eyeDist * iw * 0.20; top = eiy - eyeHpx * 0.5; eyeWpx = f.eyeDist * iw * 0.85; }
       const lidSrcH = eyeHpx * 0.5;                 // pure skin strip just above the eye
-      const lidW = eyeWpx * 1.25;
+      const lidW = eyeWpx * 0.625;                  // narrower, subtler lid
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
-      const coverH = (lidSrcH + eyeHpx * 0.55) * blink * s * 0.5;  // subtle half-blink
+      const coverH = eyeHpx * blink * s;            // lid comes down to mid-eye
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2), lidW * s, coverH);
       if (blink > 0.2) {
         ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
