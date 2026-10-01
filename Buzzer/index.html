@@ -9478,7 +9478,7 @@ function companionLiveFrame(now) {
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
       const coverH = (eyeHpx * 1.15 * s - 10) * blink;   // lid height (10px shorter)
-      ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2) + 10, lidW * s, coverH);
+      ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2) + 4, ty(srcY2) + 22, lidW * s, coverH);
       if (blink > 0.2) {
         ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
         ctx.lineWidth = Math.max(1, eyeHpx * 0.08 * s);
