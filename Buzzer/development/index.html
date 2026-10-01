@@ -9191,7 +9191,7 @@ function companionLiveComputeFace(img, pts) {
   const eyeDistN = Math.max(0.04, Math.hypot(re[0] - le[0], re[1] - le[1]));
   const eyeDistPx = eyeDistN * iw;
   // Square crop in PIXELS so the round avatar never stretches the photo.
-  const side = Math.max(16, Math.min(iw, ih, eyeDistPx * 3.2));
+  const side = Math.max(16, Math.min(iw, ih, eyeDistPx * 4.4));
   const cx = eyeMidX * iw;
   const cy = eyeMidY * ih;
   const x = Math.max(0, Math.min(iw - side, cx - side / 2));
@@ -9404,9 +9404,10 @@ function companionLiveFrame(now) {
 
   // --- head motion ---
   const breathe = 1 + 0.016 * Math.sin(t * 1.5);
-  const sway = 0.6 * Math.sin(t * 0.45);
-  const bob = speaking ? 1.0 * Math.sin(t * 10) : 0;
-  const tilt = (sway + companionLive.gazeX * 1.5) * Math.PI / 180;
+  const sway = 1.1 * Math.sin(t * 0.45);
+  const nod = 0.7 * Math.sin(t * 0.9 + 1.1);
+  const bob = speaking ? 0.4 * Math.sin(t * 10) : 0;
+  const tilt = (sway + nod + companionLive.gazeX * 1.5) * Math.PI / 180;
   const leanX = companionLive.gazeX * 0.9 * w * 0.01;
   const leanY = (bob + companionLive.gazeY * 0.9) * h * 0.01;
 
@@ -9476,7 +9477,7 @@ function companionLiveFrame(now) {
       const lidW = eyeWpx * 0.625;                  // narrower, subtler lid
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
-      const coverH = eyeHpx * blink * s;            // lid comes down to mid-eye
+      const coverH = eyeHpx * 1.15 * blink * s;      // lid comes down to just below mid-eye
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2), lidW * s, coverH);
       if (blink > 0.2) {
         ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
