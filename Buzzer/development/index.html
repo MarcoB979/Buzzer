@@ -6595,6 +6595,9 @@ function aiElevenLabsConfigured() {
   return !!(s.key && s.voiceId);
 }
 let aiAudio = null;
+let aiAudioCtx = null;
+let aiEnvelope = null;
+let aiLevel = 0;
 let aiElevenLabsWarned = false;
 function aiStopAudio() {
   if (!aiAudio) return;
@@ -6602,6 +6605,8 @@ function aiStopAudio() {
   const u = aiAudio.src;
   try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {}
   try { if (u) URL.revokeObjectURL(u); } catch (e) {}
+  aiEnvelope = null;
+  aiLevel = 0;
 }
 async function aiElevenLabsErrorText(resp) {
   try {
@@ -6637,6 +6642,7 @@ async function aiSpeakElevenLabs(text) {
       return;
     }
     const blob = await resp.blob();
+    aiBuildEnvelope(blob);
     const url = URL.createObjectURL(blob);
     if (!aiAudio) aiAudio = new Audio();
     aiAudio.src = url;
@@ -6840,6 +6846,7 @@ async function aiSpeakFish(text) {
       return;
     }
     const blob = await resp.blob();
+    aiBuildEnvelope(blob);
     const url = URL.createObjectURL(blob);
     if (!aiAudio) aiAudio = new Audio();
     aiAudio.src = url;
@@ -6888,6 +6895,48 @@ function aiIsSpeaking() {
   if (window.speechSynthesis && speechSynthesis.speaking) return true;
   if (aiAudio && !aiAudio.paused && !aiAudio.ended) return true;
   return false;
+}
+// Decode a generated speech blob into a per-frame loudness envelope so the
+// avatar's mouth can actually follow the voice (true lip-sync feel).
+async function aiBuildEnvelope(blob) {
+  aiEnvelope = null;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!aiAudioCtx) aiAudioCtx = new AC();
+    if (aiAudioCtx.state === "suspended") { try { await aiAudioCtx.resume(); } catch (e) {} }
+    const buf = await aiAudioCtx.decodeAudioData(await blob.arrayBuffer());
+    const data = buf.getChannelData(0);
+    const RATE = 40; // envelope samples per second
+    const n = Math.max(1, Math.ceil(buf.duration * RATE));
+    const levels = new Float32Array(n);
+    const step = Math.max(1, Math.floor(data.length / n));
+    let max = 0;
+    for (let i = 0; i < n; i++) {
+      let peak = 0;
+      const start = i * step, end = Math.min(data.length, (i + 1) * step);
+      for (let j = start; j < end; j += 4) { const v = data[j]; const a = v < 0 ? -v : v; if (a > peak) peak = a; }
+      levels[i] = peak;
+      if (peak > max) max = peak;
+    }
+    if (max > 0.0005) { const k = 1 / max; for (let i = 0; i < n; i++) levels[i] = Math.pow(Math.min(1, levels[i] * k), 0.6); }
+    aiEnvelope = { dur: buf.duration, levels };
+  } catch (e) { aiEnvelope = null; }
+}
+function aiSpeechLevel() {
+  if (aiEnvelope && aiAudio && !aiAudio.paused && !aiAudio.ended) {
+    const idx = Math.floor(aiAudio.currentTime * 40);
+    const lv = (idx >= 0 && idx < aiEnvelope.levels.length) ? aiEnvelope.levels[idx] : 0;
+    aiLevel += (lv - aiLevel) * 0.55;
+    aiLevel = Math.max(0, Math.min(1, aiLevel));
+    return aiLevel;
+  }
+  if (!aiIsSpeaking()) { aiLevel *= 0.8; return Math.max(0, aiLevel); }
+  // No envelope (cross-origin voice): lively pseudo-syllable motion.
+  const t = performance.now() / 1000;
+  const pseudo = 0.52 + 0.26 * Math.sin(t * 6.1) + 0.16 * Math.sin(t * 12.3 + 1.7) + 0.08 * Math.sin(t * 19.7 + 0.6);
+  aiLevel += (Math.max(0.12, Math.min(1, pseudo)) - aiLevel) * 0.5;
+  return aiLevel;
 }
 
 const AI_ASK_LIMITS = {
@@ -9329,11 +9378,11 @@ function companionLiveFrame(now) {
   const t = now / 1000;
   const speaking = aiIsSpeaking();
 
-  // --- mouth openness ---
-  let target = speaking ? 0.8 : 0;
+  // --- mouth openness (tracks the actual voice level when available) ---
+  const voiceLevel = aiSpeechLevel();
+  let target = speaking ? (0.10 + voiceLevel * 0.90) : 0;
   if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "smile") target = Math.max(target, 0.25);
-  companionLive.mouth += (target - companionLive.mouth) * 0.35;
-  if (speaking) companionLive.mouth += Math.sin(t * 21) * 0.02;
+  companionLive.mouth += (target - companionLive.mouth) * (speaking ? 0.55 : 0.30);
   companionLive.mouth = Math.max(0, Math.min(1, companionLive.mouth));
   const open = companionLive.mouth;
 
