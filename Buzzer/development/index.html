@@ -2110,7 +2110,11 @@ function stopSpeedRamp() {
   speedRampDown = false;
 }
 function setStdSpeed(v) {
-  const target = clamp(Math.round(v), 0, 100);
+  let target = clamp(Math.round(v), 0, 100);
+  if (sess && sess.play && sess.play.status === "playing" && sess.role === "host") {
+    const cap = playHostCap();
+    if (cap > 0) target = Math.min(target, cap);
+  }
   if (compModeActive && speedRampEnabled) {
     // Companion: manual speed changes ramp like the AI's — never an instant jump.
     rampSpeed(stdValues.speed, target);
@@ -11725,7 +11729,7 @@ let sess = {
   role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch",
   guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {},
   camFacing: "user", camDeviceId: null,
-  play: { status: null, role: null, otherName: "", railMine: 0, railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0 }
+  play: { status: null, role: null, otherName: "", railMine: 0, railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1 }
 };
 function sessionLib() {
   if (window.Peer) return Promise.resolve(window.Peer);
@@ -11758,7 +11762,7 @@ function setRailLengthMm(v) {
   try { localStorage.setItem("ossm-rail-length-mm", String(Math.round(Number(v) || 0))); } catch (e) {}
 }
 function playReset() {
-  sess.play = { status: null, role: null, otherName: "", railMine: railLengthMm(), railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0 };
+  sess.play = { status: null, role: null, otherName: "", railMine: railLengthMm(), railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1 };
 }
 function playSend(obj) {
   if (sess.role === "host") sessionBroadcast(obj); else sessionSend(obj);
@@ -11794,11 +11798,20 @@ function playAgreedStroke() {
   return a || b || 0;
 }
 function playSpeedScale() {
-  // Follower multiplies the host's speed % by hostMax/mine to match real mm/s.
+  // Follower multiplies the host's speed % by syncF to match real mm/s.
   if (sess.role === "host") return 1;
-  const host = sess.play.speedOther, mine = sess.play.speedMine;
-  if (host > 0 && mine > 0) return host / mine;
-  return 0; // 0 = not calibrated
+  return sess.play.syncF || 1;
+}
+function playBaseSyncF() {
+  const hostMax = sess.role === "host" ? sess.play.speedMine : sess.play.speedOther;
+  const guestMax = sess.role === "host" ? sess.play.speedOther : sess.play.speedMine;
+  if (hostMax > 0 && guestMax > 0) return clamp(hostMax / guestMax, 0.25, 4);
+  return 1;
+}
+function playHostCap() {
+  if (sess.role !== "host") return 0;
+  const f = sess.play.syncF || 1;
+  return Math.min(100, Math.round(100 / f));
 }
 function playApplyPositions() {
   const rail = sess.play.railMine || railLengthMm();
@@ -11819,8 +11832,10 @@ function playApplyPositions() {
 function playMaybeStart() {
   if (sess.play.status === "setup" && sess.play.myReady && sess.play.otherReady && playAgreedStroke()) {
     sess.play.status = "playing";
+    sess.play.syncF = playBaseSyncF();
     sess.mirrorDevice = true;
     playApplyPositions();
+    if (sess.role === "host") { const cap = playHostCap(); if (cap > 0) setStdSpeed(Math.min(Math.round(stdValues.speed), cap)); }
     sessionSendPrefs();
     sessionAppendChat("", "🎮 Mutual play started — stroke " + playAgreedStroke() + " mm", true);
   }
@@ -11839,6 +11854,36 @@ function playEnd() {
   sessionSendPrefs();
   playReset();
   sessionAppendChat("", "Mutual play ended", true);
+  sessionRender();
+}
+async function playMeasureSpeed() {
+  if (!connected) { monitor("Speed calibration: connect the OSSM first", "warn"); return; }
+  const rail = sess.play.railMine || railLengthMm();
+  if (!rail) { monitor("Speed calibration: enter your rail length first", "warn"); return; }
+  if (!confirm("Speed calibration will run the rail at 100% speed for ~2 seconds.\nMake sure the area is clear, then press OK.")) return;
+  if (appMode !== "std") { try { setModeFromDropdown("std"); } catch (e) {} }
+  const prevSpeed = Math.round(stdValues.speed);
+  const samples = [];
+  let lastP = null, lastT = 0;
+  setStdSpeed(100);
+  const iv = setInterval(() => {
+    const p = stdRailPos;
+    const now = performance.now();
+    if (typeof p === "number") {
+      if (lastP !== null) samples.push({ dp: Math.abs(p - lastP), dt: (now - lastT) / 1000 });
+      lastP = p; lastT = now;
+    }
+  }, 40);
+  await new Promise(r => setTimeout(r, 2000));
+  clearInterval(iv);
+  setStdSpeed(prevSpeed);
+  let peak = 0;
+  for (const s of samples) { const v = s.dt > 0 ? s.dp / s.dt : 0; if (v > peak) peak = v; }
+  const mmPerSec = Math.round(peak / 100 * rail);
+  if (mmPerSec <= 0) { monitor("Speed calibration failed — no movement detected. Enter it manually.", "warn"); sessionRender(); return; }
+  sess.play.speedMine = mmPerSec;
+  playSend({ t: "play", act: "speed", mms: mmPerSec });
+  monitor("Measured top speed: " + mmPerSec + " mm/s");
   sessionRender();
 }
 function playOnMsg(d, fromName) {
@@ -11861,6 +11906,7 @@ function playOnMsg(d, fromName) {
       sess.play.role = "requester";
       sess.play.railOther = Math.round(Number(d.rail) || 0);
       sess.play.otherName = String(d.name || sess.play.otherName || "them");
+      if (sess.play.railMine) playSend({ t: "play", act: "rail", rail: sess.play.railMine });
     }
   } else if (act === "rail") {
     sess.play.railOther = Math.round(Number(d.rail) || 0);
@@ -11868,6 +11914,10 @@ function playOnMsg(d, fromName) {
     sess.play.strokeOther = Math.round(Number(d.mm) || 0);
   } else if (act === "speed") {
     sess.play.speedOther = Math.round(Number(d.mms) || 0);
+  } else if (act === "tune") {
+    const f = Number(d.f);
+    if (isFinite(f) && f > 0) sess.play.syncF = clamp(f, 0.25, 4);
+    if (sess.role === "host") { const cap = playHostCap(); if (cap > 0) setStdSpeed(Math.min(Math.round(stdValues.speed), cap)); }
   } else if (act === "ready") {
     sess.play.otherReady = !!d.ready;
     playMaybeStart();
@@ -11940,11 +11990,12 @@ function playRender(wrap) {
       sec.appendChild(hint("Max shared stroke: " + cap + " mm" + (agreed ? " · agreed: " + agreed + " mm" : "") + (p.strokeMine && p.strokeOther ? "" : " · waiting for partner's stroke…")));
 
       const vrow = document.createElement("div"); vrow.style.cssText = "display:flex;gap:6px;margin:2px 0;";
-      const vinput = document.createElement("input"); vinput.type = "number"; vinput.placeholder = "Top speed mm/s at 100% (optional)"; vinput.value = p.speedMine || ""; vinput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:.75rem;";
+      const vinput = document.createElement("input"); vinput.type = "number"; vinput.placeholder = "Top speed mm/s at 100%"; vinput.value = p.speedMine || ""; vinput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:.75rem;";
       const vsave = mk("Save"); vsave.onclick = () => { const mms = Math.round(Number(vinput.value) || 0); sess.play.speedMine = mms; playSend({ t: "play", act: "speed", mms }); sessionRender(); };
-      vrow.appendChild(vinput); vrow.appendChild(vsave);
+      const vauto = mk("Auto-measure"); vauto.title = "Run the rail at 100% for ~2s and measure the real top speed"; vauto.onclick = () => playMeasureSpeed();
+      vrow.appendChild(vinput); vrow.appendChild(vsave); vrow.appendChild(vauto);
       sec.appendChild(vrow);
-      sec.appendChild(hint("Optional but recommended: enter each machine's top speed (mm/s at 100%) so speeds match. Tip: run a full stroke at 100% and time it — mm/s = rail ÷ seconds."));
+      sec.appendChild(hint("Required for speed matching. Auto-measure runs the rail at 100% briefly, or enter it manually (run a full stroke at 100% and time it: mm/s = rail ÷ seconds)." + (p.speedMine ? " Yours: " + p.speedMine + " mm/s" : "") + (p.speedOther ? " · partner: " + p.speedOther + " mm/s" : (p.speedMine ? " · waiting for partner's speed…" : ""))));
 
       if (agreed && p.railMine > p.railOther) {
         const maxStart = Math.max(0, p.railMine - agreed);
@@ -11958,14 +12009,17 @@ function playRender(wrap) {
     }
 
     if (p.status === "setup") {
-      const canReady = !!(p.railMine && p.railOther && playAgreedStroke());
+      const canReady = !!(p.railMine && p.railOther && playAgreedStroke() && p.speedMine > 0 && p.speedOther > 0);
       const ready = mk(p.myReady ? "✅ Ready (undo)" : "Ready");
       ready.onclick = playToggleReady;
       if (!canReady) ready.disabled = true;
       sec.appendChild(ready);
+      if (!canReady) sec.appendChild(hint("Ready unlocks when both rail lengths, stroke lengths and speeds are set."));
       sec.appendChild(hint(p.otherReady ? "Partner is ready ✓" : "Waiting for partner to be ready…", p.otherReady ? "#4ade80" : ""));
     } else {
       sec.appendChild(hint("▶ Playing together — stroke " + playAgreedStroke() + " mm", "#4ade80"));
+      sec.appendChild(sliderEl("Speed sync %", 25, 400, Math.round((p.syncF || 1) * 100), "#38bdf8", v => { p.syncF = v / 100; playSend({ t: "play", act: "tune", f: v / 100 }); }));
+      sec.appendChild(hint(sess.role === "host" ? "Tune until both feel in sync. Your speed caps at " + playHostCap() + "%." : "Tune until both feel in sync. Your speed = host × " + (p.syncF || 1).toFixed(2) + "."));
       const end = mk("✕ End play"); end.classList.add("danger"); end.onclick = playEnd;
       sec.appendChild(end);
       const rl = p.railMine || rail;
@@ -12303,7 +12357,11 @@ function sessionBroadcastSnapshot() {
     for (let mi = 0; mi < MODIFIER_NAMES.length; mi++) row.push(Math.round(settingValue(modifierKey(bi, mi))));
     mod.push(row);
   }
-  const curSpeed = (appMode === "std") ? Math.round(stdValues.speed) : speed();
+  let curSpeed = (appMode === "std") ? Math.round(stdValues.speed) : speed();
+  if (sess.play && sess.play.status === "playing" && sess.role === "host") {
+    const cap = playHostCap();
+    if (cap > 0) curSpeed = Math.min(curSpeed, cap);
+  }
   const running = (appMode === "fun") ? !!funState.playing : (appMode === "std" ? stdValues.speed > 0.5 : speed() > 0);
   let video = null;
   if (appMode === "fun") {
