@@ -790,7 +790,7 @@
       </div>
     </details>
     <details class="presets-panel" id="sessionPanel">
-      <summary><span class="summary-left">📡 Sessions</span></summary>
+      <summary><span class="summary-left"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="vertical-align:-2px;margin-right:5px;"><path d="M21 6h-2v9H6v2c0 .55.45 1 1 1h11l4 4V7c0-.55-.45-1-1-1zm-4 6V3c0-.55-.45-1-1-1H3c-.55 0-1 .45-1 1v14l4-4h10c.55 0 1-.45 1-1z"/></svg>Sessions</span></summary>
       <div class="ai-settings-body">
         <div id="sessionBody"></div>
       </div>
@@ -1375,9 +1375,15 @@ function liteInit() {
   el.textContent = "⚡ Lite";
   row.appendChild(el);
 }
-function liteVideoConstraints() {
-  if (!liteMode) return { video: true, audio: true };
-  return { video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } }, audio: true };
+function sessionVideoConstraints() {
+  let v = true;
+  if (sess.camDeviceId) v = { deviceId: { exact: sess.camDeviceId } };
+  else if (sess.camFacing) v = { facingMode: sess.camFacing };
+  if (liteMode) {
+    if (v === true) v = {};
+    v.width = { ideal: 320 }; v.height = { ideal: 240 }; v.frameRate = { ideal: 15 };
+  }
+  return { video: v, audio: true };
 }
 
 // ---------- Toy load (warn above 4 connected toys, still allow) ----------
@@ -3596,7 +3602,7 @@ function buildFunControls() {
   castRow.appendChild(castBtn);
   const shareBtn = document.createElement("button");
   shareBtn.type = "button"; shareBtn.className = "fun-btn"; shareBtn.id = "funShareBtn";
-  shareBtn.textContent = "� Share";
+  shareBtn.textContent = "📤 Share";
   shareBtn.title = "Share this video with your session guests (uploads local files to your Worker for a public link)";
   shareBtn.onclick = sessionShareVideo;
   if (sess.role !== "host") shareBtn.style.display = "none";
@@ -11712,7 +11718,8 @@ function addonButtplugIntentText() {
 // ---------- Sessions (PeerJS: host/join, mutual webcam, roles, chat) ----------
 let sess = {
   role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch",
-  guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {}
+  guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {},
+  camFacing: "user", camDeviceId: null
 };
 function sessionLib() {
   if (window.Peer) return Promise.resolve(window.Peer);
@@ -11796,7 +11803,7 @@ async function sessionCamOn(on) {
   try {
     if (on) {
       if (!sess.stream) {
-        sess.stream = await navigator.mediaDevices.getUserMedia(liteVideoConstraints());
+        sess.stream = await navigator.mediaDevices.getUserMedia(sessionVideoConstraints());
         // Start muted unless the user has explicitly turned the mic on —
         // otherwise turning on the camera also silently broadcasts audio.
         if (!sess.micOn) sess.stream.getAudioTracks().forEach(t => { try { t.enabled = false; } catch (e) {} });
@@ -11817,6 +11824,37 @@ async function sessionCamOn(on) {
 function sessionMicOn(on) {
   sess.micOn = on;
   if (sess.stream) sess.stream.getAudioTracks().forEach(t => { try { t.enabled = on; } catch (e) {} });
+  sessionRender();
+}
+async function sessionSwitchCamera() {
+  if (!sess.camOn) return;
+  let cams = [];
+  try { cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "videoinput" && d.deviceId); } catch (e) {}
+  if (cams.length >= 2) {
+    let cur = sess.camDeviceId || "";
+    try { const tr = sess.stream && sess.stream.getVideoTracks()[0]; if (tr && tr.getSettings) cur = tr.getSettings().deviceId || cur; } catch (e) {}
+    const idx = cams.findIndex(d => d.deviceId === cur);
+    const next = cams[(idx + 1) % cams.length];
+    sess.camDeviceId = next.deviceId;
+    sess.camFacing = null;
+  } else {
+    sess.camFacing = (sess.camFacing === "environment") ? "user" : "environment";
+    sess.camDeviceId = null;
+  }
+  await sessionRestartCam();
+}
+async function sessionRestartCam() {
+  const old = sess.stream;
+  try {
+    const fresh = await navigator.mediaDevices.getUserMedia(sessionVideoConstraints());
+    if (!sess.micOn) fresh.getAudioTracks().forEach(t => { try { t.enabled = false; } catch (e) {} });
+    sess.stream = fresh;
+    sessionCloseCalls();
+    sessionEnsureCalls();
+    if (old) { try { old.getTracks().forEach(t => t.stop()); } catch (e) {} }
+  } catch (e) {
+    monitor("Camera switch failed (" + (e && e.message ? e.message : e) + ")", "warn");
+  }
   sessionRender();
 }
 async function sessionAnswerCall(call) {
@@ -12199,8 +12237,13 @@ function sessionRender() {
     if (sess.role === "host") { const cp = mk("🔗 Copy link"); cp.onclick = () => sessionCopyLink(); btnRow.appendChild(cp); }
     const camBtn = mk(sess.camOn ? "📷 Camera off" : "📷 Camera on"); camBtn.onclick = () => sessionCamOn(!sess.camOn);
     const micBtn = mk(sess.micOn ? "🔇 Mute mic" : "🎤 Unmute mic"); micBtn.onclick = () => sessionMicOn(!sess.micOn);
+    btnRow.appendChild(camBtn); btnRow.appendChild(micBtn);
+    if (sess.camOn) {
+      const swBtn = mk("🔄 Switch camera"); swBtn.title = "Switch camera (front/back, or next camera on PC)"; swBtn.onclick = () => sessionSwitchCamera();
+      btnRow.appendChild(swBtn);
+    }
     const leaveBtn = mk("✕ " + (sess.role === "host" ? "End session" : "Leave")); leaveBtn.classList.add("danger"); leaveBtn.onclick = () => sessionLeave();
-    btnRow.appendChild(camBtn); btnRow.appendChild(micBtn); btnRow.appendChild(leaveBtn);
+    btnRow.appendChild(leaveBtn);
     wrap.appendChild(btnRow);
 
     if (sess.role === "guest") {
@@ -12334,8 +12377,9 @@ function sessionRender() {
 // ---------- Social (Supabase: friends, presence, messaging) ----------
 let social = { client: null, profile: null, friends: [], requests: [], chatWith: null, messages: {}, unread: {}, channel: null, presenceTimer: null };
 function socialConfig() {
-  try { return { url: (localStorage.getItem('ossm-supabase-url') || '').trim(), key: (localStorage.getItem('ossm-supabase-key') || '').trim() }; }
-  catch (e) { return { url: '', key: '' }; }
+  // Hardcoded shared Supabase project — every user connects to the same database,
+  // so no setup screen is needed. The key below is a publishable (public) key.
+  return { url: 'https://wukadftjjqtpgyiftodw.supabase.co', key: 'sb_publishable_hlMAdhGCqpnUnC3iQZ6f6g_6t1hByWu' };
 }
 function socialConfigured() { const c = socialConfig(); return !!(c.url && c.key); }
 function socialLib() {
@@ -12530,21 +12574,6 @@ function socialRender() {
   const mk = (txt) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'ble-btn small'; b.textContent = txt; return b; };
   const hint = (txt) => { const d = document.createElement('div'); d.className = 'ai-set-hint'; d.textContent = txt; return d; };
 
-  const cfg = socialConfig();
-  const urlInput = document.createElement('input');
-  urlInput.type = 'text'; urlInput.placeholder = 'Supabase project URL'; urlInput.value = cfg.url;
-  const keyInput = document.createElement('input');
-  keyInput.type = 'password'; keyInput.placeholder = 'Supabase anon key'; keyInput.value = cfg.key;
-  const saveBtn = mk('Save & connect');
-  saveBtn.onclick = () => { try { localStorage.setItem('ossm-supabase-url', urlInput.value.trim()); localStorage.setItem('ossm-supabase-key', keyInput.value.trim()); } catch (e) {} socialConnect(); };
-  const cfgRow = document.createElement('div'); cfgRow.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin:2px 0 6px;';
-  cfgRow.appendChild(urlInput); cfgRow.appendChild(keyInput); cfgRow.appendChild(saveBtn);
-  wrap.appendChild(cfgRow);
-
-  if (!socialConfigured()) {
-    wrap.appendChild(hint('Create a free project at supabase.com, run the included supabase-schema.sql in its SQL editor, enable anonymous sign-ins, then paste the URL and anon key above.'));
-    body.appendChild(wrap); return;
-  }
   if (!social.client) { const conn = mk('Connect'); conn.onclick = () => socialConnect(); wrap.appendChild(conn); body.appendChild(wrap); return; }
   if (!social.profile) { wrap.appendChild(hint('Signing in…')); body.appendChild(wrap); return; }
 
