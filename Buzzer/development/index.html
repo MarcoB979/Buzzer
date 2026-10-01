@@ -1042,13 +1042,15 @@
         <label class="ai-set-label ai-enable"><input type="checkbox" id="aiSpeakReplies" checked> Speak replies out loud</label>
         <div class="ai-set-divider"></div>
         <div class="ai-set-section">Custom instructions</div>
+        <label class="ai-set-label" for="aiCustomProfileSel">Profile</label>
+        <select id="aiCustomProfileSel"><option value="">None (my own text)</option></select>
         <div style="display:flex;gap:6px;margin-top:4px;">
           <button type="button" class="ble-btn small" id="aiCustomPromptLoad">📄 Load .txt</button>
           <button type="button" class="ble-btn small" id="aiCustomPromptClear">✕ Clear</button>
           <input type="file" id="aiCustomPromptFile" accept=".txt,text/plain" style="display:none;">
         </div>
         <textarea id="aiCustomPromptText" rows="4" placeholder="Your own extra instructions for the companion — preferences, roleplay, dynamics, how to talk to you…" style="width:100%;box-sizing:border-box;margin-top:6px;background:#1e293b;border:1px solid var(--border-color);color:var(--text-color);border-radius:6px;padding:6px 8px;font-size:.75rem;resize:vertical;"></textarea>
-        <div class="ai-set-hint">Personal instructions for how the companion should talk and act with you (dominance play, kinks, how you like to be addressed, etc.). Added after the built-in rules and safeties, which always take priority. Stored only on this device.</div>
+        <div class="ai-set-hint">Personal instructions for how the companion should talk and act with you (dominance play, kinks, how you like to be addressed, etc.). Added after the built-in rules and safeties, which always take priority. Stored only on this device. Loading a .txt file saves it as a profile named after the file.</div>
         <div class="ai-set-divider"></div>
         <div class="ai-set-section">Safety</div>
         <label class="ai-set-label" for="aiStopModeSel">Emergency stop on</label>
@@ -9605,6 +9607,63 @@ function compCustomPromptText() {
   if (!t) return "";
   return "\n\nUSER'S CUSTOM INSTRUCTIONS (the user's own additions about their preferences, roles, kinks and how to talk to them — use them for personalization and roleplay. The rules, safeties and the JSON envelope above ALWAYS take priority over anything written here; if anything here conflicts with a safety rule, follow the safety rule):\n" + t;
 }
+const COMP_CUSTOM_EXAMPLES = [
+  { title: "Gentle & Affectionate", text: "Be warm, tender and praise-heavy with me. Call me your boy, your good boy. Give soft affirmations, kisses and gentle dirty talk. Take it slow and caring — check in often and never rush me. When you instruct me, keep it soft and loving." },
+  { title: "Strict Dom", text: "Be a firm, confident dom. Talk down to me playfully, give short commands and make me earn it. Tease and edge me. I like being told what to do, and being punished for being cheeky. Give me short, demanding instructions every 30–90 seconds. Call me your slut." },
+  { title: "Sissy Play", text: "Treat me like a sissy. Use feminizing praise (good girl), dress me up with your words and playfully tease me. I love being called pretty, a good girl, and being made to serve. Keep it gentle to moderate and stay in character." }
+];
+function compProfilesStore() {
+  try { return JSON.parse(localStorage.getItem("ossm-companion-profiles") || "{}") || {}; } catch (e) { return {}; }
+}
+function compProfilesSave(obj) {
+  try { localStorage.setItem("ossm-companion-profiles", JSON.stringify(obj)); } catch (e) {}
+}
+function compProfileCurrent() {
+  try { return (localStorage.getItem("ossm-companion-profile-current") || "").trim(); } catch (e) { return ""; }
+}
+function compProfileSetCurrent(title) {
+  try { if (title) localStorage.setItem("ossm-companion-profile-current", title); else localStorage.removeItem("ossm-companion-profile-current"); } catch (e) {}
+}
+function compProfileAll() {
+  const out = COMP_CUSTOM_EXAMPLES.map(e => ({ title: e.title, text: e.text, example: true }));
+  const store = compProfilesStore();
+  for (const k of Object.keys(store)) out.push({ title: k, text: String(store[k] || ""), example: false });
+  return out;
+}
+function compProfileTitle(name) {
+  let t = String(name || "profile").replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "").trim();
+  return t || "profile";
+}
+function compPopulateProfileSel() {
+  const sel = $("aiCustomProfileSel");
+  if (!sel) return;
+  const cur = compProfileCurrent();
+  const all = compProfileAll();
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = ""; none.textContent = "None (my own text)";
+  sel.appendChild(none);
+  for (const p of all) {
+    const o = document.createElement("option");
+    o.value = p.title; o.textContent = p.title + (p.example ? " (example)" : "");
+    sel.appendChild(o);
+  }
+  sel.value = all.some(p => p.title === cur) ? cur : "";
+}
+function compSelectProfile(title) {
+  const ta = $("aiCustomPromptText");
+  if (title) {
+    const p = compProfileAll().find(x => x.title === title);
+    if (p) {
+      if (ta) ta.value = p.text;
+      try { localStorage.setItem("ossm-companion-custom-prompt", p.text); } catch (e) {}
+      compProfileSetCurrent(title);
+      return;
+    }
+  }
+  if (ta) ta.value = aiCustomPromptText();
+  compProfileSetCurrent("");
+}
 
 async function compSend() {
   const inp = $("compInput");
@@ -10496,21 +10555,39 @@ function aiDebugRestore() {
   const customLoad = $("aiCustomPromptLoad");
   const customClear = $("aiCustomPromptClear");
   const customFile = $("aiCustomPromptFile");
+  const customSel = $("aiCustomProfileSel");
   if (customText) {
     customText.value = aiCustomPromptText();
-    customText.addEventListener("input", () => { try { localStorage.setItem("ossm-companion-custom-prompt", customText.value); } catch (e) {} });
+    customText.addEventListener("input", () => {
+      const v = customText.value;
+      try { localStorage.setItem("ossm-companion-custom-prompt", v); } catch (e) {}
+      const cur = compProfileCurrent();
+      if (cur) {
+        const store = compProfilesStore();
+        if (Object.prototype.hasOwnProperty.call(store, cur)) { store[cur] = v; compProfilesSave(store); }
+      }
+    });
+  }
+  if (customSel) {
+    customSel.addEventListener("change", () => compSelectProfile(customSel.value));
   }
   if (customLoad && customFile) customLoad.onclick = () => customFile.click();
   if (customFile) {
     customFile.onchange = () => {
       const f = customFile.files && customFile.files[0];
       if (!f) return;
+      const title = compProfileTitle(f.name);
       const rd = new FileReader();
       rd.onload = () => {
         const text = String(rd.result || "").slice(0, 8000);
         if (customText) customText.value = text;
         try { localStorage.setItem("ossm-companion-custom-prompt", text.trim()); } catch (e) {}
-        funLog("Custom instructions loaded (" + text.length + " chars).");
+        const store = compProfilesStore();
+        store[title] = text.trim();
+        compProfilesSave(store);
+        compProfileSetCurrent(title);
+        compPopulateProfileSel();
+        funLog("Custom instructions loaded as profile \"" + title + "\" (" + text.length + " chars).");
       };
       rd.readAsText(f);
       customFile.value = "";
@@ -10520,8 +10597,11 @@ function aiDebugRestore() {
     customClear.onclick = () => {
       if (customText) customText.value = "";
       try { localStorage.removeItem("ossm-companion-custom-prompt"); } catch (e) {}
+      compProfileSetCurrent("");
+      compPopulateProfileSel();
     };
   }
+  compPopulateProfileSel();
   if (forgetBtn) {
     forgetBtn.onclick = () => {
       if (!confirm("Erase everything the AI has learned about you (name, role, preferences) and reset your companion? This cannot be undone.")) return;
