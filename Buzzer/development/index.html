@@ -9479,6 +9479,18 @@ function companionLiveFrame(now) {
       const srcY2 = top - lidSrcH;
       const coverH = eyeHpx * 1.15 * blink * s;      // lid comes down to just below mid-eye
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2) + 10, lidW * s, coverH);
+      if (blink > 0.2) {
+        // Soft shadow under the lid (masks the iris) instead of a hard lash line.
+        const ly = ty(srcY2) + coverH + 10;
+        const bandH = eyeHpx * 0.45 * s;
+        const bandW = eyeWpx * 1.4 * s;
+        const g = ctx.createLinearGradient(0, ly - bandH, 0, ly + bandH);
+        g.addColorStop(0, "rgba(38,24,18,0)");
+        g.addColorStop(0.5, "rgba(38,24,18," + (0.30 * blink) + ")");
+        g.addColorStop(1, "rgba(38,24,18,0)");
+        ctx.fillStyle = g;
+        ctx.fillRect(tx(eix) - bandW / 2, ly - bandH, bandW, bandH * 2);
+      }
     });
   }
 
