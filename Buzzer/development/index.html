@@ -9477,7 +9477,7 @@ function companionLiveFrame(now) {
       const lidW = eyeWpx * 0.625;                  // narrower, subtler lid
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
-      const coverH = eyeHpx * 1.15 * blink * s;      // lid comes down to just below mid-eye
+      const coverH = (eyeHpx * 1.15 * s + 10) * blink;  // lid comes down ~10px further
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2), lidW * s, coverH);
       if (blink > 0.2) {
         ctx.strokeStyle = "rgba(45,25,20," + (0.4 * blink) + ")";
