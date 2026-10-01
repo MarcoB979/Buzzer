@@ -9477,7 +9477,7 @@ function companionLiveFrame(now) {
       const lidW = eyeWpx * 0.70;                   // matches the shadow band width
       const srcX2 = eix - lidW / 2;
       const srcY2 = top - lidSrcH;
-      const coverH = eyeHpx * 1.15 * blink * s;      // lid comes down to just below mid-eye
+      const coverH = eyeHpx * 0.86 * blink * s;      // 75% of previous height
       ctx.drawImage(img, srcX2, srcY2, lidW, lidSrcH, tx(srcX2), ty(srcY2) + 10, lidW * s, coverH);
       if (blink > 0.2) {
         // Soft shadow under the lid (masks the iris) instead of a hard lash line.
