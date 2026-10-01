@@ -3594,6 +3594,13 @@ function buildFunControls() {
   castBtn.textContent = "Cast";
   castBtn.onclick = toggleCast;
   castRow.appendChild(castBtn);
+  const shareBtn = document.createElement("button");
+  shareBtn.type = "button"; shareBtn.className = "fun-btn"; shareBtn.id = "funShareBtn";
+  shareBtn.textContent = "📤 Share";
+  shareBtn.title = "Share this video with your session guests (uploads local files to your Worker for a public link)";
+  shareBtn.onclick = sessionShareVideo;
+  if (sess.role !== "host") shareBtn.style.display = "none";
+  castRow.appendChild(shareBtn);
   const castInfo = document.createElement("span");
   castInfo.className = "fun-file"; castInfo.id = "funCastInfo";
   castRow.appendChild(castInfo);
@@ -4028,6 +4035,7 @@ function setFunVideo(url, name) {
   funState.castRelay = null;
   funState.uploading = false;
   funState.localFile = null;
+  funState.shareUrl = null;
   const nv = $("funVideoName"); if (nv) nv.textContent = name;
   buildFunVideo();
   updateCastButton();
@@ -4120,7 +4128,7 @@ function pageExtract(html) {
   if (m) return { url: m[1], type: /m3u8/i.test(m[1]) ? "hls" : "mp4" };
   m = flat.match(/https?:\/\/[^"'\\\s<>]+\.(?:mp4|m3u8)[^"'\\\s<>]*/i);
   if (m) return { url: m[0], type: /m3u8/i.test(m[0]) ? "hls" : "mp4" };
-  return { error: "No direct video URL found." };
+  return { error: "No direct video URL found — the site may have changed or blocked the request. Paste a direct .mp4/.m3u8 link, or set your Worker URL (⚙) for reliable loading." };
 }
 async function fetchTimeout(url, ms) {
   const c = new AbortController();
@@ -11728,6 +11736,44 @@ function sessionSendPrefs() {
   if (sess.role !== "guest") return;
   sessionSend({ t: "prefs", mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo });
 }
+async function sessionShareVideo() {
+  if (sess.role !== "host") { funLog("Only the host can share a video."); return; }
+  if (!funState.videoName && !funState.videoUrl) { funLog("Load a video first."); return; }
+  // Online / direct URL — share immediately.
+  if (funState.videoUrl && !funState.videoUrl.startsWith("blob:")) {
+    funState.shareUrl = funState.videoUrl;
+    sessionAppendChat("", "📤 Host shared video: " + (funState.videoName || "stream"), true);
+    sessionBroadcastSnapshot();
+    funLog("Video shared — guests can follow it.");
+    return;
+  }
+  // Local file: reuse the cast upload URL if it's already there.
+  if (funState.castUrl) {
+    funState.shareUrl = funState.castUrl;
+    sessionAppendChat("", "📤 Host shared video: " + (funState.videoName || "video"), true);
+    sessionBroadcastSnapshot();
+    funLog("Video shared — guests can follow it.");
+    return;
+  }
+  if (funState.uploading) { funLog("Still uploading for casting — press Share again in a moment."); return; }
+  if (!workerBaseUrl()) { funLog("To share a local video, set your Worker URL (⚙) — it needs an R2 bucket."); return; }
+  const file = funState.localFile;
+  if (!file) { funLog("Reload the local video, then share again."); return; }
+  funLog("Uploading video to share…");
+  const info = $("funCastInfo"); if (info) info.textContent = "sharing 0%";
+  try {
+    const url = await uploadToWorker(file, pct => { const s = $("funCastInfo"); if (s) s.textContent = "sharing " + pct + "%"; });
+    funState.castUrl = url;
+    funState.shareUrl = url;
+    if (info) info.textContent = "shared ✓";
+    sessionAppendChat("", "📤 Host shared video: " + (funState.videoName || "video"), true);
+    sessionBroadcastSnapshot();
+    funLog("Video shared — guests can follow it.");
+  } catch (e) {
+    if (info) info.textContent = "";
+    funLog("Share failed: " + (e && e.message ? e.message : e));
+  }
+}
 function sessionBroadcastPeers() {
   const list = sess.guests.map(g => ({ id: g.id, name: g.name, role: g.role }));
   sessionBroadcast({ t: "peers", list });
@@ -11977,7 +12023,9 @@ function sessionBroadcastSnapshot() {
   let video = null;
   if (appMode === "fun") {
     const v = $("funVideo");
-    const shareable = funState.videoUrl && !funState.videoUrl.startsWith("blob:") ? funState.videoUrl : null;
+    const shareable = (funState.shareUrl && !funState.shareUrl.startsWith("blob:"))
+      ? funState.shareUrl
+      : (funState.videoUrl && !funState.videoUrl.startsWith("blob:") ? funState.videoUrl : null);
     if (v || funState.videoName) video = { name: funState.videoName || "", url: shareable, playing: !!funState.playing, t: v ? Math.round(v.currentTime * 10) / 10 : 0 };
   }
   sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running, speed: curSpeed, base, std, compMode: !!compModeActive, video });
@@ -12273,6 +12321,8 @@ function sessionRender() {
   if (mt) { mt.checked = !!sess.mirrorDevice; mt.addEventListener("change", () => { sess.mirrorDevice = mt.checked; if (!mt.checked) sess.applied = null; sessionSendPrefs(); }); }
   const wt = $("sessionWatchToggle");
   if (wt) { wt.checked = !!sess.watchVideo; wt.addEventListener("change", () => { sess.watchVideo = wt.checked; sessionSendPrefs(); }); }
+  const sh = $("funShareBtn");
+  if (sh) sh.style.display = (sess.role === "host") ? "" : "none";
   sessionUpdateStatus();
 }
 
