@@ -1348,6 +1348,60 @@ let stdCmd = null, stdState = null, stdPatternsChar = null, senptlChar = null, s
 let stdRailChar = null;   // live rail-position characteristic (StrPos)
 let presetNames = [];
 let connected = false;
+
+// ---------- Lite mode (automatic, for low-end / second-hand devices) ----------
+let liteMode = false;
+function liteScore() {
+  let score = 0;
+  const cores = (typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency > 0) ? navigator.hardwareConcurrency : 4;
+  if (cores <= 2) score += 2; else if (cores <= 4) score += 1;
+  const mem = (typeof navigator.deviceMemory === "number" && navigator.deviceMemory > 0) ? navigator.deviceMemory : 4;
+  if (mem <= 2) score += 2; else if (mem <= 4) score += 1;
+  let et = "";
+  try { et = (navigator.connection && navigator.connection.effectiveType) || ""; } catch (e) {}
+  if (et === "slow-2g" || et === "2g") score += 2; else if (et === "3g") score += 1;
+  if (/Android/i.test(navigator.userAgent) && !/Windows|Macintosh|Linux/i.test(navigator.userAgent)) score += 1;
+  return score;
+}
+function liteInit() {
+  liteMode = liteScore() >= 3;
+  if (!liteMode) return;
+  monitor("Lite mode on — low-end device detected, camera quality reduced", "warn");
+  const row = document.querySelector(".title-row");
+  if (!row || document.getElementById("liteBadge")) return;
+  const el = document.createElement("span");
+  el.id = "liteBadge";
+  el.title = "Lite mode (automatic): camera quality is reduced to save CPU on this device.";
+  el.style.cssText = "font-size:.6rem;padding:1px 6px;border-radius:8px;background:#3b0764;color:#e9d5ff;border:1px solid #7c3aed;margin-left:6px;white-space:nowrap;";
+  el.textContent = "⚡ Lite";
+  row.appendChild(el);
+}
+function liteVideoConstraints() {
+  if (!liteMode) return { video: true, audio: true };
+  return { video: { width: { ideal: 320 }, height: { ideal: 240 }, frameRate: { ideal: 15 } }, audio: true };
+}
+
+// ---------- Toy load (warn above 4 connected toys, still allow) ----------
+let toyWarned = false;
+function toyCount() {
+  let n = 0;
+  if (connected) n += 1; // OSSM
+  try {
+    for (const key of ["fist", "eject", "coyote"]) { if (ADDON_STATE[key] && ADDON_STATE[key].connected) n += 1; }
+    n += buttplugDevices().length;
+  } catch (e) {}
+  return n;
+}
+function toyLoadCheck() {
+  const n = toyCount();
+  if (n > 4 && !toyWarned) {
+    toyWarned = true;
+    monitor("⚠ " + n + " toys connected — more than 4 can cause Bluetooth drops on this device", "warn");
+  } else if (n <= 4) {
+    toyWarned = false;
+  }
+}
+
 let running = false;
 let padStateText = "";       // last gamepad/keyboard status text
 let appMode = "std";         // "ap" (advanced penetration) | "std" (standard home)
@@ -1758,6 +1812,7 @@ async function connect(acquired, silent) {
     await refreshStdPatterns();
     await refreshStdValues();
     connected = true;
+    toyLoadCheck();
     updateFocusStatus();
     running = speed() > 0;
     lastNonZeroSpeed = speed() > 0 ? speed() : 0;
@@ -1799,6 +1854,7 @@ async function autoConnectOssm() {
 
 function onDisconnected() {
   connected = false; running = false; stdRunning = false; stdStateName = ""; streamChar = null; stdRailChar = null; stdRailPos = null;
+  toyLoadCheck();
   // A BLE drop must not kill an active cast — the video on the TV keeps
   // playing; only the OSSM motion pauses until it reconnects.
   if (castConnected) funLog("OSSM disconnected — cast keeps playing.");
@@ -10946,7 +11002,8 @@ function addonAttach(id, device, server, rx) {
   const a = ADDON_DEFS.find(x => x.id === id);
   const st = ADDON_STATE[id] || (ADDON_STATE[id] = {});
   st.device = device; st.server = server; st.rx = rx; st.connected = true;
-  device.addEventListener("gattserverdisconnected", () => { st.connected = false; st.rx = null; st.on = false; addonRender(); });
+  toyLoadCheck();
+  device.addEventListener("gattserverdisconnected", () => { st.connected = false; st.rx = null; st.on = false; addonRender(); toyLoadCheck(); });
   monitor(a.name + ": connected");
   addonRender();
 }
@@ -11240,6 +11297,7 @@ function coyoteDisconnected() {
   st.connected = false; st.on = false;
   if (st.timer) { clearInterval(st.timer); st.timer = null; }
   st.writeChar = null; st.notifyChar = null; st.writeQueue = null;
+  toyLoadCheck();
   coyoteRender();
 }
 async function coyoteAttach(device) {
@@ -11252,6 +11310,7 @@ async function coyoteAttach(device) {
   notifyChar.addEventListener("characteristicvaluechanged", (ev) => coyoteOnNotify(st, ev));
   st.device = device; st.server = device.gatt; st.writeChar = writeChar; st.notifyChar = notifyChar;
   st.connected = true;
+  toyLoadCheck();
   device.addEventListener("gattserverdisconnected", () => coyoteDisconnected());
   try {
     const bsvc = await device.gatt.getPrimaryService(a.batteryService);
@@ -11470,9 +11529,9 @@ async function buttplugConnect() {
   try {
     const connector = new BP.ButtplugBrowserWebsocketClientConnector(buttplugUrl());
     const client = new BP.ButtplugClient("Buzzer");
-    client.addListener("deviceadded", () => buttplugRender());
-    client.addListener("deviceremoved", () => buttplugRender());
-    client.addListener("disconnect", () => { st.connected = false; monitor("Buttplug: disconnected", "warn"); buttplugRender(); });
+    client.addListener("deviceadded", () => { buttplugRender(); toyLoadCheck(); });
+    client.addListener("deviceremoved", () => { buttplugRender(); toyLoadCheck(); });
+    client.addListener("disconnect", () => { st.connected = false; monitor("Buttplug: disconnected", "warn"); buttplugRender(); toyLoadCheck(); });
     await client.connect(connector);
     st.client = client;
     st.connected = true;
@@ -11674,7 +11733,7 @@ function sessionAppendChat(who, text, sys) {
 async function sessionCamOn(on) {
   try {
     if (on) {
-      if (!sess.stream) sess.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      if (!sess.stream) sess.stream = await navigator.mediaDevices.getUserMedia(liteVideoConstraints());
       sess.camOn = true;
       sessionEnsureCalls();
     } else {
@@ -12568,6 +12627,7 @@ if (addonButtplugChk) { addonButtplugChk.checked = addonEnabled("buttplug"); add
 addonRender();
 sessionRender();
 socialInit();
+liteInit();
 // Auto-reconnect to previously-paired devices on startup (no picker).
 if (addonEnabled("fist")) addonAutoConnect("fist");
 if (addonEnabled("eject")) addonAutoConnect("eject");
