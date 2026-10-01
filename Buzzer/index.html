@@ -9483,7 +9483,7 @@ function companionLiveFrame(now) {
         // Soft shadow under the lid (masks the iris) instead of a hard lash line.
         const ly = ty(srcY2) + coverH + 10;
         const bandH = eyeHpx * 0.45 * s;
-        const bandW = eyeWpx * 0.35 * s;   // 25% of previous shadow width
+        const bandW = eyeWpx * 0.70 * s;   // 2x wider
         const g = ctx.createLinearGradient(0, ly - bandH, 0, ly + bandH);
         g.addColorStop(0, "rgba(38,24,18,0)");
         g.addColorStop(0.5, "rgba(38,24,18," + (0.30 * blink) + ")");
