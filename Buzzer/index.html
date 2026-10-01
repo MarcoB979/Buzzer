@@ -11724,7 +11724,8 @@ function addonButtplugIntentText() {
 let sess = {
   role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch",
   guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {},
-  camFacing: "user", camDeviceId: null
+  camFacing: "user", camDeviceId: null,
+  play: { status: null, role: null, otherName: "", railMine: 0, railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0 }
 };
 function sessionLib() {
   if (window.Peer) return Promise.resolve(window.Peer);
@@ -11747,6 +11748,232 @@ function sessionSend(obj) { try { if (sess.hostConn && sess.hostConn.open) sess.
 function sessionSendPrefs() {
   if (sess.role !== "guest") return;
   sessionSend({ t: "prefs", mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo });
+}
+
+// ---------- Mutual play (calibrated shared stroke) ----------
+function railLengthMm() {
+  try { const v = parseFloat(localStorage.getItem("ossm-rail-length-mm")); return isFinite(v) && v > 0 ? Math.round(v) : 0; } catch (e) { return 0; }
+}
+function setRailLengthMm(v) {
+  try { localStorage.setItem("ossm-rail-length-mm", String(Math.round(Number(v) || 0))); } catch (e) {}
+}
+function playReset() {
+  sess.play = { status: null, role: null, otherName: "", railMine: railLengthMm(), railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0 };
+}
+function playSend(obj) {
+  if (sess.role === "host") sessionBroadcast(obj); else sessionSend(obj);
+}
+function playRequest() {
+  if (!sess.role) return;
+  if (!railLengthMm()) { monitor("Enter your rail length (mm) first — it's required for safe shared play.", "warn"); sessionRender(); return; }
+  playReset();
+  sess.play.status = "requested";
+  sess.play.role = "requester";
+  sess.play.otherName = sess.role === "host" ? ((sess.guests[0] && sess.guests[0].name) || "Guest") : "Host";
+  playSend({ t: "play", act: "request", name: sess.myName || (sess.role === "host" ? "Host" : "Guest") });
+  sessionAppendChat("", "🎮 " + (sess.myName || "You") + " requested to play together", true);
+  sessionRender();
+}
+function playRespond(accept) {
+  if (sess.play.status !== "invited") return;
+  if (!accept) {
+    playSend({ t: "play", act: "decline", name: sess.myName });
+    playReset();
+    sessionRender();
+    return;
+  }
+  sess.play.status = "setup";
+  sess.play.role = "invitee";
+  sess.play.railMine = railLengthMm();
+  playSend({ t: "play", act: "accept", rail: sess.play.railMine, name: sess.myName });
+  sessionRender();
+}
+function playAgreedStroke() {
+  const a = sess.play.strokeMine, b = sess.play.strokeOther;
+  if (a && b) return Math.min(a, b);
+  return a || b || 0;
+}
+function playSpeedScale() {
+  // Follower multiplies the host's speed % by hostMax/mine to match real mm/s.
+  if (sess.role === "host") return 1;
+  const host = sess.play.speedOther, mine = sess.play.speedMine;
+  if (host > 0 && mine > 0) return host / mine;
+  return 0; // 0 = not calibrated
+}
+function playApplyPositions() {
+  const rail = sess.play.railMine || railLengthMm();
+  const stroke = playAgreedStroke();
+  if (!rail || !stroke) { monitor("Mutual play: rail length or stroke missing", "warn"); return; }
+  const isShort = !sess.play.railOther || rail <= sess.play.railOther;
+  const startMm = isShort ? 0 : Math.min(sess.play.autoFeelMm, Math.max(0, rail - stroke));
+  const endMm = Math.min(rail, startMm + stroke);
+  const minP = Math.round(startMm / rail * 100);
+  const maxP = Math.max(minP + 1, Math.round(endMm / rail * 100));
+  if (appMode !== "std") { try { setModeFromDropdown("std"); } catch (e) {} }
+  stdValues.min = minP; stdValues.max = maxP;
+  stdWrite("set:min:" + stdValues.min);
+  stdWrite("set:max:" + stdValues.max);
+  saveStdValues();
+  buildInterface();
+}
+function playMaybeStart() {
+  if (sess.play.status === "setup" && sess.play.myReady && sess.play.otherReady && playAgreedStroke()) {
+    sess.play.status = "playing";
+    sess.mirrorDevice = true;
+    playApplyPositions();
+    sessionSendPrefs();
+    sessionAppendChat("", "🎮 Mutual play started — stroke " + playAgreedStroke() + " mm", true);
+  }
+}
+function playToggleReady() {
+  if (sess.play.status !== "setup") return;
+  sess.play.myReady = !sess.play.myReady;
+  playSend({ t: "play", act: "ready", ready: sess.play.myReady });
+  playMaybeStart();
+  sessionRender();
+}
+function playEnd() {
+  playSend({ t: "play", act: "end" });
+  sess.mirrorDevice = false;
+  sess.applied = null;
+  sessionSendPrefs();
+  playReset();
+  sessionAppendChat("", "Mutual play ended", true);
+  sessionRender();
+}
+function playOnMsg(d, fromName) {
+  const act = d.act;
+  if (act === "request") {
+    if (sess.play.status === "playing" || sess.play.status === "setup") { playSend({ t: "play", act: "decline", name: sess.myName }); return; }
+    playReset();
+    sess.play.status = "invited";
+    sess.play.role = "invitee";
+    sess.play.otherName = String(d.name || fromName || "them");
+    sessionAppendChat("", "🎮 " + sess.play.otherName + " requested to play together", true);
+  } else if (act === "decline") {
+    if (sess.play.status === "requested") {
+      sessionAppendChat("", String(d.name || "They") + " declined the play request", true);
+      playReset();
+    }
+  } else if (act === "accept") {
+    if (sess.play.status === "requested") {
+      sess.play.status = "setup";
+      sess.play.role = "requester";
+      sess.play.railOther = Math.round(Number(d.rail) || 0);
+      sess.play.otherName = String(d.name || sess.play.otherName || "them");
+    }
+  } else if (act === "rail") {
+    sess.play.railOther = Math.round(Number(d.rail) || 0);
+  } else if (act === "stroke") {
+    sess.play.strokeOther = Math.round(Number(d.mm) || 0);
+  } else if (act === "speed") {
+    sess.play.speedOther = Math.round(Number(d.mms) || 0);
+  } else if (act === "ready") {
+    sess.play.otherReady = !!d.ready;
+    playMaybeStart();
+  } else if (act === "end") {
+    sess.mirrorDevice = false;
+    sess.applied = null;
+    playReset();
+    sessionAppendChat("", "Mutual play ended", true);
+  }
+  sessionRender();
+}
+function playRender(wrap) {
+  const p = sess.play;
+  if (!p) return;
+  const mk = (txt) => { const b = document.createElement("button"); b.type = "button"; b.className = "ble-btn small"; b.textContent = txt; return b; };
+  const hint = (txt, color) => { const d = document.createElement("div"); d.className = "ai-set-hint"; d.style.cssText = "margin:2px 0;" + (color ? "color:" + color + ";" : ""); d.textContent = txt; return d; };
+  const sec = document.createElement("div");
+  sec.style.cssText = "margin:6px 0 2px;padding:6px;border:1px solid #7c3aed;border-radius:8px;background:#0b1220;";
+  const title = document.createElement("div");
+  title.className = "ai-set-hint";
+  title.style.cssText = "margin:0 0 4px;color:#c4b5fd;font-weight:bold;";
+  title.textContent = "🎮 Mutual play (calibrated)";
+  sec.appendChild(title);
+
+  const rail = railLengthMm();
+
+  if (p.status !== "playing") {
+    const rrow = document.createElement("div"); rrow.style.cssText = "display:flex;gap:6px;margin:2px 0;";
+    const rinput = document.createElement("input"); rinput.type = "number"; rinput.placeholder = "Rail length (mm)"; rinput.value = p.railMine || rail || ""; rinput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:.75rem;";
+    const rsave = mk((p.status === "setup" && !p.railMine) ? "Confirm rail" : "Save");
+    rsave.onclick = () => {
+      const mm = Math.round(Number(rinput.value) || 0);
+      if (mm <= 0) { monitor("Enter your rail length in mm", "warn"); return; }
+      setRailLengthMm(mm);
+      sess.play.railMine = mm;
+      if (p.status === "setup") playSend({ t: "play", act: "rail", rail: mm });
+      sessionRender();
+    };
+    rrow.appendChild(rinput); rrow.appendChild(rsave);
+    sec.appendChild(rrow);
+  }
+
+  if (!p.status) {
+    sec.appendChild(hint("Both users calibrate rail length + stroke length, so a shared stroke is the same distance on both machines."));
+    const req = mk("Request to play"); req.onclick = playRequest;
+    sec.appendChild(req);
+  } else if (p.status === "requested") {
+    sec.appendChild(hint("Waiting for " + (p.otherName || "them") + " to accept…"));
+    const cancel = mk("Cancel"); cancel.classList.add("danger"); cancel.onclick = () => { playSend({ t: "play", act: "end" }); playReset(); sessionRender(); };
+    sec.appendChild(cancel);
+  } else if (p.status === "invited") {
+    sec.appendChild(hint((p.otherName || "They") + " requested to play together.", "#c4b5fd"));
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:6px;margin:4px 0;";
+    const acc = mk("Accept"); acc.onclick = () => playRespond(true);
+    const dec = mk("Decline"); dec.classList.add("danger"); dec.onclick = () => playRespond(false);
+    row.appendChild(acc); row.appendChild(dec);
+    sec.appendChild(row);
+  } else if (p.status === "setup" || p.status === "playing") {
+    if (p.railMine) sec.appendChild(hint("Your rail: " + p.railMine + " mm" + (p.railOther ? " · Partner's rail: " + p.railOther + " mm" : " · waiting for partner's rail…")));
+    else sec.appendChild(hint("Confirm your rail length above — it defines your machine's real stroke.", "#fbbf24"));
+
+    const cap = Math.min(p.railMine || Infinity, p.railOther || Infinity);
+    if (p.status === "setup" && p.railMine && p.railOther && isFinite(cap)) {
+      const srow = document.createElement("div"); srow.style.cssText = "display:flex;gap:6px;margin:2px 0;";
+      const sinput = document.createElement("input"); sinput.type = "number"; sinput.placeholder = "Stroke length (mm)"; sinput.value = p.strokeMine || cap; sinput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:.75rem;";
+      const ssave = mk("Set stroke"); ssave.onclick = () => { const mm = Math.round(Number(sinput.value) || 0); if (mm <= 0) return; sess.play.strokeMine = Math.min(mm, cap); playSend({ t: "play", act: "stroke", mm: sess.play.strokeMine }); sessionRender(); };
+      srow.appendChild(sinput); srow.appendChild(ssave);
+      sec.appendChild(srow);
+      const agreed = playAgreedStroke();
+      sec.appendChild(hint("Max shared stroke: " + cap + " mm" + (agreed ? " · agreed: " + agreed + " mm" : "") + (p.strokeMine && p.strokeOther ? "" : " · waiting for partner's stroke…")));
+
+      const vrow = document.createElement("div"); vrow.style.cssText = "display:flex;gap:6px;margin:2px 0;";
+      const vinput = document.createElement("input"); vinput.type = "number"; vinput.placeholder = "Top speed mm/s at 100% (optional)"; vinput.value = p.speedMine || ""; vinput.style.cssText = "flex:1;min-width:0;background:#1e293b;border:1px solid #334155;color:#e2e8f0;border-radius:6px;padding:4px 6px;font-size:.75rem;";
+      const vsave = mk("Save"); vsave.onclick = () => { const mms = Math.round(Number(vinput.value) || 0); sess.play.speedMine = mms; playSend({ t: "play", act: "speed", mms }); sessionRender(); };
+      vrow.appendChild(vinput); vrow.appendChild(vsave);
+      sec.appendChild(vrow);
+      sec.appendChild(hint("Optional but recommended: enter each machine's top speed (mm/s at 100%) so speeds match. Tip: run a full stroke at 100% and time it — mm/s = rail ÷ seconds."));
+
+      if (agreed && p.railMine > p.railOther) {
+        const maxStart = Math.max(0, p.railMine - agreed);
+        if (maxStart > 0) {
+          sec.appendChild(sliderEl("Start depth (auto-feel)", 0, maxStart, Math.min(p.autoFeelMm, maxStart), "#38bdf8", v => { p.autoFeelMm = Math.round(v); }));
+          sec.appendChild(hint("You have the longer rail — drag the start depth to position by feel. Your partner moves their machine manually."));
+        }
+      } else if (agreed && p.railMine <= p.railOther) {
+        sec.appendChild(hint("Your rail is the shorter one — position your machine manually; it starts at 0.", "#c4b5fd"));
+      }
+    }
+
+    if (p.status === "setup") {
+      const canReady = !!(p.railMine && p.railOther && playAgreedStroke());
+      const ready = mk(p.myReady ? "✅ Ready (undo)" : "Ready");
+      ready.onclick = playToggleReady;
+      if (!canReady) ready.disabled = true;
+      sec.appendChild(ready);
+      sec.appendChild(hint(p.otherReady ? "Partner is ready ✓" : "Waiting for partner to be ready…", p.otherReady ? "#4ade80" : ""));
+    } else {
+      sec.appendChild(hint("▶ Playing together — stroke " + playAgreedStroke() + " mm", "#4ade80"));
+      const end = mk("✕ End play"); end.classList.add("danger"); end.onclick = playEnd;
+      sec.appendChild(end);
+      const rl = p.railMine || rail;
+      if (rl && typeof stdRailPos === "number") sec.appendChild(hint("Current depth: " + Math.round(stdRailPos / 100 * rl) + " mm"));
+    }
+  }
+
+  wrap.appendChild(sec);
 }
 async function sessionShareVideo() {
   if (sess.role !== "host") { funLog("Only the host can share a video."); return; }
@@ -11942,6 +12169,7 @@ function sessionOnGuestData(conn, d) {
   if (!d || typeof d !== "object") return;
   const g = sessionGuestById(conn.peer);
   if (!g) return;
+  if (d.t === "play") { playOnMsg(d, g.name); return; }
   if (d.t === "hello") {
     if (typeof d.name === "string" && d.name.trim()) g.name = d.name.trim().slice(0, 24);
     if (typeof d.mirror === "boolean") g.mirror = d.mirror;
@@ -12010,6 +12238,7 @@ async function sessionJoin(code) {
 }
 function sessionOnHostData(d) {
   if (!d || typeof d !== "object") return;
+  if (d.t === "play") { playOnMsg(d, "Host"); return; }
   if (d.t === "welcome") { sess.myRole = d.role || "watch"; sessionRender(); }
   else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })).filter(x => x.id !== (sess.peer && sess.peer.id)); sessionRender(); sessionEnsureCalls(); }
   else if (d.t === "chat") { sessionAppendChat(d.name || "host", String(d.text || "")); }
@@ -12038,6 +12267,8 @@ async function sessionLeave() {
   sess.remoteStreams = {}; sess.guests = []; sess.hostConn = null;
   sess.role = null; sess.code = ""; sess.myRole = "watch"; sess.hostState = null;
   if (sess.compSynced) { sess.compSynced = false; if (compModeActive) { try { companionClose(); } catch (e) {} } }
+  sess.mirrorDevice = false;
+  playReset();
   try { if (p) p.destroy(); } catch (e) {}
   sess.peer = null;
   sessionRender();
@@ -12145,12 +12376,22 @@ function sessionFollowVideo(v) {
 function sessionMirrorUi(s) {
   if (sess.role !== "guest" || sliderDragging) return;
   if (s.mode && s.mode !== appMode) {
+    if (sess.play && sess.play.status === "playing" && s.mode !== "std") return; // stay in calibrated std
     try { setModeFromDropdown(s.mode); } catch (e) {}
     return;
   }
   let changed = false;
   if (appMode === "std" && s.std) {
     const sv = s.std;
+    if (sess.play && sess.play.status === "playing") {
+      const scale = playSpeedScale();
+      const spd = scale > 0 ? Math.round(Math.min(100, Math.max(0, sv.speed * scale))) : Math.round(sv.speed);
+      if (spd !== Math.round(stdValues.speed)) { stdValues.speed = spd; changed = true; }
+      if (typeof sv.sensation === "number" && Math.round(sv.sensation) !== Math.round(stdValues.sensation)) { stdValues.sensation = Math.round(sv.sensation); changed = true; }
+      if (typeof sv.pattern === "number" && Math.round(sv.pattern) !== Math.round(stdValues.pattern)) { stdValues.pattern = Math.round(sv.pattern); changed = true; }
+      if (changed) buildInterface();
+      return;
+    }
     if (typeof sv.speed === "number" && Math.round(sv.speed) !== Math.round(stdValues.speed)) { stdValues.speed = Math.round(sv.speed); changed = true; }
     if (typeof sv.sensation === "number" && Math.round(sv.sensation) !== Math.round(stdValues.sensation)) { stdValues.sensation = Math.round(sv.sensation); changed = true; }
     if (typeof sv.pattern === "number" && Math.round(sv.pattern) !== Math.round(stdValues.pattern)) { stdValues.pattern = Math.round(sv.pattern); changed = true; }
@@ -12183,6 +12424,14 @@ function sessionMirrorState(s) {
   sess.applied = sess.applied || { speed: null, base: {}, std: {}, mod: {} };
   if (appMode === "std" && s.std) {
     const sv = s.std;
+    if (sess.play && sess.play.status === "playing") {
+      const scale = playSpeedScale();
+      const spd = scale > 0 ? Math.round(Math.min(100, Math.max(0, sv.speed * scale))) : Math.round(sv.speed);
+      if (spd !== sess.applied.std.speed) { sess.applied.std.speed = spd; setStdSpeed(spd); }
+      if (typeof sv.sensation === "number" && sv.sensation !== sess.applied.std.sensation) { sess.applied.std.sensation = sv.sensation; stdValues.sensation = sv.sensation; stdWrite("set:sensation:" + sensationToDevice(sv.sensation)); }
+      if (typeof sv.pattern === "number" && sv.pattern !== sess.applied.std.pattern) { sess.applied.std.pattern = sv.pattern; stdValues.pattern = sv.pattern; stdWrite("set:pattern:" + sv.pattern); }
+      return;
+    }
     if (typeof sv.speed === "number" && sv.speed !== sess.applied.std.speed) { sess.applied.std.speed = sv.speed; setStdSpeed(sv.speed); }
     if (typeof sv.sensation === "number" && sv.sensation !== sess.applied.std.sensation) { sess.applied.std.sensation = sv.sensation; stdValues.sensation = sv.sensation; stdWrite("set:sensation:" + sensationToDevice(sv.sensation)); }
     if (typeof sv.pattern === "number" && sv.pattern !== sess.applied.std.pattern) { sess.applied.std.pattern = sv.pattern; stdValues.pattern = sv.pattern; stdWrite("set:pattern:" + sv.pattern); }
@@ -12291,11 +12540,6 @@ function sessionRender() {
     wrap.appendChild(btnRow);
 
     if (sess.role === "guest") {
-      const mirrorLabel = document.createElement("label");
-      mirrorLabel.className = "inline-toggle";
-      mirrorLabel.style.cssText = "font-size:.75rem;gap:8px;margin:2px 0;";
-      mirrorLabel.innerHTML = '<span>🎛 Mirror host to my device</span><span class="switch"><input type="checkbox" id="sessionMirrorToggle"><span class="slider"></span></span>';
-      wrap.appendChild(mirrorLabel);
       const watchLabel = document.createElement("label");
       watchLabel.className = "inline-toggle";
       watchLabel.style.cssText = "font-size:.75rem;gap:8px;margin:2px 0;";
@@ -12408,9 +12652,8 @@ function sessionRender() {
     }
   }
 
+  if (sess.role) playRender(wrap);
   body.appendChild(wrap);
-  const mt = $("sessionMirrorToggle");
-  if (mt) { mt.checked = !!sess.mirrorDevice; mt.addEventListener("change", () => { sess.mirrorDevice = mt.checked; if (!mt.checked) sess.applied = null; sessionSendPrefs(); }); }
   const wt = $("sessionWatchToggle");
   if (wt) { wt.checked = !!sess.watchVideo; wt.addEventListener("change", () => { sess.watchVideo = wt.checked; sessionSendPrefs(); }); }
   const sh = $("funShareBtn");
@@ -12807,6 +13050,7 @@ if (addonCoyoteChk) { addonCoyoteChk.checked = addonEnabled("coyote"); addonCoyo
 const addonButtplugChk = $("addonButtplugEnabled");
 if (addonButtplugChk) { addonButtplugChk.checked = addonEnabled("buttplug"); addonButtplugChk.addEventListener("change", () => { addonSetEnabled("buttplug", addonButtplugChk.checked); addonRender(); if (!addonButtplugChk.checked) buttplugDisconnect(); }); }
 addonRender();
+playReset();
 sessionRender();
 socialInit();
 liteInit();
