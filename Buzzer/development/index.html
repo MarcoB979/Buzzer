@@ -1686,12 +1686,13 @@ function parseConfig(raw) {
 }
 
 function parseStatus(raw) {
+  const mirrored = !!(sess && sess.role === "guest" && sess.mirrorDevice);
   const entries = raw.split(",");
   entries.forEach((entry, i) => {
     const parts = entry.split(":");
     if (i === speedIndex()) {
       const v = parseFloat(parts[0]);
-      if (!isNaN(v) && !speedRampActive) {
+      if (!isNaN(v) && !speedRampActive && !mirrored) {
         // While a ramp is driving speed, the device's own report (async and
         // quantized) must not overwrite the commanded value, or the displayed
         // number bounces (e.g. 5 → 4 → 6) and the ramp seems to miss its target.
@@ -1702,6 +1703,7 @@ function parseStatus(raw) {
       return;
     }
     if (i >= BASE_NAMES.length) return;
+    if (mirrored) return;
 
     const key = BASE_NAMES[i];
     const base = parseFloat(parts[0]);
@@ -1898,6 +1900,7 @@ function parseStdState(raw) {
   try { j = JSON.parse(raw); } catch (e) { return; }
   const prevState = stdStateName;
   const reportState = () => { if (stdStateName && stdStateName !== prevState) monitorRx("OSSM: " + stdStateName); };
+  const mirrored = !!(sess && sess.role === "guest" && sess.mirrorDevice);
   if (stdPendingSafeSync) {
     // Mid-transition into the stroke engine: don't let the device's old values
     // (e.g. a leftover funscript speed) pollute the Standard screen.
@@ -1908,9 +1911,11 @@ function parseStdState(raw) {
     if ((stdStateName || "").indexOf("strokeEngine") === 0) applyStdSafeValues();
     return;
   }
-  if (typeof j.speed === "number" && !speedRampActive) stdValues.speed = Math.round(j.speed);
-  if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
-  if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
+  if (!mirrored) {
+    if (typeof j.speed === "number" && !speedRampActive) stdValues.speed = Math.round(j.speed);
+    if (typeof j.maxPosition === "number") stdValues.max = Math.round(j.maxPosition);
+    if (typeof j.minPosition === "number") stdValues.min = Math.round(j.minPosition);
+  }
   if (typeof j.depth === "number") stdDepth = Math.round(j.depth);
   if (typeof j.position === "number" && !stdRailChar) stdRailPos = Math.round(j.position);
   // Only mirror the stroke-engine "sensation"/"pattern" back into the app when
@@ -1919,7 +1924,7 @@ function parseStdState(raw) {
   // sensation as an ABSOLUTE position — both would corrupt the user's
   // neutral-feel setting if echoed here.
   const inStroke = (typeof j.state === "string" && j.state.indexOf("strokeEngine") === 0);
-  if (inStroke && !(aiPos && (aiPos.active || aiPos.moving))) {
+  if (inStroke && !(aiPos && (aiPos.active || aiPos.moving)) && !mirrored) {
     if (typeof j.sensation === "number") stdValues.sensation = sensationFromDevice(j.sensation);
     if (typeof j.pattern === "number") stdValues.pattern = Math.round(j.pattern);
   }
@@ -12061,6 +12066,12 @@ function sessionBroadcastSnapshot() {
   for (let i = 0; i < BASE_NAMES.length; i++) base[SESSION_BASE_SHORT[i]] = Math.round(settingValue(baseKey(i)));
   let std = null;
   if (appMode === "std") std = { speed: Math.round(stdValues.speed), max: Math.round(stdValues.max), min: Math.round(stdValues.min), sensation: Math.round(stdValues.sensation), pattern: Math.round(stdValues.pattern) };
+  const mod = [];
+  for (let bi = 0; bi < BASE_NAMES.length; bi++) {
+    const row = [];
+    for (let mi = 0; mi < MODIFIER_NAMES.length; mi++) row.push(Math.round(settingValue(modifierKey(bi, mi))));
+    mod.push(row);
+  }
   const curSpeed = (appMode === "std") ? Math.round(stdValues.speed) : speed();
   const running = (appMode === "fun") ? !!funState.playing : (appMode === "std" ? stdValues.speed > 0.5 : speed() > 0);
   let video = null;
@@ -12071,7 +12082,7 @@ function sessionBroadcastSnapshot() {
       : (funState.videoUrl && !funState.videoUrl.startsWith("blob:") ? funState.videoUrl : null);
     if (v || funState.videoName) video = { name: funState.videoName || "", url: shareable, playing: !!funState.playing, t: v ? Math.round(v.currentTime * 10) / 10 : 0 };
   }
-  sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running, speed: curSpeed, base, std, compMode: !!compModeActive, video });
+  sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running, speed: curSpeed, base, mod, std, compMode: !!compModeActive, video });
 }
 function sessionUpdateStatus() {
   const el = $("sessionStatusLine");
@@ -12154,12 +12165,22 @@ function sessionMirrorUi(s) {
         if (typeof s.base[k] === "number" && Math.round(s.base[k]) !== Math.round(settingValue(baseKey(i)))) { setLocal(baseKey(i), s.base[k]); changed = true; }
       }
     }
+    if (Array.isArray(s.mod)) {
+      for (let bi = 0; bi < s.mod.length && bi < BASE_NAMES.length; bi++) {
+        const row = s.mod[bi];
+        if (!Array.isArray(row)) continue;
+        for (let mi = 0; mi < row.length && mi < MODIFIER_NAMES.length; mi++) {
+          const v = row[mi];
+          if (typeof v === "number" && Math.round(v) !== Math.round(settingValue(modifierKey(bi, mi)))) { setLocal(modifierKey(bi, mi), v); changed = true; }
+        }
+      }
+    }
     if (changed) buildInterface();
   }
 }
 function sessionMirrorState(s) {
   if (sess.role !== "guest" || !sess.mirrorDevice || !connected || sliderDragging) return;
-  sess.applied = sess.applied || { speed: null, base: {}, std: {} };
+  sess.applied = sess.applied || { speed: null, base: {}, std: {}, mod: {} };
   if (appMode === "std" && s.std) {
     const sv = s.std;
     if (typeof sv.speed === "number" && sv.speed !== sess.applied.std.speed) { sess.applied.std.speed = sv.speed; setStdSpeed(sv.speed); }
@@ -12181,6 +12202,29 @@ function sessionMirrorState(s) {
         sess.applied.base[k] = v;
         setBase(i, v);
       }
+    }
+  }
+  if (Array.isArray(s.mod)) {
+    let modChanged = false;
+    const writes = [];
+    for (let bi = 0; bi < s.mod.length && bi < BASE_NAMES.length; bi++) {
+      const row = s.mod[bi];
+      if (!Array.isArray(row)) continue;
+      for (let mi = 0; mi < row.length && mi < MODIFIER_NAMES.length; mi++) {
+        const v = row[mi];
+        if (typeof v !== "number") continue;
+        const mk = bi + ":" + mi;
+        if (v !== sess.applied.mod[mk]) {
+          sess.applied.mod[mk] = v;
+          setLocal(modifierKey(bi, mi), v);
+          writes.push(`${bi}:${mi}:${v},`);
+          modChanged = true;
+        }
+      }
+    }
+    if (modChanged) {
+      if (writes.length) writeControl(writes.join("")).catch(() => {});
+      buildInterface();
     }
   }
 }
