@@ -11669,10 +11669,10 @@ async function sessionCamOn(on) {
     if (on) {
       if (!sess.stream) sess.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       sess.camOn = true;
-      const targets = sess.role === "host" ? sess.guests.map(g => g.id) : (sess.hostId ? [sess.hostId] : []);
-      for (const t of targets) { try { sess.peer.call(t, sess.stream); } catch (e) {} }
+      sessionEnsureCalls();
     } else {
       sess.camOn = false;
+      sessionCloseCalls();
       if (sess.stream) { try { sess.stream.getTracks().forEach(t => t.stop()); } catch (e) {} sess.stream = null; }
     }
   } catch (e) {
@@ -11687,11 +11687,37 @@ function sessionMicOn(on) {
   sessionRender();
 }
 async function sessionAnswerCall(call) {
+  sessionTrackCall(call);
   let s = sess.stream;
   if (!s) { try { s = new MediaStream(); } catch (e) { s = null; } }
   if (s) { try { call.answer(s); } catch (e) {} }
+}
+function sessionTrackCall(call) {
+  sess.mediaCalls = sess.mediaCalls || {};
+  sess.mediaCalls[call.peer] = call;
   call.on("stream", remote => { sess.remoteStreams[call.peer] = remote; sessionRender(); });
-  call.on("close", () => { delete sess.remoteStreams[call.peer]; sessionRender(); });
+  call.on("close", () => { if (sess.mediaCalls && sess.mediaCalls[call.peer] === call) delete sess.mediaCalls[call.peer]; delete sess.remoteStreams[call.peer]; sessionRender(); });
+  return call;
+}
+function sessionCloseCalls() {
+  sess.calledTo = new Set();
+  sess.remoteStreams = {};
+  if (sess.mediaCalls) { for (const c of Object.values(sess.mediaCalls)) { try { c.close(); } catch (e) {} } sess.mediaCalls = {}; }
+}
+function sessionPeerIds() {
+  if (sess.role === "host") return sess.guests.map(g => g.id);
+  const mine = sess.peer ? sess.peer.id : null;
+  const ids = sess.guests.map(g => g.id).filter(id => id && id !== mine);
+  if (sess.hostId && sess.hostId !== mine) ids.push(sess.hostId);
+  return ids;
+}
+function sessionEnsureCalls() {
+  if (!sess.camOn || !sess.stream || !sess.peer) return;
+  sess.calledTo = sess.calledTo || new Set();
+  for (const id of sessionPeerIds()) {
+    if (sess.calledTo.has(id)) continue;
+    try { const call = sess.peer.call(id, sess.stream); sessionTrackCall(call); sess.calledTo.add(id); } catch (e) {}
+  }
 }
 async function sessionHost() {
   let Peer;
@@ -11724,7 +11750,7 @@ function sessionOnGuestConn(conn) {
     try { conn.send({ t: "welcome", role: "watch" }); } catch (e) {}
     sessionBroadcastPeers();
     sessionAppendChat("", "Guest joined", true);
-    if (sess.camOn && sess.stream) { try { sess.peer.call(id, sess.stream); } catch (e) {} }
+    sessionEnsureCalls();
     sessionRender();
   });
   conn.on("data", d => sessionOnGuestData(conn, d));
@@ -11756,15 +11782,19 @@ function sessionOnGuestData(conn, d) {
 function sessionApplyRemoteCmd(d, who) {
   if (!d || !d.kind) return;
   const num = (lo, hi) => clamp(Math.round(Number(d.v)), lo, hi);
+  const inStd = appMode === "std";
   if (d.kind === "estop") { monitor("Session: " + who + " triggered emergency stop", "warn"); emergencyStop(); sessionBroadcast({ t: "apply", kind: "estop" }); sessionAppendChat("", who + " triggered emergency stop", true); }
-  else if (d.kind === "speed") { const v = num(0, 100); setSpeed(v); sessionAppendChat("", who + " set speed to " + v, true); }
-  else if (d.kind === "depth" || d.kind === "maxpos") { setBase(0, num(0, 100)); }
-  else if (d.kind === "minpos") { setBase(1, num(0, 100)); }
-  else if (d.kind === "inspeed") { setBase(2, num(1, 100)); }
-  else if (d.kind === "outspeed") { setBase(3, num(1, 100)); }
-  else if (d.kind === "inaccel") { setBase(4, num(0, 100)); }
-  else if (d.kind === "outaccel") { setBase(5, num(0, 100)); }
+  else if (d.kind === "speed") { const v = num(0, 100); if (inStd) setStdSpeed(v); else setSpeed(v); sessionAppendChat("", who + " set speed to " + v, true); }
+  else if (d.kind === "depth" || d.kind === "maxpos") { const v = num(0, 100); if (inStd) { stdValues.max = v; stdWrite("set:max:" + v); } else setBase(0, v); }
+  else if (d.kind === "minpos") { const v = num(0, 100); if (inStd) { stdValues.min = v; stdWrite("set:min:" + v); } else setBase(1, v); }
+  else if (d.kind === "sensation") { if (inStd) { const v = num(-100, 100); stdValues.sensation = v; stdWrite("set:sensation:" + sensationToDevice(v)); } }
+  else if (d.kind === "pattern") { if (inStd) { const v = num(0, 99); stdValues.pattern = v; stdWrite("set:pattern:" + v); } }
+  else if (d.kind === "inspeed") { if (!inStd) setBase(2, num(1, 100)); }
+  else if (d.kind === "outspeed") { if (!inStd) setBase(3, num(1, 100)); }
+  else if (d.kind === "inaccel") { if (!inStd) setBase(4, num(0, 100)); }
+  else if (d.kind === "outaccel") { if (!inStd) setBase(5, num(0, 100)); }
   else if (d.kind === "start") { toggleStart(); }
+  if (inStd) { saveStdValues(); buildInterface(); }
 }
 async function sessionJoin(code) {
   let Peer;
@@ -11782,7 +11812,7 @@ async function sessionJoin(code) {
     sess.hostConn = conn;
     conn.on("open", () => {
       try { conn.send({ t: "hello", name: sess.myName }); } catch (e) {}
-      if (sess.camOn && sess.stream) { try { peer.call(code, sess.stream); } catch (e) {} }
+      sessionEnsureCalls();
       sessionRender();
     });
     conn.on("data", d => sessionOnHostData(d));
@@ -11799,10 +11829,10 @@ async function sessionJoin(code) {
 function sessionOnHostData(d) {
   if (!d || typeof d !== "object") return;
   if (d.t === "welcome") { sess.myRole = d.role || "watch"; sessionRender(); }
-  else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })); sessionRender(); }
+  else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })).filter(x => x.id !== (sess.peer && sess.peer.id)); sessionRender(); sessionEnsureCalls(); }
   else if (d.t === "chat") { sessionAppendChat(d.name || "host", String(d.text || "")); }
   else if (d.t === "role") { sess.myRole = d.role || "watch"; sessionRender(); }
-  else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorState(d); sessionFollowVideo(d.video); }
+  else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorUi(d); sessionMirrorState(d); sessionFollowVideo(d.video); }
   else if (d.t === "ai") { sessionAppendChat(d.role === "user" ? "Host" : "Companion", String(d.text || "")); }
   else if (d.t === "apply") {
     if (d.kind === "estop") {
@@ -11815,6 +11845,7 @@ function sessionOnHostData(d) {
 async function sessionLeave() {
   const p = sess.peer;
   if (sess.snapTimer) { clearInterval(sess.snapTimer); sess.snapTimer = null; }
+  sessionCloseCalls();
   try { if (sess.stream) sess.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   sess.stream = null; sess.camOn = false; sess.micOn = false;
   sess.remoteStreams = {}; sess.guests = []; sess.hostConn = null;
@@ -11845,13 +11876,17 @@ function sessionBroadcastSnapshot() {
   if (sess.role !== "host" || !sess.guests.length || !sess.peer) return;
   const base = {};
   for (let i = 0; i < BASE_NAMES.length; i++) base[SESSION_BASE_SHORT[i]] = Math.round(settingValue(baseKey(i)));
+  let std = null;
+  if (appMode === "std") std = { speed: Math.round(stdValues.speed), max: Math.round(stdValues.max), min: Math.round(stdValues.min), sensation: Math.round(stdValues.sensation), pattern: Math.round(stdValues.pattern) };
+  const curSpeed = (appMode === "std") ? Math.round(stdValues.speed) : speed();
+  const running = (appMode === "fun") ? !!funState.playing : (appMode === "std" ? stdValues.speed > 0.5 : speed() > 0);
   let video = null;
   if (appMode === "fun") {
     const v = $("funVideo");
     const shareable = funState.videoUrl && !funState.videoUrl.startsWith("blob:") ? funState.videoUrl : null;
     if (v || funState.videoName) video = { name: funState.videoName || "", url: shareable, playing: !!funState.playing, t: v ? Math.round(v.currentTime * 10) / 10 : 0 };
   }
-  sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running: (appMode === "fun" ? !!funState.playing : speed() > 0), speed: speed(), base, compMode: !!compModeActive, video });
+  sessionBroadcast({ t: "state", mode: appMode, connected: !!connected, running, speed: curSpeed, base, std, compMode: !!compModeActive, video });
 }
 function sessionUpdateStatus() {
   const el = $("sessionStatusLine");
@@ -11865,7 +11900,11 @@ function sessionUpdateStatus() {
   const parts = [];
   parts.push(s.mode === "fun" ? "Funscript" : (s.mode === "std" ? "Standard" : "Advanced"));
   parts.push("Speed " + s.speed);
-  if (s.base) parts.push("Depth " + s.base.maxPos);
+  if (s.mode === "std" && s.std) {
+    parts.push("Sensation " + s.std.sensation);
+    const pat = stdPatterns.find(p => p.idx === s.std.pattern);
+    if (pat) parts.push("Pattern " + pat.name);
+  } else if (s.base) parts.push("Depth " + s.base.maxPos);
   parts.push(s.running ? "● Running" : "○ Idle");
   if (s.video && s.video.name) parts.push("🎬 " + s.video.name + (s.video.playing ? " ▶" : " ⏸"));
   if (!s.connected) parts.push("OSSM not connected");
@@ -11890,9 +11929,44 @@ function sessionFollowVideo(v) {
     if (Math.abs(vv.currentTime - v.t) > 2.5) vv.currentTime = v.t;
   } catch (e) {}
 }
+function sessionMirrorUi(s) {
+  if (sess.role !== "guest" || sliderDragging) return;
+  if (s.mode && s.mode !== appMode) {
+    try { setModeFromDropdown(s.mode); } catch (e) {}
+    return;
+  }
+  let changed = false;
+  if (appMode === "std" && s.std) {
+    const sv = s.std;
+    if (typeof sv.speed === "number" && Math.round(sv.speed) !== Math.round(stdValues.speed)) { stdValues.speed = Math.round(sv.speed); changed = true; }
+    if (typeof sv.sensation === "number" && Math.round(sv.sensation) !== Math.round(stdValues.sensation)) { stdValues.sensation = Math.round(sv.sensation); changed = true; }
+    if (typeof sv.pattern === "number" && Math.round(sv.pattern) !== Math.round(stdValues.pattern)) { stdValues.pattern = Math.round(sv.pattern); changed = true; }
+    if (typeof sv.max === "number" && Math.round(sv.max) !== Math.round(stdValues.max)) { stdValues.max = Math.round(sv.max); changed = true; }
+    if (typeof sv.min === "number" && Math.round(sv.min) !== Math.round(stdValues.min)) { stdValues.min = Math.round(sv.min); changed = true; }
+    if (changed) buildInterface();
+  } else if (appMode === "ap") {
+    if (typeof s.speed === "number" && Math.round(s.speed) !== Math.round(settingValue(SPEED_KEY))) { setLocal(SPEED_KEY, s.speed); changed = true; }
+    if (s.base) {
+      for (let i = 0; i < SESSION_BASE_SHORT.length; i++) {
+        const k = SESSION_BASE_SHORT[i];
+        if (typeof s.base[k] === "number" && Math.round(s.base[k]) !== Math.round(settingValue(baseKey(i)))) { setLocal(baseKey(i), s.base[k]); changed = true; }
+      }
+    }
+    if (changed) buildInterface();
+  }
+}
 function sessionMirrorState(s) {
-  if (sess.role !== "guest" || !sess.mirrorDevice || !connected) return;
-  sess.applied = sess.applied || { speed: null, base: {} };
+  if (sess.role !== "guest" || !sess.mirrorDevice || !connected || sliderDragging) return;
+  sess.applied = sess.applied || { speed: null, base: {}, std: {} };
+  if (appMode === "std" && s.std) {
+    const sv = s.std;
+    if (typeof sv.speed === "number" && sv.speed !== sess.applied.std.speed) { sess.applied.std.speed = sv.speed; setStdSpeed(sv.speed); }
+    if (typeof sv.sensation === "number" && sv.sensation !== sess.applied.std.sensation) { sess.applied.std.sensation = sv.sensation; stdValues.sensation = sv.sensation; stdWrite("set:sensation:" + sensationToDevice(sv.sensation)); }
+    if (typeof sv.pattern === "number" && sv.pattern !== sess.applied.std.pattern) { sess.applied.std.pattern = sv.pattern; stdValues.pattern = sv.pattern; stdWrite("set:pattern:" + sv.pattern); }
+    if (typeof sv.max === "number" && sv.max !== sess.applied.std.max) { sess.applied.std.max = sv.max; stdValues.max = sv.max; stdWrite("set:max:" + sv.max); }
+    if (typeof sv.min === "number" && sv.min !== sess.applied.std.min) { sess.applied.std.min = sv.min; stdValues.min = sv.min; stdWrite("set:min:" + sv.min); }
+    return;
+  }
   if (typeof s.speed === "number" && s.speed !== sess.applied.speed) {
     sess.applied.speed = s.speed;
     setSpeed(s.speed);
@@ -12067,8 +12141,10 @@ function sessionRender() {
     }
     if (ctrlRow.childNodes.length) wrap.appendChild(ctrlRow);
     if (sess.role === "guest" && sess.myRole === "control") {
+      const hostStd = sess.hostState && sess.hostState.mode === "std";
       wrap.appendChild(sliderEl("Speed", 0, 100, sess.ctrlSpeed || 0, "#fbbf24", v => { sess.ctrlSpeed = v; sessionSend({ t: "cmd", kind: "speed", v }); }));
-      wrap.appendChild(sliderEl("Depth", 0, 100, sess.ctrlDepth || 10, "#ff0c00", v => { sess.ctrlDepth = v; sessionSend({ t: "cmd", kind: "depth", v }); }));
+      if (hostStd) wrap.appendChild(sliderEl("Sensation", -100, 100, sess.ctrlSensation || 0, "#00ff00", v => { sess.ctrlSensation = v; sessionSend({ t: "cmd", kind: "sensation", v }); }));
+      else wrap.appendChild(sliderEl("Depth", 0, 100, sess.ctrlDepth || 10, "#ff0c00", v => { sess.ctrlDepth = v; sessionSend({ t: "cmd", kind: "depth", v }); }));
     }
   }
 
