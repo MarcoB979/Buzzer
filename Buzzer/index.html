@@ -68,6 +68,7 @@
   #reset-row { order: 9; }
   #addonFistPanel { order: 10; }
   #addonEjectPanel { order: 11; }
+  #addonCoyotePanel { order: 12; }
   #kofi-wrap { order: 13; }
   #presets-panel { order: 8; }
   #generalSettings { order: 21; }
@@ -774,6 +775,12 @@
         <div id="addonEjectBody"></div>
       </div>
     </details>
+    <details class="presets-panel" id="addonCoyotePanel" style="display:none;">
+      <summary><span class="summary-left">⚡ Coyote e-stim</span></summary>
+      <div class="ai-settings-body">
+        <div id="addonCoyoteBody"></div>
+      </div>
+    </details>
     <details class="presets-panel" id="presets-panel">
       <summary><span class="summary-left">Presets<span class="summary-value" id="presetSummaryName"></span></span></summary>
       <div id="presetList"></div>
@@ -1021,6 +1028,10 @@
         <label class="inline-toggle" style="font-size:.75rem;gap:8px;">
           <span><span class="addon-icon">🍆💦</span>Eject Cumpump addon</span>
           <span class="switch"><input type="checkbox" id="addonEjectEnabled"><span class="slider"></span></span>
+        </label>
+        <label class="inline-toggle" style="font-size:.75rem;gap:8px;">
+          <span><span class="addon-icon">⚡</span>Coyote e-stim addon</span>
+          <span class="switch"><input type="checkbox" id="addonCoyoteEnabled"><span class="slider"></span></span>
         </label>
         <div class="ai-set-hint">Optional hardware addons controlled over Bluetooth — they work in every mode. Enable one to show its control panel.</div>
       </div>
@@ -2215,6 +2226,7 @@ function emergencyStop() {
     } catch (e) {}
     castContext.endCurrentSession(true);
   }
+  if (addonEnabled("coyote")) coyoteKill();
   updateStartButton();
   log("⚠ Emergency stop — returning to menu.");
   // Return to a ready state shortly after, so the screen doesn't sit on
@@ -5704,7 +5716,7 @@ function releaseWakeLock() {
 function syncWakeLock() {
   if (wakeLockEnabled() && !document.hidden) requestWakeLock(); else releaseWakeLock();
 }
-document.addEventListener("visibilitychange", () => { if (document.hidden) releaseWakeLock(); else { syncWakeLock(); syncOrientationLock(); autoConnectOssm(); if (addonEnabled("fist")) addonAutoConnect("fist"); if (addonEnabled("eject")) addonAutoConnect("eject"); } });
+document.addEventListener("visibilitychange", () => { if (document.hidden) { releaseWakeLock(); if (addonEnabled("coyote")) coyoteKill(); } else { syncWakeLock(); syncOrientationLock(); autoConnectOssm(); if (addonEnabled("fist")) addonAutoConnect("fist"); if (addonEnabled("eject")) addonAutoConnect("eject"); if (addonEnabled("coyote")) coyoteAutoConnect(); } });
 
 // Periodic silent retry (M5-style): catches a device that was powered on or
 // brought in range AFTER the app loaded. Safe no-op once already connected.
@@ -5713,6 +5725,7 @@ setInterval(() => {
   autoConnectOssm();
   if (addonEnabled("fist")) addonAutoConnect("fist");
   if (addonEnabled("eject")) addonAutoConnect("eject");
+  if (addonEnabled("coyote")) coyoteAutoConnect();
 }, 15000);
 
 // ---- Disable touch: mapped controls only respond to their controller input ----
@@ -5974,7 +5987,7 @@ ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to prompt the user to connect (you can't pair Bluetooth yourself). Otherwise null.
 - "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
 - "video" (optional): play one of the user's videos — {"url":"<the exact url from your FAVORITE VIDEOS context>"}, a local one {"local":"<the exact file name from your LOCAL VIDEOS context>"}, or a Stash scene {"stash":<the id from your STASH LIBRARY context>}. Use it when the user asks to watch porn or put something on: match their mood/kinks to the STASH LIBRARY tags and performers when possible; otherwise pick a favorite or local file at random, or ask which they want (translating the title into the language you're replying in). Playing it switches the app to the Funscript screen automatically, so just tell them it's playing — never ask them to find the video or cast it. Otherwise null.
-- "addon" (optional): control an optional addon device (see the OPTIONAL ADDONS context) — {"addon":{"device":"fist"|"eject","action":"start"|"stop"|"set","key":"<slider key>","value":<number>}}, or an ARRAY of such objects to do several at once. "start"/"stop" turn it on/off; "set" changes one slider value. Otherwise null.
+- "addon" (optional): control an optional addon device (see the OPTIONAL ADDONS context) — {"addon":{"device":"fist"|"eject"|"coyote","action":"start"|"stop"|"set","key":"<slider key>","value":<number>}}, or an ARRAY of such objects to do several at once. "start"/"stop" turn it on/off; "set" changes one slider value. Otherwise null.
 - "search" (optional): look up a term you don't know (e.g. an unfamiliar fisting or kink term) — send {"search":"<the term>"}. The app runs a web search and shows you the results; then briefly explain what you found and confirm with the user before acting. Otherwise null.
 - "lang": the 2-letter ISO code of the language you wrote "reply" in (e.g. "en", "nl", "de", "fr").`;
 let aiMessages = [];
@@ -10857,6 +10870,22 @@ const ADDON_DEFS = [
       {key:"shots", label:"Shots", cmd:21, min:0, max:360},
       {key:"volume", label:"Volume", cmd:22, min:0, max:100},
       {key:"force", label:"Force", cmd:23, min:0, max:100}
+    ] },
+  { id:"coyote", name:"Coyote e-stim", deviceName:"47L121000", icon:"⚡", type:"coyote",
+    service:"0000180c-0000-1000-8000-00805f9b34fb",
+    writeChar:"0000150a-0000-1000-8000-00805f9b34fb",
+    notifyChar:"0000150b-0000-1000-8000-00805f9b34fb",
+    batteryService:"0000180a-0000-1000-8000-00805f9b34fb",
+    batteryChar:"00001500-0000-1000-8000-00805f9b34fb",
+    desc:"DG-Labs Coyote 3 two-channel e-stim — A/B channel intensity, frequency and waveform strength",
+    sliders:[
+      {key:"a_power", label:"A intensity (0-200)", min:0, max:200},
+      {key:"b_power", label:"B intensity (0-200)", min:0, max:200},
+      {key:"a_freq", label:"A frequency (Hz)", min:10, max:1000},
+      {key:"b_freq", label:"B frequency (Hz)", min:10, max:1000},
+      {key:"a_wave", label:"A wave strength (0-100)", min:0, max:100},
+      {key:"b_wave", label:"B wave strength (0-100)", min:0, max:100},
+      {key:"limit", label:"Soft limit (safety cap)", min:1, max:200}
     ] }
 ];
 const ADDON_STATE = {};
@@ -11012,13 +11041,232 @@ function addonBuildSection(id) {
 }
 
 function addonRender() {
-  const fp = $("addonFistPanel"), ep = $("addonEjectPanel");
+  const fp = $("addonFistPanel"), ep = $("addonEjectPanel"), cp = $("addonCoyotePanel");
   if (fp) fp.style.display = addonEnabled("fist") ? "" : "none";
   if (ep) ep.style.display = addonEnabled("eject") ? "" : "none";
+  if (cp) cp.style.display = addonEnabled("coyote") ? "" : "none";
   const f = $("addonFistBody"), e = $("addonEjectBody");
   if (f) { f.innerHTML = ""; if (addonEnabled("fist")) f.appendChild(addonBuildSection("fist")); }
   if (e) { e.innerHTML = ""; if (addonEnabled("eject")) e.appendChild(addonBuildSection("eject")); }
+  coyoteRender();
 }
+
+// ---------- Coyote (DG-Labs e-stim, V3 protocol) ----------
+const COYOTE_DEFAULTS = { a_power:0, b_power:0, a_freq:40, b_freq:40, a_wave:50, b_wave:50, limit:50 };
+function coyoteDef() { return ADDON_DEFS.find(x => x.id === "coyote"); }
+function coyoteState() { return ADDON_STATE["coyote"] || (ADDON_STATE["coyote"] = {}); }
+function coyoteActive() { const st = coyoteState(); return addonEnabled("coyote") && !!(st && (st.connected || st.on)); }
+function coyoteSliderVal(key, def) {
+  const st = coyoteState();
+  st.sliderValues = st.sliderValues || {};
+  return (typeof st.sliderValues[key] === "number") ? st.sliderValues[key] : def;
+}
+// Compress a frequency in Hz (10-1000) into the device's 10-240 waveform value.
+function coyoteFreqValue(hz) {
+  hz = clamp(Number(hz) || 0, 1, 1000);
+  if (hz <= 0) return 0;
+  let t = 1000 / hz; // output-unit period in ms
+  let v;
+  if (t < 5) v = 5;
+  else if (t <= 100) v = t;
+  else if (t <= 600) v = (t - 100) / 5 + 100;
+  else if (t <= 1000) v = (t - 600) / 10 + 200;
+  else v = 240;
+  return clamp(Math.round(v), 10, 240);
+}
+// BF command (7 bytes): soft limits + frequency/intensity balance. Written on
+// every connect and every Start — the device remembers the soft limit, so it
+// must be re-asserted to prevent an unexpected high limit.
+function coyoteBuildBF() {
+  const limit = clamp(Math.round(coyoteSliderVal("limit", COYOTE_DEFAULTS.limit)), 0, 200);
+  return new Uint8Array([0xBF, limit, limit, 160, 160, 0, 0]);
+}
+// B0 command (20 bytes, sent every 100 ms): channel intensity + 4 waveform
+// slots (25 ms each) per channel.
+function coyoteBuildPacket() {
+  const b = new Uint8Array(20);
+  b[0] = 0xB0;
+  b[1] = 0x0F; // serial 0 + absolute intensity mode for both channels
+  b[2] = clamp(Math.round(coyoteSliderVal("a_power", COYOTE_DEFAULTS.a_power)), 0, 200);
+  b[3] = clamp(Math.round(coyoteSliderVal("b_power", COYOTE_DEFAULTS.b_power)), 0, 200);
+  const aF = coyoteFreqValue(coyoteSliderVal("a_freq", COYOTE_DEFAULTS.a_freq));
+  const bF = coyoteFreqValue(coyoteSliderVal("b_freq", COYOTE_DEFAULTS.b_freq));
+  const aW = clamp(Math.round(coyoteSliderVal("a_wave", COYOTE_DEFAULTS.a_wave)), 0, 100);
+  const bW = clamp(Math.round(coyoteSliderVal("b_wave", COYOTE_DEFAULTS.b_wave)), 0, 100);
+  for (let i = 0; i < 4; i++) { b[4 + i] = aF; b[8 + i] = aW; b[12 + i] = bF; b[16 + i] = bW; }
+  return b;
+}
+function coyoteKillPacket() {
+  const b = coyoteBuildPacket();
+  b[2] = 0; b[3] = 0;
+  for (let i = 0; i < 4; i++) { b[8 + i] = 0; b[16 + i] = 0; }
+  return b;
+}
+function coyoteWrite(st, bytes) {
+  if (!st.connected || !st.writeChar) return Promise.resolve(false);
+  st.writeQueue = st.writeQueue || Promise.resolve();
+  const run = st.writeQueue.then(() => st.writeChar.writeValue(bytes));
+  st.writeQueue = run.catch(() => {});
+  return run.then(() => true).catch(e => { monitor("Coyote: " + (e && e.message ? e.message : e), "err"); return false; });
+}
+function coyoteOnNotify(st, ev) {
+  const v = ev.target.value;
+  if (!v || typeof v.getUint8 !== "function") return;
+  try {
+    const d = new Uint8Array(v.buffer.slice(v.byteOffset, v.byteOffset + v.byteLength));
+    if (d[0] === 0xB1 && d.length >= 4) { st.aPower = d[2]; st.bPower = d[3]; }
+  } catch (e) {}
+}
+function coyoteDisconnected() {
+  const st = coyoteState();
+  st.connected = false; st.on = false;
+  if (st.timer) { clearInterval(st.timer); st.timer = null; }
+  st.writeChar = null; st.notifyChar = null; st.writeQueue = null;
+  coyoteRender();
+}
+async function coyoteAttach(device) {
+  const a = coyoteDef();
+  const st = coyoteState();
+  const svc = await device.gatt.getPrimaryService(a.service);
+  const writeChar = await svc.getCharacteristic(a.writeChar);
+  const notifyChar = await svc.getCharacteristic(a.notifyChar);
+  await notifyChar.startNotifications();
+  notifyChar.addEventListener("characteristicvaluechanged", (ev) => coyoteOnNotify(st, ev));
+  st.device = device; st.server = device.gatt; st.writeChar = writeChar; st.notifyChar = notifyChar;
+  st.connected = true;
+  device.addEventListener("gattserverdisconnected", () => coyoteDisconnected());
+  try {
+    const bsvc = await device.gatt.getPrimaryService(a.batteryService);
+    const bchar = await bsvc.getCharacteristic(a.batteryChar);
+    const bv = await bchar.readValue();
+    if (bv && typeof bv.getUint8 === "function") st.battery = bv.getUint8(0);
+    await bchar.startNotifications();
+    bchar.addEventListener("characteristicvaluechanged", (ev) => { const x = ev.target.value; if (x && typeof x.getUint8 === "function") { st.battery = x.getUint8(0); coyoteRender(); } });
+  } catch (e) {}
+  await coyoteWrite(st, coyoteBuildBF());
+  monitor("Coyote: connected");
+  coyoteRender();
+}
+async function coyoteAutoConnect() {
+  const st = coyoteState();
+  if (!addonEnabled("coyote") || st.connected || !navigator.bluetooth || !navigator.bluetooth.getDevices) return;
+  let known = [];
+  try { known = await navigator.bluetooth.getDevices(); } catch (e) { return; }
+  for (const d of known) {
+    try {
+      await bluetoothTimeout(d.gatt.connect(), 4000);
+      await coyoteAttach(d);
+      monitor("Coyote: auto-connected");
+      return;
+    } catch (e) {
+      try { if (d.gatt && d.gatt.connected) d.gatt.disconnect(); } catch (e2) {}
+    }
+  }
+}
+async function coyoteConnect() {
+  const a = coyoteDef();
+  const st = coyoteState();
+  if (st.connected && st.device && st.device.gatt && st.device.gatt.connected) {
+    coyoteDisconnected();
+    try { st.device.gatt.disconnect(); } catch (e) {}
+    return;
+  }
+  if (!navigator.bluetooth) { monitor("Web Bluetooth unavailable", "warn"); return; }
+  monitor("Coyote: connecting…");
+  try {
+    const acq = await addonAcquireDevice(a);
+    await coyoteAttach(acq.device);
+  } catch (e) {
+    if (!(e && (e.name === "NotFoundError" || e.name === "AbortError"))) monitor("Coyote: " + (e && e.message ? e.message : e), "err");
+  }
+  coyoteRender();
+}
+function coyoteStart() {
+  const st = coyoteState();
+  if (!st.connected) { coyoteConnect(); return; }
+  if (st.on) { coyoteStop(); return; }
+  coyoteWrite(st, coyoteBuildBF()); // re-assert soft limit before any output
+  st.on = true;
+  coyoteWrite(st, coyoteBuildPacket());
+  st.timer = setInterval(() => { if (st.on && st.connected) coyoteWrite(st, coyoteBuildPacket()); }, 100);
+  coyoteRender();
+}
+function coyoteStop() {
+  const st = coyoteState();
+  if (st.timer) { clearInterval(st.timer); st.timer = null; }
+  st.on = false;
+  if (st.connected) coyoteWrite(st, coyoteKillPacket());
+  coyoteRender();
+}
+function coyoteKill() { coyoteStop(); }
+function coyoteSlider(key, v) {
+  const st = coyoteState();
+  st.sliderValues = st.sliderValues || {};
+  st.sliderValues[key] = v;
+  if (key === "limit" && st.connected) coyoteWrite(st, coyoteBuildBF()); // soft limit applies immediately
+}
+function coyoteBuildSection() {
+  const st = coyoteState();
+  const wrap = document.createElement("div");
+  const status = document.createElement("div");
+  status.className = "ai-set-hint";
+  const bat = (typeof st.battery === "number") ? (" · battery " + st.battery + "%") : "";
+  status.textContent = st.connected ? (st.on ? "● Running" + bat : "● Connected — ready" + bat) : "Not connected";
+  wrap.appendChild(status);
+  const btnRow = document.createElement("div");
+  btnRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;";
+  const mk = (txt) => { const b = document.createElement("button"); b.type = "button"; b.className = "ble-btn small"; b.textContent = txt; return b; };
+  const conn = mk(st.connected ? "Disconnect" : "Connect"); conn.onclick = () => coyoteConnect();
+  const onoff = mk(st.on ? "Stop" : "Start"); onoff.onclick = () => coyoteStart();
+  const kill = mk("⛔ Kill"); kill.classList.add("danger"); kill.onclick = () => coyoteKill();
+  btnRow.appendChild(conn); btnRow.appendChild(onoff); btnRow.appendChild(kill);
+  wrap.appendChild(btnRow);
+  for (const s of coyoteDef().sliders) {
+    const cur = coyoteSliderVal(s.key, COYOTE_DEFAULTS[s.key] !== undefined ? COYOTE_DEFAULTS[s.key] : s.min);
+    wrap.appendChild(sliderEl(s.label, s.min, s.max, cur, "#38bdf8", (v) => coyoteSlider(s.key, v)));
+  }
+  const warn = document.createElement("div");
+  warn.className = "ai-set-hint";
+  warn.style.color = "#fbbf24";
+  warn.textContent = "⚠ e-stim safety: both channels start at 0 and are capped by the soft limit. Raise intensity slowly. The soft limit is written to the device on every connect and is remembered by the device.";
+  wrap.appendChild(warn);
+  return wrap;
+}
+function coyoteRender() {
+  const c = $("addonCoyoteBody");
+  if (!c) return;
+  c.innerHTML = "";
+  if (addonEnabled("coyote")) c.appendChild(coyoteBuildSection());
+}
+function aiApplyCoyote(action, p) {
+  const st = coyoteState();
+  if (action === "start" || action === "on") { if (!st.on) { aiLog("addon coyote: start"); coyoteStart(); } }
+  else if (action === "stop" || action === "off") { if (st.on) { aiLog("addon coyote: stop"); coyoteStop(); } }
+  else if (action === "set" || action === "value") {
+    const key = String(p.key || "").toLowerCase();
+    const s = coyoteDef().sliders.find(x => x.key === key);
+    let v = Number(p.value);
+    if (s && isFinite(v)) {
+      v = clamp(Math.round(v), s.min, s.max);
+      if (key === "a_power" || key === "b_power") {
+        const cur = coyoteSliderVal(key, COYOTE_DEFAULTS[key]);
+        const step = 10; // e-stim safety: max ±10 per AI turn
+        const delta = v - cur;
+        if (Math.abs(delta) > step) v = Math.round(cur + Math.sign(delta) * step);
+      }
+      aiLog("addon coyote: set " + key + " " + v);
+      coyoteSlider(key, v);
+      coyoteRender();
+    }
+  }
+}
+function addonCoyoteIntentText() {
+  return "\n\nCOYOTE (e-stim) — INTENT: when the user asks for e-stim / electro / shocks / tingling, actually run it via the \"addon\" field. Start with {\"device\":\"coyote\",\"action\":\"start\"}, then set the channels — e.g. [{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_power\",\"value\":15},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_freq\",\"value\":50},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_wave\",\"value\":60}]. \"a_power\"/\"b_power\" = channel intensity (0-200); \"a_freq\"/\"b_freq\" = frequency in Hz (10-1000); \"a_wave\"/\"b_wave\" = waveform strength (0-100). \"limit\" = soft safety cap (1-200). To end: {\"device\":\"coyote\",\"action\":\"stop\"}.";
+}
+function addonCoyoteSafetyText() {
+  return "\n\nE-STIM SAFETY (CRITICAL — applies while the Coyote is connected/running): electricity is dangerous — wrong settings can injure. NEVER raise channel intensity (a_power/b_power) sharply: change it only in SMALL steps (the app caps each \"set\" to ±10) and ramp up gradually over several turns, always staying under the soft limit. Start very low and check in with the user. On the user's safe word the app zeroes the Coyote automatically, but you must also send {\"device\":\"coyote\",\"action\":\"stop\"} yourself. Never set a frequency or intensity outside the stated ranges, and never aim for the chest or head — assume the user has placed the electrodes safely themselves.";
+}
+window.addEventListener("pagehide", () => { if (addonEnabled("coyote")) coyoteKill(); });
 
 function addonFistActive() {
   const st = ADDON_STATE["fist"];
@@ -11069,10 +11317,12 @@ function addonContext() {
   }
   if (!parts.length) return "";
   let out = "\n\nOPTIONAL ADDONS (you may control these too):\n" + parts.join("\n")
-    + "\nUse the \"addon\" field — one object {\"device\":\"fist\"|\"eject\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}, or an ARRAY of such objects to do several at once. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
+    + "\nUse the \"addon\" field — one object {\"device\":\"fist\"|\"eject\"|\"coyote\",\"action\":\"start\"|\"stop\"|\"set\",\"key\":\"<slider key>\",\"value\":<number>}, or an ARRAY of such objects to do several at once. \"start\"/\"stop\" turn it on/off; \"set\" changes one slider value.";
   if (addonEnabled("fist")) out += addonFistIntentText();
   if (addonEnabled("eject")) out += addonEjectIntentText();
+  if (addonEnabled("coyote")) out += addonCoyoteIntentText();
   if (addonFistActive()) out += addonFistSafetyText();
+  if (coyoteActive()) out += addonCoyoteSafetyText();
   return out;
 }
 
@@ -11085,6 +11335,7 @@ function aiApplyAddon(p) {
 function aiApplyAddonOne(p) {
   if (!p || typeof p !== "object" || Array.isArray(p)) return;
   const id = String(p.device || "").toLowerCase();
+  if (id === "coyote") { aiApplyCoyote(String(p.action || "").toLowerCase(), p); return; }
   const a = ADDON_DEFS.find(x => x.id === id);
   if (!a || !addonEnabled(id)) return;
   const action = String(p.action || "").toLowerCase();
@@ -11117,12 +11368,15 @@ function aiApplyAddonOne(p) {
 
 const addonFistChk = $("addonFistEnabled");
 const addonEjectChk = $("addonEjectEnabled");
+const addonCoyoteChk = $("addonCoyoteEnabled");
 if (addonFistChk) { addonFistChk.checked = addonEnabled("fist"); addonFistChk.addEventListener("change", () => { addonSetEnabled("fist", addonFistChk.checked); addonRender(); syncAiFreeWarning(); if (addonFistChk.checked) addonAutoConnect("fist"); }); }
 if (addonEjectChk) { addonEjectChk.checked = addonEnabled("eject"); addonEjectChk.addEventListener("change", () => { addonSetEnabled("eject", addonEjectChk.checked); addonRender(); if (addonEjectChk.checked) addonAutoConnect("eject"); }); }
+if (addonCoyoteChk) { addonCoyoteChk.checked = addonEnabled("coyote"); addonCoyoteChk.addEventListener("change", () => { addonSetEnabled("coyote", addonCoyoteChk.checked); addonRender(); if (addonCoyoteChk.checked) coyoteAutoConnect(); else { const cst = coyoteState(); coyoteKill(); if (cst.device && cst.device.gatt) { try { cst.device.gatt.disconnect(); } catch (e) {} } coyoteDisconnected(); } }); }
 addonRender();
 // Auto-reconnect to previously-paired devices on startup (no picker).
 if (addonEnabled("fist")) addonAutoConnect("fist");
 if (addonEnabled("eject")) addonAutoConnect("eject");
+if (addonEnabled("coyote")) coyoteAutoConnect();
 autoConnectOssm();
 
 function setModeFromDropdown(target) {
