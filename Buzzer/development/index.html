@@ -705,7 +705,6 @@
   .companion-view.split .companion-avatar { width: min(100%, 130px); height: min(100%, 130px); }
   .companion-view.split .comp-sliders { display: flex; }
   .companion-view.split .comp-side { grid-column: 2; grid-row: 1; min-height: 0; }
-  @media (max-width: 699px) { #compLayout { display: none; } }
   @keyframes compBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015); } }
   @keyframes compImgTalk { 0%, 100% { transform: translateY(0) scale(1); } 40% { transform: translateY(-2px) scale(1.012); } }
 </style>
@@ -856,7 +855,6 @@
           <button class="ble-btn small" id="compLiveTop" type="button" title="Keep listening — talk hands-free while playing">🎧</button>
           <button class="ble-btn small" id="compSpeakTop" type="button" title="Toggle spoken replies">🔊</button>
           <button class="ble-btn small" id="compNew" type="button" title="New session — clears the chat and limits, keeps your avatar and memory" style="font-size:1.05rem;line-height:1;">↻</button>
-          <button class="ble-btn small" id="compLayout" type="button" title="Switch layout (split / focused)">▦</button>
           <button class="ble-btn small" id="compSetupBtn" type="button" title="Set up your companion — persona &amp; look">✨ Setup</button>
           <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
         </div>
@@ -8973,17 +8971,13 @@ function compNewSession(confirmFirst) {
   if (aiSpeakEnabled()) aiSpeak(greet);
   aiDebugPersistSoon();
 }
-function companionLayout() {
-  try { return localStorage.getItem("ossm-companion-layout") === "split" ? "split" : "focused"; } catch (e) { return "focused"; }
-}
+// The companion always uses the split layout (avatar + controls on the left,
+// chat history on the right). Focused mode is intentionally removed to keep a
+// single predictable layout with more room.
 function companionApplyLayout() {
   const view = $("companionView");
-  const wide = window.innerWidth >= 700;
-  const actual = (companionLayout() === "split" && wide) ? "split" : "focused";
-  if (view) view.classList.toggle("split", actual === "split");
-  const btn = $("compLayout");
-  if (btn) { btn.textContent = actual === "split" ? "▣" : "▦"; btn.title = actual === "split" ? "Switch to focused layout" : "Switch to split layout (landscape / tablet)"; }
-  return actual;
+  if (view) view.classList.add("split");
+  return "split";
 }
 function compSpeakSync() {
   const on = aiSpeakEnabled();
@@ -10128,13 +10122,6 @@ function compLiveStart() {
   const close = $("compClose"); if (close) close.onclick = companionClose;
   const setupBtn = $("compSetupBtn");
   if (setupBtn) setupBtn.onclick = () => { try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {} compSetupGreeted = false; compStartSetup(); };
-  const layoutBtn = $("compLayout");
-  if (layoutBtn) layoutBtn.onclick = () => {
-    const target = companionApplyLayout() === "split" ? "focused" : "split";
-    try { localStorage.setItem("ossm-companion-layout", target); } catch (e) {}
-    companionApplyLayout();
-    buildCompSliders();
-  };
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
