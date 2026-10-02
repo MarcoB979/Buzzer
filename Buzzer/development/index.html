@@ -414,14 +414,14 @@
   .online-videos summary::after { content: "▾"; font-size: .7rem; }
   .online-videos[open] summary { margin-bottom: 8px; }
   .online-videos[open] summary::after { content: "▴"; }
-  .about-fold { margin-bottom: 10px; }
-  .about-fold summary { list-style: none; cursor: pointer; user-select: none; font-size: .85rem; font-weight: bold; color: #e2e8f0; display: flex; align-items: center; justify-content: space-between; padding: 2px 0; }
+  .about-fold { margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #1e293b; }
+  .about-fold summary { list-style: none; cursor: pointer; user-select: none; font-size: .85rem; font-weight: bold; color: #e2e8f0; display: flex; align-items: center; justify-content: flex-end; gap: 6px; padding: 2px 0; }
   .about-fold summary::-webkit-details-marker { display: none; }
-  .about-fold .summary-left { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
-  .about-fold .summary-value { font-weight: normal; font-size: .7rem; color: #38bdf8; }
-  .about-fold summary::after { content: "▾"; font-size: .7rem; color: #94a3b8; }
-  .about-fold[open] summary { margin-bottom: 6px; }
+  .about-fold summary::after { content: "▾"; font-size: .55rem; color: #94a3b8; }
   .about-fold[open] summary::after { content: "▴"; }
+  .about-fold .summary-left { display: inline-flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .about-fold .summary-value { font-weight: normal; font-size: .7rem; color: #38bdf8; }
+  .about-fold[open] summary { margin-bottom: 6px; }
   .online-body { display: flex; flex-direction: column; gap: 8px; }
   .online-controls { display: flex; flex-direction: column; gap: 6px; }
   .online-controls input, .online-controls select { background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; width: 100%; box-sizing: border-box; }
@@ -1017,7 +1017,10 @@
       <div class="photo-modal-card" style="max-width:600px;max-height:92vh;overflow:auto;">
         <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
           <span>✨ Avatar builder</span>
-          <button class="ble-btn small" id="avatarSetupClose" type="button">✕</button>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="ble-btn small" id="avatarSaveBtn" type="button" title="Save this avatar — name, persona, About yourself, photos and points">💾 Save</button>
+            <button class="ble-btn small" id="avatarSetupClose" type="button">✕</button>
+          </div>
         </div>
         <details class="about-fold" id="aboutFold">
           <summary><span class="summary-left">About yourself<span class="summary-value" id="aboutFoldVal"></span></span></summary>
@@ -1029,7 +1032,6 @@
         </details>
         <div class="avatar-builder-head">
           <input type="text" id="avatarNameInput" placeholder="Avatar name">
-          <button class="ble-btn small" id="avatarSaveBtn" type="button" title="Save this avatar">💾</button>
           <button class="ble-btn small" id="avatarNewBtn" type="button" title="New avatar">＋</button>
           <button class="ble-btn small" id="avatarDelBtn" type="button" title="Delete this avatar">🗑</button>
         </div>
