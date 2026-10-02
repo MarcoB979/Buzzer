@@ -6713,7 +6713,7 @@ function aiModeContext(cur) {
     const patternList = stdPatterns.map(p => '- "' + p.name + '": ' + (p.desc || "custom")).join("\n");
     return "CURRENT MODE: Standard. In \"set\" you may only use these keys: \"Max Pos\" (depth 0-100), \"Min Pos\" (withdrawal 0-100), \"Speed\" (0-100), \"Sensation\" (-100..100, 0 = neutral), \"Pattern\" (one exact pattern name). Do NOT use In Speed, Out Speed, In Accel, Out Accel or modifier keys in this mode.\n"
       + "PATTERNS (name — what it does):\n" + patternList + "\n"
-      + "INTENT in Standard mode: \"harder\"/\"pound me\"/\"hard\" = more forceful, harder-hitting thrusts (pounding), NOT just speed — prefer a pounding/intense pattern from the list and/or raise \"Sensation\" and \"Speed\". \"faster\"/\"sneller\"/\"quicker\" (speed only) = raise \"Speed\". \"softer\"/\"gentle\"/\"zacht\" = the simplest gentle pattern with lower Speed and Sensation. \"tease me\"/\"teasing\" = a teasing/pounding pattern with lower Sensation. \"deeper\" = raise \"Max Pos\"; \"shallower\" = lower \"Max Pos\".\n"
+      + "INTENT in Standard mode: \"harder\"/\"pound me\"/\"hard\" = more forceful, harder-hitting thrusts (pounding), NOT just speed — prefer a pounding/intense pattern from the list and/or raise \"Sensation\" and \"Speed\". \"faster\"/\"sneller\"/\"quicker\" (speed only) = raise \"Speed\". \"softer\"/\"gentle\"/\"zacht\" = the simplest gentle pattern with lower Speed and Sensation. \"tease me\"/\"teasing\" = a teasing/pounding pattern with lower Sensation. \"deeper\" = raise \"Max Pos\"; \"shallower\" = lower \"Max Pos\". If the user defines a custom shorthand (e.g. \"deep\" = both Min Pos and Max Pos +10, \"shallow\" = both −10), apply it to BOTH values exactly as defined — never set Min Pos equal to Max Pos (that zeroes the stroke and the machine stops moving).\n"
       + aiLimitsText() + "\n"
       + aiRunContext(running) + "\n"
       + aiConnContext() + "\n"
@@ -6780,12 +6780,13 @@ function aiApplyStd(p) {
     const raw = p[k];
     if (raw === null || raw === undefined || raw === "") continue;
     if (k === "Max Pos") {
-      let v = clamp(Math.round(Number(raw)), 0, caps.maxDepth);
-      if (running) v = clamp(v, Math.round(stdValues.max) - AI_CHANGE_LIMIT, Math.round(stdValues.max) + AI_CHANGE_LIMIT);
+      // Positions are already bounded by the confirmed safety limits, so apply
+      // the exact requested depth (no extra ±10 step while running) — otherwise
+      // the AI says "set max to 75" but the machine only reaches 70.
+      const v = clamp(Math.round(Number(raw)), 0, caps.maxDepth);
       stdValues.max = v; stdWrite("set:max:" + v); put("Max Pos", v);
     } else if (k === "Min Pos") {
-      let v = clamp(Math.round(Number(raw)), caps.minDepth, caps.maxDepth);
-      if (running) v = clamp(v, Math.round(stdValues.min) - AI_CHANGE_LIMIT, Math.round(stdValues.min) + AI_CHANGE_LIMIT);
+      const v = clamp(Math.round(Number(raw)), caps.minDepth, caps.maxDepth);
       stdValues.min = v; stdWrite("set:min:" + v); put("Min Pos", v);
     } else if (k === "Speed") {
       const target = clamp(Math.round(Number(raw)), 0, caps.maxSpeed);
@@ -7639,11 +7640,15 @@ function aiApplyParams(p) {
         aiStartTarget = clamp(val, 1, Math.min(caps.maxSpeed, AI_START_SPEED_MAX));
         val = 0;
       }
-      // SAFETY: while playing, never jump a value up by more than AI_CHANGE_LIMIT.
-      // Slowing down (any speed param) is always safe and allowed to drop freely.
+      // SAFETY: while playing, speed/accel ramp by ±AI_CHANGE_LIMIT per command
+      // (slowing any speed param drops freely). Positions are already bounded by
+      // the confirmed limits, so they apply exactly — no extra step.
       if (running) {
-        const isSpeed = (k === "Speed" || k === "In Speed" || k === "Out Speed");
-        val = (isSpeed && val < cur) ? val : clamp(val, cur - AI_CHANGE_LIMIT, cur + AI_CHANGE_LIMIT);
+        const isPos = (k === "Max Pos" || k === "Min Pos");
+        if (!isPos) {
+          const isSpeed = (k === "Speed" || k === "In Speed" || k === "Out Speed");
+          val = (isSpeed && val < cur) ? val : clamp(val, cur - AI_CHANGE_LIMIT, cur + AI_CHANGE_LIMIT);
+        }
       }
       if (k === "Speed" && running && val !== cur) {
         rampSpeed(speed(), val); // speed always ramps — never an instant jump
@@ -11449,7 +11454,10 @@ async function compSend() {
       }
     }
     if (res.limits) {
-      if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
+      const curCaps = aiSafetyCaps();
+      if (aiLimitsConfirmed() && aiLimitsSame(res.limits, { minDepth: curCaps.minDepth, maxDepth: curCaps.maxDepth, maxSpeed: curCaps.maxSpeed })) {
+        compPendingLimits = null; // model re-sent the current limits — ignore
+      } else if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
         // Wild / full submission: apply boundary changes directly (no confirmation).
         aiApplyLimits(res.limits, true);
         compPendingLimits = null;
@@ -11877,7 +11885,10 @@ async function aiSend(opts) {
     if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); syncAboutFold(); aiLog("updated about-you"); }
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
-      if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
+      const curCaps = aiSafetyCaps();
+      if (aiLimitsConfirmed() && aiLimitsSame(res.limits, { minDepth: curCaps.minDepth, maxDepth: curCaps.maxDepth, maxSpeed: curCaps.maxSpeed })) {
+        aiPendingLimits = null; // model re-sent the current limits — ignore
+      } else if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
         // Wild / full submission: apply boundary changes directly (no confirmation).
         aiApplyLimits(res.limits, true);
         aiPendingLimits = null;
