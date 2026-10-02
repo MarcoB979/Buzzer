@@ -6624,9 +6624,9 @@ function aiPosContext() {
     } else {
       base += " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers.";
       if (!sw) {
-        base += " CRITICAL: no safe word is stored yet, so before any movement you MUST ask the user to choose a safe word — do NOT send {\"action\":\"start\"} and do NOT describe any movement yet. Once they answer with a word, send {\"action\":\"safeWord\",\"word\":\"<the word>\"} and restate it, then send {\"action\":\"start\"}.";
+        base += " CRITICAL: no safe word is stored yet, so before any movement you MUST ask the user to choose a safe word — do NOT send {\"pos\":{\"action\":\"start\"}} and do NOT describe any movement yet. Once they answer with a word, send {\"pos\":{\"action\":\"safeWord\",\"word\":\"<the word>\"}} and restate it, then send {\"pos\":{\"action\":\"start\"}}.";
       } else {
-        base += " Use {\"action\":\"start\"} ONCE to begin; the app then drives everything automatically (retract to 0, glide inward, read the ACTUAL position at each \"stop\", then ask for max speed and return to the start point by itself). After you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"action\":\"safeWord\",\"word\":\"...\"} if they ask to change the safe word.";
+        base += " Use {\"pos\":{\"action\":\"start\"}} ONCE to begin; the app then drives everything automatically (retract to 0, glide inward, read the ACTUAL position at each \"stop\", then ask for max speed and return to the start point by itself). After you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"pos\":{\"action\":\"safeWord\",\"word\":\"...\"}} if they ask to change the safe word.";
       }
     }
     return base;
@@ -11322,7 +11322,7 @@ async function compSend() {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (aiLastShow) companionApplyShow(aiLastShow);
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
       if (res.raw) { compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
@@ -11413,6 +11413,10 @@ async function compSend() {
       else if (res.run === "home") { aiHomeMachine(); aiLog("homed the machine"); }
     }
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
+    if (res.safeWord) {
+      const sw = typeof res.safeWord === "string" ? { action: "safeWord", word: res.safeWord } : res.safeWord;
+      if (sw && typeof sw === "object") aiPosApplyEnvelope(sw, aiCanRunActive());
+    }
     if (res.ui) {
       aiApplyUi(res.ui);
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
@@ -11776,7 +11780,7 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.ui || res.face || res.video || res.search || res.addon) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon) {
       if (res.raw) { aiMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
@@ -11832,6 +11836,10 @@ async function aiSend(opts) {
       else if (res.run === "home") { aiHomeMachine(); aiLog("homed the machine"); }
     }
     if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
+    if (res.safeWord) {
+      const sw = typeof res.safeWord === "string" ? { action: "safeWord", word: res.safeWord } : res.safeWord;
+      if (sw && typeof sw === "object") aiPosApplyEnvelope(sw, aiCanRunActive());
+    }
     if (res.ui) {
       aiApplyUi(res.ui);
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
@@ -11865,7 +11873,7 @@ async function aiSend(opts) {
         if (res2.params) aiApplySet(res2.params);
       }
     }
-    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.about && !res.pos && !res.ui && !res.face) {
+    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.about && !res.pos && !res.safeWord && !res.ui && !res.face) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
