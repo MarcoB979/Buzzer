@@ -1028,8 +1028,16 @@
           <button class="ble-btn small" id="avatarKindPhoto" type="button">Real (photo/video)</button>
         </div>
         <div class="photo-modal-body" style="font-size:.8rem;">
-          <label style="display:block;margin-bottom:4px;">Who is this avatar? (persona — the AI uses this to stay in character and decide what to show)</label>
-          <textarea id="avatarPersona" rows="3" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <div style="flex:1;min-width:220px;">
+              <label style="display:block;margin-bottom:4px;">Who is this avatar? (persona — the AI uses this to stay in character and decide what to show)</label>
+              <textarea id="avatarPersona" rows="4" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
+            </div>
+            <div style="flex:1;min-width:220px;">
+              <label style="display:block;margin-bottom:4px;">About yourself (who you are — the AI uses this to understand you and pick the right role)</label>
+              <textarea id="avatarAbout" rows="4" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. I'm a sissy boy, I like being dominated, body type, cock size…"></textarea>
+            </div>
+          </div>
         </div>
         <div id="avatarPhotoSections">
           <div id="avatarStateRows"></div>
@@ -6197,12 +6205,13 @@ HOW TO CONVERSE:
 - APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: the user must press Connect themselves — Bluetooth pairing needs their tap, so you can't do it (tell them to press Connect). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
 
 ALWAYS reply with ONLY this JSON object (no markdown, no prose outside it):
-{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"pos":null,"ui":null,"face":null,"video":null,"search":null,"addon":null,"lang":"<2-letter code>"}
+{"reply":"<your conversational reply, in the user's language>","set":{ ... },"limits":{ ... },"run":null,"memory":null,"about":null,"pos":null,"ui":null,"face":null,"video":null,"search":null,"addon":null,"lang":"<2-letter code>"}
 - "reply": your natural message to the user. You may prefix it with one invisible emotion tag — [frown], [thinking], [smile] or [blush] — which the app strips before showing or speaking it.
 - "set": the parameter changes to apply. If you are only talking or asking a question and not changing anything, use "set": null.
 - "limits" (optional, ONLY for safety-limit changes): {"maxDepth":<0-100>, "minDepth":<0-100>, "maxSpeed":<0-100>}. Propose it to ask for confirmation; only include it again after the user confirms, to execute.
 - "run" (optional, ONLY when your context says you are allowed to start/pause): "start", "pause", or "home" (to force a full homing procedure). Otherwise leave it null.
 - "memory" (optional, ONLY when the user shares something new and lasting about themselves): the complete updated memory text (all remembered facts, one short line each). Otherwise null.
+- "about" (optional, ONLY when the user discloses something about THEMSELVES — their identity, role, gender, body type, cock or breast size, that they're a sissy or non-binary, a daddy who likes to be dominated, etc.): a short, current summary of who THEY are (a few concise sentences) for their visible "About yourself" field. Include only what they voluntarily shared; otherwise null.
 - "pos" (optional, ONLY during position setup — see POSITION SETUP rules): one action object — {"action":"start"} to begin (the app then auto-moves the rail — you just listen); {"action":"safeWord","word":"<the word>"}; {"action":"rehomeDone"}; a manual nudge (ONLY AFTER the rail has stopped) as {"action":"move","to":<0-100>} (absolute position) or {"action":"deeper","amount":<n>}/{"action":"increase","amount":<n>} (move in by n) or {"action":"out","amount":<n>}/{"action":"decrease","amount":<n>} (move out by n); {"action":"stop"}; {"action":"record"}; {"action":"speedNote","speed":<n>}; {"action":"done","min":<0-100>,"max":<0-100>,"speed":<0-100>}; {"action":"stopMode","mode":"gentle"|"emergency"}; {"action":"ready"} — OR an ARRAY of such action objects when several are needed at once. Otherwise null.
 - "ui" (optional): an app action to do for the user — {"action":"mode","mode":"std"|"ap"|"fun"} to switch screens; {"action":"settings"} to open settings; {"action":"video"} to open the video panel; {"action":"binding"} to open the controller mapping; {"action":"connect"} to prompt the user to connect (you can't pair Bluetooth yourself). Otherwise null.
 - "face" (optional): the companion's look — {"hair":"blonde|brown|black|white|blue|red|pink|ginger","skin":"fair|light|tan|deep"}. Use it when the user describes how they want the companion to look. Otherwise null.
@@ -9044,7 +9053,7 @@ const COMPANION_PRESETS = [
   { name:"Kai",  seed:"Kai",   style:"lorelei",   hair:"#f6d365", skin:"#ffe0bd" },
   { name:"Luca", seed:"Luca",  style:"lorelei",   hair:"#a16207", skin:"#f3c39c" }
 ];
-let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated", persona:"", expr:null };
+let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated", persona:"", about:"", expr:null };
 let companionBlinkTimer = null;
 try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
 if (!companionState.expr || typeof companionState.expr !== "object" || Array.isArray(companionState.expr)) {
@@ -9053,6 +9062,7 @@ if (!companionState.expr || typeof companionState.expr !== "object" || Array.isA
   ["laugh", "blush", "rough"].forEach(s => { const e = companionState.expr[s] || { img:null, vids:0, lm:null }; e.img = e.img || null; e.vids = e.vids || 0; e.lm = e.lm || null; companionState.expr[s] = e; });
 }
 if (typeof companionState.persona !== "string") companionState.persona = "";
+if (typeof companionState.about !== "string") companionState.about = "";
 if (!companionState.body || typeof companionState.body !== "object" || Array.isArray(companionState.body)) {
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
 } else {
@@ -9196,6 +9206,8 @@ function companionOpenAvatarSetup() {
   if (!m) return;
   const p = $("avatarPersona");
   if (p) p.value = companionState.persona || "";
+  const ab = $("avatarAbout");
+  if (ab) ab.value = companionState.about || "";
   buildAvatarSwitcher();
   syncKindUI();
   buildAvatarSetupRows();
@@ -9697,6 +9709,7 @@ function compAvatarSnapshot() {
     name: companionState.avatarName || "Avatar",
     kind: companionState.kind || ((companionState.customImage || Object.keys(companionState.expr || {}).some(k => companionState.expr[k] && companionState.expr[k].img)) ? "photo" : "drawn"),
     persona: companionState.persona || "",
+    about: companionState.about || "",
     preset: companionState.preset, custom: companionState.custom,
     customImage: companionState.customImage, customVideos: companionState.customVideos,
     landmarks: companionState.landmarks, source: companionState.source,
@@ -9712,6 +9725,7 @@ function compAvatarApply(snap) {
   companionState.kind = snap.kind || "drawn";
   companionState.mediaId = snap.mediaId || "";
   companionState.persona = snap.persona || "";
+  companionState.about = snap.about || "";
   companionState.preset = snap.preset || 0;
   companionState.custom = snap.custom || null;
   companionState.customImage = snap.customImage || null;
@@ -9746,6 +9760,8 @@ function compAvatarSaveCurrent() {
     if (ni) companionState.avatarName = ni.value.trim();
     const pa = $("avatarPersona");
     if (pa) companionState.persona = pa.value.trim();
+    const ab = $("avatarAbout");
+    if (ab) companionState.about = ab.value.trim();
   }
   const snap = compAvatarSnapshot();
   const name = (companionState.avatarName || "").trim();
@@ -9773,7 +9789,7 @@ function compAvatarDelete() {
     });
   } catch (e) {}
   compAvatarsSave(compAvatars().filter(a => a.id !== id));
-  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: "drawn", avatarName: "", avatarId: null, mediaId: "", consented: companionState.consented };
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", about: "", expr: null, body: null, kind: "drawn", avatarName: "", avatarId: null, mediaId: "", consented: companionState.consented };
   ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   compExpr.state = "normal"; compExpr.until = 0;
@@ -9786,7 +9802,7 @@ function compAvatarDelete() {
   funLog("Avatar deleted.");
 }
 function compAvatarNewConfirm(kind) {
-  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: kind, avatarName: "", avatarId: null, mediaId: newMediaId(), consented: companionState.consented };
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", about: "", expr: null, body: null, kind: kind, avatarName: "", avatarId: null, mediaId: newMediaId(), consented: companionState.consented };
   ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   compExpr.state = "normal"; compExpr.until = 0;
@@ -11010,6 +11026,11 @@ function compPersonaText() {
   if (!t) return "";
   return "\n\nAVATAR PERSONA (who you are to this user — stay in character as this person, and use it to decide how far to go and what to show when they ask): " + t;
 }
+function compAboutText() {
+  const t = (companionState.about || "").trim();
+  if (!t) return "";
+  return "\n\nABOUT THE USER (who THEY are — their identity, role, gender, body and preferences. Use this to address them, pick pronouns and your role, and keep the dynamic right): " + t;
+}
 const COMP_CUSTOM_EXAMPLES = [
   { title: "Gentle & Affectionate", text: "Be warm, tender and praise-heavy with me. Call me your boy, your good boy. Give soft affirmations, kisses and gentle dirty talk. Take it slow and caring — check in often and never rush me. When you instruct me, keep it soft and loving." },
   { title: "Strict Dom", text: "Be a firm, confident dom. Talk down to me playfully, give short commands and make me earn it. Tease and edge me. I like being told what to do, and being punished for being cheeky. Give me short, demanding instructions every 30–90 seconds. Call me your slut." },
@@ -11176,13 +11197,13 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compExprContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (aiLastShow) companionApplyShow(aiLastShow);
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
       if (res.raw) { compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
@@ -11201,6 +11222,7 @@ async function compSend() {
       aiLog("stored a preference (memory)");
       if (inSetup) { try { localStorage.setItem("ossm-ai-memory-enabled", "1"); } catch (e) {} }
     }
+    if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); aiLog("updated about-you"); }
     if (res.face) companionApplyFace(res.face);
     if (res.avatar) { companionApplyAvatar(res.avatar); compSetupDone(); }
     if (res.video) aiApplyVideo(res.video);
@@ -11325,7 +11347,7 @@ async function compDirtyTalkFire() {
     const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compCustomPromptText() + compPersonaText() + compExprContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() },
       { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Normally only set \"reply\". BUT if your line says you're about to do something — go deeper, go harder, go faster, or hold it deep — then also include the matching \"set\" (a small, safe step within the confirmed limits) so it actually happens. Never send \"run\" or \"limits\" here." }
     ];
     const res = await aiCall(msgs);
@@ -11450,6 +11472,8 @@ function compLiveStart() {
   if (asDone) asDone.onclick = () => {
     const p = $("avatarPersona");
     if (p) companionState.persona = p.value.trim();
+    const ab = $("avatarAbout");
+    if (ab) companionState.about = ab.value.trim();
     companionSave();
     const m = $("avatarSetup"); if (m) m.style.display = "none";
     companionRender();
@@ -11618,12 +11642,12 @@ async function aiSend(opts) {
       ? (mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "")
       : "\n\nMEMORY IS DISABLED by the user — do not output the \"memory\" field.";
     const msgs = [
-      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      { role: "system", content: AI_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + compAboutText() + aiVideoContext() + localVideoContext() + stashVideoContext() },
       ...aiMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.video || res.search || res.addon) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.ui || res.face || res.video || res.search || res.addon) {
       if (res.raw) { aiMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
@@ -11636,6 +11660,7 @@ async function aiSend(opts) {
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && aiMemoryActive()) { aiSetMemory(res.memory); aiLog("stored a preference (memory)"); }
+    if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); aiLog("updated about-you"); }
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
@@ -11711,7 +11736,7 @@ async function aiSend(opts) {
         if (res2.params) aiApplySet(res2.params);
       }
     }
-    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos && !res.ui && !res.face) {
+    if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.about && !res.pos && !res.ui && !res.face) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
         const applied = aiApplySet(local);
@@ -12396,7 +12421,7 @@ function aiDebugRestore() {
       compSetupGreeted = false;
       try { localStorage.removeItem("ossm-companion"); } catch (e) {}
       try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {}
-      companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null };
+      companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", about: "", expr: null };
       ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img:null, vids:0, lm:null }; });
       compVideoForget();
       if (companionState.shown) companionRender();
