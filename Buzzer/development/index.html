@@ -666,14 +666,16 @@
   .companion-avatar .companion-img.live { overflow: hidden; border-radius: 50%; background: #0b1220; }
   .companion-avatar canvas.live { width: 100%; height: 100%; display: block; }
   .companion-avatar video.comp-talk-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 2; background: #0b1220; }
+  .companion-avatar video.comp-body-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 2; background: #0b1220; }
   .photo-modal { position: fixed; inset: 0; z-index: 140; background: rgba(0,0,0,.74); display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #photoConsent, #photoCalib, #bodyCalib, #avatarWelcome { z-index: 160; }
   .photo-modal-card { background: #0d1320; border: 1px solid #1e293b; border-radius: 14px; padding: 18px; max-width: 460px; width: 100%; color: #e2e8f0; }
   .photo-modal-title { font-size: 1rem; font-weight: bold; margin-bottom: 8px; }
   .photo-modal-body { font-size: .82rem; line-height: 1.45; color: #94a3b8; margin-bottom: 14px; }
   .photo-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .photo-modal-actions .ble-btn.danger { background: #7f1d1d; }
   .photo-calib-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 10px; overflow: hidden; border-radius: 10px; cursor: crosshair; background: #000; }
-  .photo-calib-stage img { display: block; max-width: 100%; max-height: 46vh; width: auto; height: auto; }
+  .photo-calib-stage img { display: block; max-width: 100%; max-height: 46vh; width: auto; height: auto; transform-origin: center center; }
   .photo-calib-dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #38bdf8; border: 2px solid #fff; transform: translate(-50%,-50%); pointer-events: none; box-shadow: 0 0 6px rgba(0,0,0,.5); }
   .photo-calib-hint { font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
   .photo-calib-rot { display: flex; align-items: center; gap: 8px; font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
@@ -946,8 +948,13 @@
         <div class="photo-calib-stage" id="photoCalibStage"><img id="photoCalibImg" alt=""></div>
         <div class="photo-calib-hint" id="photoCalibHint">Tap one eye</div>
         <div class="photo-calib-rot">
-          <span>Tilt (head rotation)</span>
-          <input type="range" id="photoCalibRot" min="-90" max="90" step="1" value="0">
+          <span>Zoom</span>
+          <input type="range" id="photoCalibZoom" min="100" max="500" step="10" value="100">
+          <span id="photoCalibZoomVal">100%</span>
+        </div>
+        <div class="photo-calib-rot">
+          <span>Tilt (auto from eyes)</span>
+          <input type="range" id="photoCalibRot" min="-90" max="90" step="0.5" value="0">
           <span id="photoCalibRotVal">0°</span>
         </div>
         <div class="photo-modal-actions">
@@ -9020,16 +9027,23 @@ function companionRender() {
   const state = compActiveState();
   if (compIsBodyState(state)) {
     companionLiveStop();
+    const p = compBodyPoint(state);
+    const vids = (p && p.vid) || 0;
+    const imgSrc = (p && p.img) || companionState.body.img;
+    if (vids > 0) {
+      box.innerHTML = '<div class="companion-img"><video class="comp-body-video" muted loop playsinline></video></div>';
+      const v = box.querySelector("video.comp-body-video");
+      if (v) companionBodyPlayVideo(state, v);
+      return;
+    }
+    if (!imgSrc) { box.innerHTML = '<div class="companion-img generated"></div>'; return; }
+    companionBody.prev = companionCaptureAvatar();
     box.innerHTML = '<div class="companion-img live"><canvas class="live"></canvas></div>';
-    if (companionState.body.img) {
-      if (companionBody.img && companionBody.src === companionState.body.img) companionBodyStart(state);
-      else {
-        const im = new Image();
-        im.onload = () => { companionBody.img = im; companionBody.src = companionState.body.img; companionBodyStart(state); };
-        im.src = companionState.body.img;
-      }
-    } else {
-      box.innerHTML = '<div class="companion-img generated"></div>';
+    if (companionBody.img && companionBody.src === imgSrc) companionBodyStart(state);
+    else {
+      const im = new Image();
+      im.onload = () => { companionBody.img = im; companionBody.src = imgSrc; companionBodyStart(state); };
+      im.src = imgSrc;
     }
     return;
   }
@@ -9187,11 +9201,24 @@ function compBodyPoint(s) {
 }
 const companionBody = {
   img: null, src: null, raf: 0, active: false, cv: null, state: null,
-  cx: 0.5, cy: 0.18, zoom: 1, target: null, phase: "idle", t0: 0, holdUntil: 0
+  cx: 0.5, cy: 0.18, zoom: 1, target: null, phase: "idle", t0: 0, holdUntil: 0, prev: null
 };
+function companionCaptureAvatar() {
+  try {
+    const box = $("companionAvatar");
+    const cv = box && box.querySelector("canvas.live");
+    if (!cv || !cv.width) return null;
+    const c = document.createElement("canvas");
+    c.width = cv.width; c.height = cv.height;
+    c.getContext("2d").drawImage(cv, 0, 0);
+    return c;
+  } catch (e) { return null; }
+}
 function companionBodyStop() {
   if (companionBody.raf) { cancelAnimationFrame(companionBody.raf); companionBody.raf = 0; }
   companionBody.active = false;
+  const v = document.querySelector("#companionAvatar video.comp-body-video");
+  if (v) { try { v.pause(); } catch (e) {} }
 }
 function companionBodyStart(state) {
   companionBodyStop();
@@ -9205,7 +9232,7 @@ function companionBodyStart(state) {
   companionBody.cv = cv;
   companionBody.cx = f.x; companionBody.cy = f.y; companionBody.zoom = 1;
   companionBody.target = { x: p.x, y: p.y, zoom: p.zoom || 1.5 };
-  companionBody.phase = "pan";
+  companionBody.phase = companionBody.prev ? "fade" : "pan";
   companionBody.t0 = performance.now();
   companionBody.state = state;
   companionBody.active = true;
@@ -9229,7 +9256,23 @@ function companionBodyFrame(now) {
   const img = companionBody.img, iw = img.naturalWidth, ih = img.naturalHeight;
   const f = companionState.body.face || { x: 0.5, y: 0.18 };
   const ease = (t) => (t < 0.5) ? (2 * t * t) : (-1 + (4 - 2 * t) * t);
-  const PAN_MS = 1000, HOLD_MS = 2600;
+  const PAN_MS = 1000, HOLD_MS = 2600, FADE_MS = 450;
+  const drawCrop = (cx, cy, zoom, alpha) => {
+    const side = Math.min(iw, ih) / Math.max(0.5, zoom);
+    const cxPx = cx * iw, cyPx = cy * ih;
+    const sx = Math.max(0, Math.min(iw - side, cxPx - side / 2));
+    const sy = Math.max(0, Math.min(ih - side, cyPx - side / 2));
+    if (alpha !== undefined && alpha < 1) ctx.globalAlpha = alpha;
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, w, h);
+    if (alpha !== undefined && alpha < 1) ctx.globalAlpha = 1;
+  };
+  if (companionBody.phase === "fade") {
+    const t = Math.min(1, (now - companionBody.t0) / FADE_MS);
+    if (companionBody.prev) { try { ctx.drawImage(companionBody.prev, 0, 0, w, h); } catch (e) {} }
+    drawCrop(f.x, f.y, 1, ease(t));
+    if (t >= 1) { companionBody.phase = "pan"; companionBody.t0 = now; }
+    return;
+  }
   if (companionBody.phase === "pan") {
     const t = Math.min(1, (now - companionBody.t0) / PAN_MS), e = ease(t);
     companionBody.cx = f.x + (companionBody.target.x - f.x) * e;
@@ -9245,15 +9288,36 @@ function companionBodyFrame(now) {
     companionBody.zoom = companionBody.target.zoom + (1 - companionBody.target.zoom) * e;
     if (t >= 1) { companionBodyStop(); companionSetExpression("normal"); }
   }
-  const side = Math.min(iw, ih) / Math.max(0.5, companionBody.zoom);
-  const cxPx = companionBody.cx * iw, cyPx = companionBody.cy * ih;
-  const sx = Math.max(0, Math.min(iw - side, cxPx - side / 2));
-  const sy = Math.max(0, Math.min(ih - side, cyPx - side / 2));
-  ctx.drawImage(img, sx, sy, side, side, 0, 0, w, h);
+  drawCrop(companionBody.cx, companionBody.cy, companionBody.zoom);
+}
+function companionBodyPlayVideo(state, videoEl) {
+  const p = compBodyPoint(state);
+  const count = (p && p.vid) || 0;
+  if (!count || !videoEl) return;
+  const i = Math.floor(Math.random() * count);
+  const key = compBodyVidKey(state, i);
+  const urls = compBodyVidList(state);
+  if (urls[i]) { videoEl.src = urls[i]; try { videoEl.play(); } catch (e) {} }
+  else {
+    compVideoDb().then((db) => {
+      if (!db) return;
+      try {
+        const tx = db.transaction("media", "readonly");
+        const rq = tx.objectStore("media").get(key);
+        rq.onsuccess = () => {
+          const blob = rq.result;
+          if (blob) { const u = URL.createObjectURL(blob); urls[i] = u; videoEl.src = u; try { videoEl.play(); } catch (e) {} }
+          try { db.close(); } catch (e) {}
+        };
+        rq.onerror = () => { try { db.close(); } catch (e) {} };
+      } catch (e) { try { db.close(); } catch (e) {} }
+    });
+  }
 }
 function companionShowBody(state, holdMs) {
   const p = compBodyPoint(state);
-  if (!p || !companionState.body.img) { funLog("No body photo / focus point for \"" + state + "\" yet — set it up in the Avatar builder."); return; }
+  const hasOwn = !!(p && (p.img || (p.vid || 0) > 0));
+  if (!p || (!companionState.body.img && !hasOwn)) { funLog("No body photo / focus point for \"" + state + "\" yet — set it up in the Avatar builder."); return; }
   compExpr.state = state;
   compExpr.until = Date.now() + (holdMs || COMP_EXPR_HOLD + 4000);
   companionRender();
@@ -9287,11 +9351,17 @@ function buildBodySetupRows() {
       ? '<span class="avatar-state-name">' + escapeHtml(label) + '</span>'
       : '<input class="avatar-state-namein" data-bn="' + s + '" value="' + escapeHtml(label) + '" title="Body state name">';
     const kwEl = builtIn ? '' : '<input class="avatar-state-kwin" data-bk="' + s + '" value="' + escapeHtml((p && p.keywords) || "") + '" placeholder="trigger words (comma separated)">';
-    const info = p ? (Math.round(p.x * 100) + '%, ' + Math.round(p.y * 100) + '% · ' + ((p.zoom || 1.5).toFixed(1)) + '×') : 'no focus point';
+    const own = [];
+    if (p && p.img) own.push("own photo");
+    if (p && (p.vid || 0) > 0) own.push(p.vid + " video" + (p.vid > 1 ? "s" : ""));
+    const info = (p ? (Math.round(p.x * 100) + '%, ' + Math.round(p.y * 100) + '% · ' + ((p.zoom || 1.5).toFixed(1)) + '×') : 'no focus point') + (own.length ? ' · ' + own.join(' + ') : '');
     row.innerHTML = nameEl
       + '<span class="avatar-state-info">' + escapeHtml(info) + '</span>'
+      + '<button class="ble-btn small" data-b="pimg" data-bs="' + s + '" type="button" title="Own photo for this state">📁</button>'
+      + '<button class="ble-btn small" data-b="pvid" data-bs="' + s + '" type="button" title="Own video(s) for this state">🎬</button>'
       + '<button class="ble-btn small" data-b="pt" data-bs="' + s + '" type="button" title="Set focus point">👁</button>'
-      + (builtIn ? '' : '<button class="ble-btn small" data-b="del" data-bs="' + s + '" type="button" title="Remove this body state">✕</button>')
+      + '<button class="ble-btn small" data-b="pclr" data-bs="' + s + '" type="button" title="Clear own photo/video">✕</button>'
+      + (builtIn ? '' : '<button class="ble-btn small" data-b="del" data-bs="' + s + '" type="button" title="Remove this body state">🗑</button>')
       + kwEl;
     host.appendChild(row);
   });
@@ -9320,6 +9390,27 @@ function compBodyRowAction(b, s) {
     companionBodyCalibrate("face");
   } else if (b === "pt") {
     companionBodyCalibrate(s);
+  } else if (b === "pimg") {
+    compEnsureConsent(() => {
+      const inp = document.createElement("input");
+      inp.type = "file"; inp.accept = "image/*";
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compBodyStatePhoto(f, s); };
+      inp.click();
+    });
+  } else if (b === "pvid") {
+    compEnsureConsent(() => {
+      const inp = document.createElement("input");
+      inp.type = "file"; inp.accept = "video/*"; inp.multiple = true;
+      inp.onchange = () => { compBodyStateVideos(inp.files, s); };
+      inp.click();
+    });
+  } else if (b === "pclr") {
+    const p = companionState.body.points[s];
+    if (p) { p.img = null; p.vid = 0; }
+    compBodyVidList(s).forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
+    compBodyVidUrls[s] = [];
+    companionSave();
+    buildBodySetupRows();
   } else if (b === "del") {
     delete companionState.body.points[s];
     companionSave();
@@ -9337,6 +9428,37 @@ function compBodyUpload(file) {
     funLog("Full-body photo set — now tap each body state to set its focus point.");
   };
   rd.readAsDataURL(file);
+}
+function compBodyStatePhoto(file, state) {
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    const p = companionState.body.points[state] = companionState.body.points[state] || { x: 0.5, y: 0.5, zoom: 1.5 };
+    p.img = String(rd.result);
+    companionSave();
+    companionRender();
+    buildBodySetupRows();
+    funLog("Photo set for \"" + compBodyLabel(state) + "\".");
+  };
+  rd.readAsDataURL(file);
+}
+function compBodyStateVideos(files, state) {
+  const list = (files && files.length) ? Array.prototype.slice.call(files).filter((f) => f && f.type && f.type.indexOf("video/") === 0) : [];
+  if (!list.length) return;
+  const p = companionState.body.points[state] = companionState.body.points[state] || { x: 0.5, y: 0.5, zoom: 1.5 };
+  const urls = compBodyVidList(state);
+  const start = p.vid || 0;
+  list.forEach((f, k) => {
+    const i = start + k;
+    const key = compBodyVidKey(state, i);
+    compVideoDb().then((db) => { if (db) { try { const tx = db.transaction("media", "readwrite"); tx.objectStore("media").put(f, key); } catch (e) {} } });
+    urls[i] = URL.createObjectURL(f);
+  });
+  p.vid = start + list.length;
+  companionSave();
+  companionRender();
+  buildBodySetupRows();
+  funLog("Video added for \"" + compBodyLabel(state) + "\".");
 }
 function companionBodyCalibrate(state) {
   if (!companionState.body.img) { funLog("Add a full-body photo first."); return; }
@@ -9460,7 +9582,8 @@ function compAvatarApply(snap) {
   // Clear cached video object URLs so the new avatar's videos load fresh.
   compVideoUrls.forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
   compVideoUrls = [];
-  Object.keys(compExprVidUrls).forEach(k => { compExprVidUrls[k] = []; });
+  Object.keys(compExprVidUrls).forEach(k => { compExprVidUrls[k].forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } }); compExprVidUrls[k] = []; });
+  Object.keys(compBodyVidUrls).forEach(k => { compBodyVidUrls[k].forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } }); compBodyVidUrls[k] = []; });
   compVideoPlayIdx = -1; compVideoWasSpeaking = false;
   compSetupDone();
   companionSave();
@@ -9941,12 +10064,23 @@ function compVidKeyFor(mediaId, state, i) {
   return p + "video-" + (state === "normal" ? "" : state + "-") + i;
 }
 function compVidKey(state, i) { return compVidKeyFor(companionState.mediaId || "", state, i); }
+function compBodyVidKeyFor(mediaId, state, i) {
+  const p = mediaId ? (mediaId + "-") : "";
+  return p + "bvid-" + state + "-" + i;
+}
+function compBodyVidKey(state, i) { return compBodyVidKeyFor(companionState.mediaId || "", state, i); }
+const compBodyVidUrls = {};
+function compBodyVidList(state) {
+  if (!compBodyVidUrls[state]) compBodyVidUrls[state] = [];
+  return compBodyVidUrls[state];
+}
 function compAvatarVideoEntries() {
   const out = [];
   const mid = companionState.mediaId || "";
-  const push = (state, count) => { for (let i = 0; i < count; i++) out.push({ state: state, i: i, key: compVidKeyFor(mid, state, i) }); };
-  push("normal", companionState.customVideos || 0);
-  compExprKeys().forEach(s => push(s, (companionState.expr[s] && companionState.expr[s].vids) || 0));
+  const push = (kind, state, count) => { for (let i = 0; i < count; i++) out.push({ kind: kind, state: state, i: i, key: (kind === "body" ? compBodyVidKeyFor(mid, state, i) : compVidKeyFor(mid, state, i)) }); };
+  push("face", "normal", companionState.customVideos || 0);
+  compExprKeys().forEach(s => push("face", s, (companionState.expr[s] && companionState.expr[s].vids) || 0));
+  compBodyKeys().forEach(s => push("body", s, (companionState.body.points[s] && companionState.body.points[s].vid) || 0));
   return out;
 }
 const compExprVidUrls = { laugh: [], blush: [], rough: [] };
@@ -10134,34 +10268,85 @@ function companionLiveCalibrate(img, dataUrl, state) {
   const stage = $("photoCalibStage"), simg = $("photoCalibImg");
   const hint = $("photoCalibHint"), apply = $("photoCalibDone"), cancel = $("photoCalibCancel");
   const rotEl = $("photoCalibRot"), rotVal = $("photoCalibRotVal");
-  if (rotEl) {
-    const cur = compStateMedia(state || "normal").lm;
-    const prev = (cur && typeof cur.rot === "number") ? cur.rot : 0;
-    rotEl.value = String(prev);
-    if (rotVal) rotVal.textContent = prev + "°";
-  }
+  const zoomEl = $("photoCalibZoom"), zoomVal = $("photoCalibZoomVal");
   simg.src = img.src;
   const stepText = ["Tap one eye", "Tap the other eye", "Tap the mouth"];
-  let clicks = []; const dots = [];
-  const update = () => { hint.textContent = clicks.length < 3 ? stepText[clicks.length] : "All set — adjust tilt if needed, then tap Apply."; };
-  const clearDots = () => { dots.forEach((d) => d.remove()); dots.length = 0; };
-  const addDot = (x, y) => {
-    const d = document.createElement("div");
-    d.className = "photo-calib-dot";
-    d.style.left = (x * 100) + "%"; d.style.top = (y * 100) + "%";
-    stage.appendChild(d); dots.push(d);
+  let zoom = 1;
+  let userRotated = false;
+  // Pre-load existing points (for re-calibration) so they can be dragged.
+  const prevLm = compStateMedia(state || "normal").lm;
+  let clicks = [];
+  if (prevLm && prevLm.le && prevLm.re && prevLm.m) {
+    clicks = [[prevLm.le[0], prevLm.le[1]], [prevLm.re[0], prevLm.re[1]], [prevLm.m[0], prevLm.m[1]]];
+  }
+  const prevRot = (prevLm && typeof prevLm.rot === "number") ? prevLm.rot : 0;
+  if (rotEl) rotEl.value = String(prevRot);
+  const autoRot = () => {
+    if (clicks.length < 2) return 0;
+    const a = clicks[0], b = clicks[1];
+    return -Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
   };
-  stage.onclick = (e) => {
+  const syncRotLabel = (auto) => {
+    if (!rotVal) return;
+    const v = (parseFloat(rotEl && rotEl.value) || 0);
+    rotVal.textContent = (Math.round(v * 10) / 10) + "°" + (auto ? " (auto)" : "");
+  };
+  const toNorm = (e) => {
     const r = simg.getBoundingClientRect();
-    if (!r.width || !r.height) return;
-    const nx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
-    const ny = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
-    clicks.push([nx, ny]); addDot(nx, ny);
-    update();
+    if (!r.width || !r.height) return null;
+    return [
+      Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      Math.min(1, Math.max(0, (e.clientY - r.top) / r.height))
+    ];
   };
+  const renderDots = () => {
+    stage.querySelectorAll(".photo-calib-dot").forEach(d => d.remove());
+    clicks.forEach((c) => {
+      const d = document.createElement("div");
+      d.className = "photo-calib-dot";
+      const sx = (c[0] - 0.5) * zoom + 0.5;
+      const sy = (c[1] - 0.5) * zoom + 0.5;
+      d.style.left = (sx * 100) + "%"; d.style.top = (sy * 100) + "%";
+      stage.appendChild(d);
+    });
+  };
+  const applyZoom = () => {
+    simg.style.transform = "scale(" + zoom + ")";
+    if (zoomVal) zoomVal.textContent = Math.round(zoom * 100) + "%";
+    renderDots();
+  };
+  const updateHint = () => { hint.textContent = clicks.length < 3 ? stepText[clicks.length] : "Drag a dot to adjust, zoom to be precise — then tap Apply."; };
+  const updateAutoRot = () => {
+    if (!userRotated && rotEl && clicks.length >= 2) {
+      rotEl.value = String(Math.round(autoRot() * 10) / 10);
+      syncRotLabel(true);
+    }
+  };
+  let dragging = -1;
+  stage.addEventListener("pointerdown", (e) => {
+    const p = toNorm(e);
+    if (!p) return;
+    let nearest = -1, best = 0.05;
+    clicks.forEach((c, idx) => { const d = Math.hypot(c[0] - p[0], c[1] - p[1]); if (d < best) { best = d; nearest = idx; } });
+    if (nearest >= 0) { dragging = nearest; try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
+    else if (clicks.length < 3) { clicks.push(p); renderDots(); updateAutoRot(); updateHint(); }
+  });
+  stage.addEventListener("pointermove", (e) => {
+    if (dragging < 0) return;
+    const p = toNorm(e);
+    if (!p) return;
+    clicks[dragging] = p;
+    renderDots();
+    updateAutoRot();
+  });
+  const endDrag = () => { dragging = -1; };
+  stage.addEventListener("pointerup", endDrag);
+  stage.addEventListener("pointercancel", endDrag);
   if (rotEl) {
-    rotEl.oninput = () => { if (rotVal) rotVal.textContent = rotEl.value + "°"; };
-    rotEl.onchange = rotEl.oninput;
+    rotEl.oninput = () => { userRotated = true; syncRotLabel(false); };
+  }
+  if (zoomEl) {
+    zoomEl.oninput = () => { zoom = (parseInt(zoomEl.value, 10) || 100) / 100; applyZoom(); };
   }
   const finish = (ok) => {
     let pts = null;
@@ -10171,14 +10356,17 @@ function companionLiveCalibrate(img, dataUrl, state) {
       pts = { le: e1, re: e2, m: m, box: null, rot: rot };
     }
     modal.style.display = "none";
-    stage.onclick = null; clearDots(); clicks = [];
-    if (rotEl) rotEl.oninput = null;
     apply.onclick = null; cancel.onclick = null;
+    if (rotEl) rotEl.oninput = null;
+    if (zoomEl) zoomEl.oninput = null;
+    clicks = [];
     companionLiveSetImage(img, dataUrl, pts, state);
   };
   apply.onclick = () => finish(true);
   cancel.onclick = () => finish(false);
-  update();
+  syncRotLabel(false);
+  applyZoom();
+  updateHint();
 }
 function companionLiveComputeFace(img, pts) {
   const iw = img.naturalWidth, ih = img.naturalHeight;
@@ -11710,7 +11898,7 @@ async function exportAvatar() {
           rq.onerror = () => res(null);
         });
         if (blob && blob instanceof Blob) {
-          mediaMeta[e.key] = { state: e.state, i: e.i, type: blob.type || "application/octet-stream" };
+          mediaMeta[e.key] = { kind: e.kind, state: e.state, i: e.i, type: blob.type || "application/octet-stream" };
           zip.file("media/" + e.key, blob);
         }
       }
@@ -11756,7 +11944,7 @@ async function importAvatar(file) {
           let arrBuf;
           try { arrBuf = await f.async("arraybuffer"); } catch (e) { continue; }
           const blob = new Blob([arrBuf], { type: meta.type || "application/octet-stream" });
-          const newKey = compVidKeyFor(newMid, meta.state || "normal", meta.i || 0);
+          const newKey = (meta.kind === "body") ? compBodyVidKeyFor(newMid, meta.state || "", meta.i || 0) : compVidKeyFor(newMid, meta.state || "normal", meta.i || 0);
           await new Promise((res) => {
             try {
               const tx = db.transaction("media", "readwrite");
