@@ -975,6 +975,7 @@
           <span id="bodyCalibZoomVal">1.5×</span>
         </div>
         <div class="photo-modal-actions">
+          <button class="ble-btn small danger" id="bodyCalibClear" type="button">Clear</button>
           <button class="ble-btn small" id="bodyCalibCancel" type="button">Cancel</button>
           <button class="ble-btn small" id="bodyCalibDone" type="button">Apply</button>
         </div>
@@ -9502,6 +9503,7 @@ function companionBodyCalibrate(state, mode) {
   const stage = $("bodyCalibStage"), simg = $("bodyCalibImg");
   const hint = $("bodyCalibHint"), apply = $("bodyCalibDone"), cancel = $("bodyCalibCancel");
   const title = $("bodyCalibTitle");
+  const clear = $("bodyCalibClear");
   const zoomEl = $("bodyCalibZoom"), zoomVal = $("bodyCalibZoomVal");
   simg.src = companionState.body.img;
   let click = null; let dot = null;
@@ -9513,6 +9515,7 @@ function companionBodyCalibrate(state, mode) {
     : (mode === "start") ? "Where the camera starts (zoomed in) before panning to the focus point"
     : "Tap the body part to focus on";
   if (existing && existing.x !== undefined) click = [existing.x, existing.y];
+  if (clear) clear.style.display = (mode === "face") || ((mode === "start") ? !!(compBodyPoint(state) && compBodyPoint(state).start) : !!compBodyPoint(state)) ? "" : "none";
   const defZoom = (mode === "start") ? 3 : 1.5;
   const curZoom = (existing && existing.zoom) || defZoom;
   if (zoomEl) { zoomEl.value = String(Math.round(curZoom * 100)); if (zoomVal) zoomVal.textContent = curZoom.toFixed(1) + "×"; }
@@ -9532,12 +9535,15 @@ function companionBodyCalibrate(state, mode) {
     click = [nx, ny]; addDot(nx, ny);
   };
   if (zoomEl) zoomEl.oninput = () => { if (zoomVal) zoomVal.textContent = (parseInt(zoomEl.value, 10) / 100).toFixed(1) + "×"; };
-  const finish = (ok) => {
+  const cleanup = () => {
     modal.style.display = "none";
     stage.onclick = null;
     if (zoomEl) zoomEl.oninput = null;
-    apply.onclick = null; cancel.onclick = null;
+    apply.onclick = null; cancel.onclick = null; clear.onclick = null;
     if (dot) dot.remove();
+  };
+  const finish = (ok) => {
+    cleanup();
     if (ok && click) {
       const zoom = zoomEl ? (parseInt(zoomEl.value, 10) / 100) : defZoom;
       if (mode === "face") companionState.body.face = { x: click[0], y: click[1] };
@@ -9554,6 +9560,14 @@ function companionBodyCalibrate(state, mode) {
   };
   apply.onclick = () => finish(true);
   cancel.onclick = () => finish(false);
+  clear.onclick = () => {
+    if (mode === "face") companionState.body.face = { x: 0.5, y: 0.18 };
+    else if (mode === "start") { const p = compBodyPoint(state); if (p) delete p.start; }
+    else { delete companionState.body.points[state]; }
+    companionSave();
+    buildBodySetupRows();
+    cleanup();
+  };
 }
 function compBodyAddState() {
   let name = "";
