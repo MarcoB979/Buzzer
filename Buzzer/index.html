@@ -6331,10 +6331,68 @@ function aiIsYes(text) {
   // Any clear negation wins — never treat a refusal as confirmation.
   if (/\b(no|nee|niet|not|dont|don|geen|stop|never|nooit|maar|but|nope|hou op|wacht|niet doen)\b/.test(t)) return false;
   // Literal agreement words.
-  if (/\b(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|do it|go ahead|proceed|graag|ja|ja hoor|zeker|tuurlijk|ja doe maar|ja graag|oui|si|sí|да|mhm|yess|of course|natuurlijk)\b/.test(t)) return true;
+  if (/\b(yes|yeah|yep|yup|sure|ok|okay|confirm(ed)?|do it|go ahead|proceed|correct|exactly|that s right|yes please|graag|ja|ja hoor|zeker|tuurlijk|ja doe maar|ja graag|oui|si|sí|да|mhm|yess|of course|natuurlijk)\b/.test(t)) return true;
+  // Explicitly confirming a set of limits ("those are the limits", "that's my limit").
+  if (/\b(those|these|they)\s+are\s+(my|the|our)?\s*limits?\b/.test(t)) return true;
+  if (/\bthat s\s+(my|the|our)?\s*limits?\b/.test(t)) return true;
+  if (/\b(are|is)\s+(my|the|our)?\s*limits?\b/.test(t)) return true;
   // Eager / urgent consent — the user clearly wants it, just phrased dirtier.
   if (/\b(pound me|fuck me|neuk me|ram me|hammer me|give it to me|geef me|doe maar|geef maar|ga maar|go on|come on|harder|dieper|deeper|more|meer|faster|sneller|now|nu|please|alsjeblieft|aub)\b/.test(t)) return true;
   return false;
+}
+function aiNumbersIn(text) {
+  const out = [];
+  const m = String(text || "").match(/\b\d{1,3}\b/g);
+  if (m) for (const s of m) { const n = parseInt(s, 10); if (n >= 0 && n <= 100) out.push(n); }
+  return out;
+}
+function aiParseLimits(text) {
+  // "20, 100, 80" → min depth 20, max depth 100, max speed 80.
+  const raw = String(text || "").trim();
+  if (!raw || raw.length > 80) return null;
+  const nums = aiNumbersIn(raw);
+  if (nums.length === 3) {
+    if (nums[0] > nums[1]) return null;
+    return { minDepth: nums[0], maxDepth: nums[1], maxSpeed: nums[2] };
+  }
+  // "min 20 ... max 100 ... speed 80" — parse by keyword order.
+  const lower = raw.toLowerCase();
+  const iMin = lower.indexOf("min"), iMax = lower.indexOf("max"), iSpd = lower.indexOf("speed");
+  if (iMin >= 0 && iMax > iMin && nums.length >= 2) {
+    const nAfter = (start) => { const mm = lower.slice(start).match(/\d{1,3}/); return mm ? parseInt(mm[0], 10) : null; };
+    const a = nAfter(iMin), b = nAfter(iMax), s = (iSpd > iMax) ? nAfter(iSpd) : null;
+    if (a !== null && b !== null && a <= b) return { minDepth: a, maxDepth: b, maxSpeed: s };
+  }
+  return null;
+}
+function aiLimitsSame(a, b) {
+  if (!a || !b) return false;
+  return a.minDepth === b.minDepth && a.maxDepth === b.maxDepth && (a.maxSpeed === b.maxSpeed);
+}
+function aiLocalLimitsParts(L) {
+  const parts = [];
+  if (typeof L.minDepth === "number") parts.push("min depth " + Math.round(L.minDepth));
+  if (typeof L.maxDepth === "number") parts.push("max depth " + Math.round(L.maxDepth));
+  if (typeof L.maxSpeed === "number") parts.push("max speed " + Math.round(L.maxSpeed));
+  return parts;
+}
+function aiIsStartCommand(text) {
+  const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.split(" ").length > 4) return false;
+  return /\b(go|start|begin|resume|let'?s go|lets go|get going|start now|start it|start please|begin now|go now)\b/.test(t);
+}
+function aiParseSafeWordSet(text) {
+  const raw = String(text || "").toLowerCase().replace(/\u2019/g, "'").trim();
+  if (!raw || raw.length > 80) return null;
+  if (/^(what|whats|what'?s|which|who|where)\b/.test(raw)) return null; // a question, not a set
+  const blocked = /^(that|this|it|what|which|who|is|was|are|will|would|the|a|an|my|your|our|their|its)$/;
+  let m = raw.match(/\bsafe\s*word\s*(?:is|would be|will be|=|:|\s)\s*["']?([a-z0-9]+)["']?\b/);
+  if (m && !blocked.test(m[1])) return m[1];
+  m = raw.match(/(?:^|[\s,."'])([a-z0-9]+)\s*,?\s*that'?s\s*(?:my|the|our)?\s*safe\s*word\b/);
+  if (m && !blocked.test(m[1])) return m[1];
+  m = raw.match(/\b([a-z0-9]+)\s*(?:is|'s)\s*(?:my|the|our)\s+safe\s*word\b/);
+  if (m && !blocked.test(m[1])) return m[1];
+  return null;
 }
 function aiFallbackError(res) {
   const s = aiProviderSettings();
@@ -9862,6 +9920,46 @@ async function compSend() {
     aiSpeak("Stopped.");
     return;
   }
+  if (!aiPos.active) {
+    const swSet = aiParseSafeWordSet(text);
+    if (swSet) {
+      if (inp) inp.value = "";
+      compAddMsg("user", escapeHtml(text));
+      aiPosSetSafeWord(swSet);
+      const warn = (swSet.length <= 3) ? " Heads-up: a very short or common word can trigger an emergency stop if you type it by itself." : "";
+      compAddMsg("assistant", "Safe word set — say \"" + escapeHtml(swSet) + "\" at any time for a full emergency stop." + warn);
+      aiSpeak("Safe word set.");
+      return;
+    }
+    const parsedLim = aiParseLimits(text);
+    if (parsedLim) {
+      if (inp) inp.value = "";
+      compAddMsg("user", escapeHtml(text));
+      if (compPendingLimits && aiLimitsSame(compPendingLimits, parsedLim)) {
+        aiApplyLimits(compPendingLimits, true);
+        aiLimitsSetConfirmed();
+        compPendingLimits = null;
+        compAddMsg("assistant", "Limits locked in — I'll stay within them.");
+        aiSpeak("Limits locked in.");
+      } else {
+        compPendingLimits = parsedLim;
+        compAddMsg("system", "Confirm limits: " + aiLocalLimitsParts(parsedLim).join(", ") + " — reply \"yes\" to apply.");
+      }
+      buildCompSliders();
+      return;
+    }
+    if (compPendingLimits && aiIsYes(text)) {
+      if (inp) inp.value = "";
+      compAddMsg("user", escapeHtml(text));
+      aiApplyLimits(compPendingLimits, true);
+      aiLimitsSetConfirmed();
+      compPendingLimits = null;
+      compAddMsg("assistant", "Limits saved.");
+      aiSpeak("Limits saved.");
+      buildCompSliders();
+      return;
+    }
+  }
   compBusy = true;
   if (inp) inp.value = "";
   compAddMsg("user", escapeHtml(text));
@@ -10232,6 +10330,55 @@ async function aiSend(opts) {
     }
     aiSpeak("Stopped.");
     return;
+  }
+  if (!aiPos.active) {
+    const swSet = aiParseSafeWordSet(text);
+    if (swSet) {
+      if (inp) inp.value = "";
+      aiAddMsg("user", escapeHtml(text));
+      aiPosSetSafeWord(swSet);
+      const warn = (swSet.length <= 3) ? " Heads-up: a very short or common word can trigger an emergency stop if you type it by itself." : "";
+      aiAddMsg("assistant", "Safe word set — say \"" + escapeHtml(swSet) + "\" at any time for a full emergency stop." + warn);
+      aiSpeak("Safe word set.");
+      return;
+    }
+    const parsedLim = aiParseLimits(text);
+    if (parsedLim) {
+      if (inp) inp.value = "";
+      aiAddMsg("user", escapeHtml(text));
+      if (aiPendingLimits && aiLimitsSame(aiPendingLimits, parsedLim)) {
+        aiApplyLimits(aiPendingLimits, true);
+        aiLimitsSetConfirmed();
+        aiPendingLimits = null;
+        aiLimitsRowOpen(false);
+        aiAddMsg("assistant", "Limits locked in — I'll stay within them.");
+        aiSpeak("Limits locked in.");
+      } else {
+        aiPendingLimits = parsedLim;
+        aiAddMsg("system", "Confirm limits: " + aiLocalLimitsParts(parsedLim).join(", ") + " — reply \"yes\" to apply.");
+      }
+      return;
+    }
+    if (aiPendingLimits && aiIsYes(text)) {
+      if (inp) inp.value = "";
+      aiAddMsg("user", escapeHtml(text));
+      aiApplyLimits(aiPendingLimits, true);
+      aiLimitsSetConfirmed();
+      aiPendingLimits = null;
+      aiLimitsRowOpen(false);
+      aiAddMsg("assistant", "Limits saved.");
+      aiSpeak("Limits saved.");
+      return;
+    }
+    if (aiIsStartCommand(text)) {
+      if (inp) inp.value = "";
+      aiAddMsg("user", escapeHtml(text));
+      if (!aiCanRun()) { aiAddMsg("assistant", "I'm not allowed to start the machine — \"can run (start/pause)\" is off in the AI settings."); }
+      else if (aiMachineRunning()) { aiAddMsg("assistant", "Already moving."); }
+      else if (!aiLimitsConfirmed()) { aiAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); }
+      else { aiStartMachine(); aiLog("started the machine (local)"); aiAddMsg("assistant", "Starting."); aiSpeak("Starting."); }
+      return;
+    }
   }
   aiBusy = true;
   if (inp) inp.value = "";
