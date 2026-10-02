@@ -11040,7 +11040,7 @@ function companionLiveFrame(now) {
   // --- blush ---
   if (companionLive.expression && now < companionLive.exprUntil && companionLive.expression.kind === "blush" && f.le && f.re) {
     const cxb = tx(((f.le[0] + f.re[0]) / 2) * iw), cyb = ty(((f.le[1] + f.re[1]) / 2) * ih);
-    const off = eyeH * 3.0, rad = off * 0.2;
+    const off = eyeH * 3.0, rad = off * 0.4;
     const cr = companionLive.cheekRgb;
     [[-1, 1], [1, 1]].forEach(([sx2, sy2]) => {
       const px2 = cxb + sx2 * off, py2 = cyb + sy2 * off * 0.85;
