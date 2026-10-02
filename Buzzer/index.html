@@ -1006,11 +1006,13 @@
     </div>
 
     <div class="photo-modal" id="avatarSetup" style="display:none;">
-      <div class="photo-modal-card" style="max-width:600px;max-height:92vh;overflow:auto;">
+      <div class="photo-modal-card" style="max-width:920px;max-height:92vh;overflow:auto;">
         <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
           <span>✨ Avatar builder</span>
           <button class="ble-btn small" id="avatarSetupClose" type="button">✕</button>
         </div>
+        <div style="display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap;">
+          <div style="flex:1;min-width:340px;">
         <div class="avatar-builder-head">
           <input type="text" id="avatarNameInput" placeholder="Avatar name">
           <button class="ble-btn small" id="avatarSaveBtn" type="button" title="Save this avatar">💾</button>
@@ -1028,16 +1030,8 @@
           <button class="ble-btn small" id="avatarKindPhoto" type="button">Real (photo/video)</button>
         </div>
         <div class="photo-modal-body" style="font-size:.8rem;">
-          <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <div style="flex:1;min-width:220px;">
-              <label style="display:block;margin-bottom:4px;">Who is this avatar? (persona — the AI uses this to stay in character and decide what to show)</label>
-              <textarea id="avatarPersona" rows="4" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
-            </div>
-            <div style="flex:1;min-width:220px;">
-              <label style="display:block;margin-bottom:4px;">About yourself (who you are — the AI uses this to understand you and pick the right role)</label>
-              <textarea id="avatarAbout" rows="4" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. I'm a sissy boy, I like being dominated, body type, cock size…"></textarea>
-            </div>
-          </div>
+          <label style="display:block;margin-bottom:4px;">Who is this avatar? (persona — the AI uses this to stay in character and decide what to show)</label>
+          <textarea id="avatarPersona" rows="4" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
         </div>
         <div id="avatarPhotoSections">
           <div id="avatarStateRows"></div>
@@ -1052,6 +1046,15 @@
         </div>
         <div class="photo-modal-actions" style="margin-top:10px;">
           <button class="ble-btn small" id="avatarSetupDone" type="button">Done</button>
+        </div>
+          </div>
+          <div style="flex:0 0 300px;min-width:240px;">
+            <div class="photo-modal-body" style="font-size:.8rem;">
+              <label style="display:block;margin-bottom:4px;">About yourself (who you are — the AI uses this to understand you and pick the right role)</label>
+              <textarea id="avatarAbout" rows="6" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. I'm a sissy boy, I like being dominated, body type, cock size…"></textarea>
+              <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">Who you are — your identity, role, body and preferences. The AI reads this to address you and play the right role. Updated automatically when you share things in chat.</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
