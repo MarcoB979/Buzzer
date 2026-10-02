@@ -676,6 +676,13 @@
   .photo-calib-stage img { display: block; max-width: 100%; max-height: 46vh; width: auto; height: auto; }
   .photo-calib-dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #38bdf8; border: 2px solid #fff; transform: translate(-50%,-50%); pointer-events: none; box-shadow: 0 0 6px rgba(0,0,0,.5); }
   .photo-calib-hint { font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
+  .photo-calib-rot { display: flex; align-items: center; gap: 8px; font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
+  .photo-calib-rot input[type=range] { flex: 1; }
+  .avatar-state-row { display: flex; align-items: center; gap: 8px; border: 1px solid #1e293b; border-radius: 10px; padding: 8px; margin-bottom: 8px; background: #0b1220; }
+  .avatar-state-name { width: 92px; font-size: .8rem; font-weight: bold; flex: 0 0 auto; }
+  .avatar-state-thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: #1e293b; flex: 0 0 auto; }
+  .avatar-state-info { flex: 1; font-size: .72rem; color: #94a3b8; line-height: 1.3; min-width: 0; }
+  .avatar-state-row .ble-btn { flex: 0 0 auto; }
   #compConnect.on { background: #166534; }
   #compConnect.pulse { animation: compPulse .8s ease 3; }
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
@@ -929,9 +936,31 @@
         <div class="photo-modal-title" id="photoCalibTitle">Point out your face</div>
         <div class="photo-calib-stage" id="photoCalibStage"><img id="photoCalibImg" alt=""></div>
         <div class="photo-calib-hint" id="photoCalibHint">Tap one eye</div>
+        <div class="photo-calib-rot">
+          <span>Tilt (head rotation)</span>
+          <input type="range" id="photoCalibRot" min="-90" max="90" step="1" value="0">
+          <span id="photoCalibRotVal">0°</span>
+        </div>
         <div class="photo-modal-actions">
           <button class="ble-btn small" id="photoCalibCancel" type="button">Cancel</button>
           <button class="ble-btn small" id="photoCalibDone" type="button">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="photo-modal" id="avatarSetup" style="display:none;">
+      <div class="photo-modal-card" style="max-width:600px;max-height:92vh;overflow:auto;">
+        <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>✨ Avatar setup</span>
+          <button class="ble-btn small" id="avatarSetupClose" type="button">✕</button>
+        </div>
+        <div class="photo-modal-body" style="font-size:.8rem;">
+          <label style="display:block;margin-bottom:4px;">Who is this avatar? (persona — the AI uses this to stay in character and decide what to show)</label>
+          <textarea id="avatarPersona" rows="3" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
+        </div>
+        <div id="avatarStateRows"></div>
+        <div class="photo-modal-actions" style="margin-top:10px;">
+          <button class="ble-btn small" id="avatarSetupDone" type="button">Done</button>
         </div>
       </div>
     </div>
@@ -6178,10 +6207,12 @@ function aiRecoverEnvelope(t) {
   return out;
 }
 
+let aiLastShow = null;   // avatar "show" field from the last model response (avatar expressions / body states)
 function aiExtractJson(text) {
   // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "pos": {...}, "lang": ".."} or a flat params object.
   // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
-  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, lang: null });
+  aiLastShow = null;
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, lang: null, show: null });
   if (!text) return empty();
   const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
@@ -6199,6 +6230,7 @@ function aiExtractJson(text) {
     return plain ? Object.assign(empty(), { reply: plain }) : empty();
   }
   if (typeof j.error === "string" && j.error) return empty(); // rate-limit / error envelope
+  aiLastShow = (typeof j.show === "string" && j.show.trim()) ? j.show.trim().toLowerCase() : null;
   // If the model hid action objects inside the reply text, pull them out and clean it.
   let reply = (typeof j.reply === "string") ? j.reply.trim() : null;
   if (reply) {
@@ -8849,10 +8881,35 @@ const COMPANION_PRESETS = [
   { name:"Kai",  seed:"Kai",   style:"lorelei",   hair:"#f6d365", skin:"#ffe0bd" },
   { name:"Luca", seed:"Luca",  style:"lorelei",   hair:"#a16207", skin:"#f3c39c" }
 ];
-let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated" };
+let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated", persona:"", expr:null };
 let companionBlinkTimer = null;
 try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
+if (!companionState.expr || typeof companionState.expr !== "object" || Array.isArray(companionState.expr)) {
+  companionState.expr = { laugh: { img:null, vids:0, lm:null }, blush: { img:null, vids:0, lm:null }, rough: { img:null, vids:0, lm:null } };
+} else {
+  ["laugh", "blush", "rough"].forEach(s => { const e = companionState.expr[s] || { img:null, vids:0, lm:null }; e.img = e.img || null; e.vids = e.vids || 0; e.lm = e.lm || null; companionState.expr[s] = e; });
+}
+if (typeof companionState.persona !== "string") companionState.persona = "";
 function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
+// ---------- Avatar expressions (per-state photos/videos + landmarks) ----------
+const COMP_EXPR_STATES = ["laugh", "blush", "rough"];
+const COMP_EXPR_LABELS = { laugh: "Laughing", blush: "Blushing", rough: "Rough / exertion" };
+const COMP_EXPR_HOLD = 6000;   // how long an expression stays before returning to normal
+let compExpr = { state: "normal", until: 0 };
+function compStateMedia(state) {
+  if (state === "normal") return { img: companionState.customImage || null, vids: companionState.customVideos || 0, lm: companionState.landmarks || null };
+  const e = companionState.expr && companionState.expr[state];
+  return e ? { img: e.img || null, vids: e.vids || 0, lm: e.lm || null } : { img: null, vids: 0, lm: null };
+}
+function compActiveState() {
+  return (compExpr.state && compExpr.state !== "normal" && Date.now() < compExpr.until) ? compExpr.state : "normal";
+}
+function companionSetExpression(state, holdMs) {
+  if (!state || state === "normal" || COMP_EXPR_STATES.indexOf(state) < 0) { compExpr.state = "normal"; compExpr.until = 0; }
+  else { compExpr.state = state; compExpr.until = Date.now() + (holdMs || COMP_EXPR_HOLD); }
+  companionRender();
+  syncCompVideoAvatar();
+}
 function companionEnabled() { try { return localStorage.getItem("ossm-companion-enabled") !== "0"; } catch (e) { return true; } }
 function companionSyncEntry() {
   const b = $("aiFaceBtn");
@@ -8865,26 +8922,34 @@ function companionGen() {
 function companionRender() {
   const box = $("companionAvatar");
   if (!box) return;
-  if (companionState.source === "live" && companionState.customImage) {
-    // In video-avatar mode the talking videos provide the motion, so show the
-    // photo full-frame (object-fit: cover, same framing as the video) instead of
-    // the tight face-crop animation — the two should look identical.
-    if ((companionState.customVideos || 0) > 0) {
+  const state = compActiveState();
+  const media = compStateMedia(state);
+  const fallback = (state !== "normal") ? compStateMedia("normal") : null;
+  const img = media.img || (fallback && fallback.img) || null;
+  const vids = media.vids || 0;
+  const lm = media.lm || (state !== "normal" && fallback && fallback.lm) || null;
+  const liveMode = companionState.source === "live" || (state !== "normal" && !!lm);
+  if (img && (companionState.source === "live" || companionState.source === "upload" || state !== "normal")) {
+    if (vids > 0) {
+      // In video-avatar mode the talking videos provide the motion, so show the
+      // photo full-frame (object-fit: cover, same framing as the video).
       companionLiveStop();
-      box.innerHTML = '<div class="companion-img"><img src="' + companionState.customImage + '" alt="Companion"></div>';
+      box.innerHTML = '<div class="companion-img"><img src="' + img + '" alt="Companion"></div>';
+      syncCompVideoAvatar();
       return;
     }
-    box.innerHTML = '<div class="companion-img live"><canvas class="live"></canvas></div>';
-    if (companionLive.img) companionLiveStart();
-    else {
-      const img = new Image();
-      img.onload = () => { companionLive.img = img; companionLive.face = companionLiveComputeFace(img, companionState.landmarks || null); companionLiveSampleColors(img); companionLiveFindEyes(img); companionLiveStart(); };
-      img.src = companionState.customImage;
+    if (liveMode) {
+      box.innerHTML = '<div class="companion-img live"><canvas class="live"></canvas></div>';
+      if (companionLive.img && companionLive.face && companionLive.src === img) companionLiveStart();
+      else {
+        companionLiveStop();
+        const im = new Image();
+        im.onload = () => { companionLive.img = im; companionLive.src = img; companionLive.face = companionLiveComputeFace(im, lm); companionLiveSampleColors(im); companionLiveFindEyes(im); companionLiveStart(); };
+        im.src = img;
+      }
+      return;
     }
-    return;
-  }
-  if (companionState.source === "upload" && companionState.customImage) {
-    box.innerHTML = '<div class="companion-img upload"><img src="' + companionState.customImage + '" alt="Companion"></div>';
+    box.innerHTML = '<div class="companion-img upload"><img src="' + img + '" alt="Companion"></div>';
     return;
   }
   const g = companionGen();
@@ -8899,6 +8964,84 @@ function companionRender() {
   if (typeof g.hairProbability === "number") url += "&hairProbability=" + g.hairProbability;
   if (typeof g.detailsProbability === "number") url += "&detailsProbability=" + g.detailsProbability;
   box.innerHTML = '<div class="companion-img generated"><img src="' + url + '" alt="Companion"></div>';
+}
+function companionApplyShow(v) {
+  const s = String(v || "").toLowerCase().trim();
+  if (!s) return;
+  if (s === "laugh" || s === "laughing") companionSetExpression("laugh");
+  else if (s === "blush" || s === "blushing" || s === "shocked") companionSetExpression("blush");
+  else if (s === "rough" || s === "exert" || s === "exertion" || s === "cum" || s === "cumming") companionSetExpression("rough");
+  else if (s === "normal" || s === "neutral") companionSetExpression("normal");
+  else if (["undress", "underwear", "bulge", "nipples", "chest", "genitals", "ass", "behind", "stroke", "fingering"].indexOf(s) >= 0) {
+    funLog("Body state \"" + s + "\" requested — coming in phase 2.");
+  }
+}
+function companionOpenAvatarSetup() {
+  const m = $("avatarSetup");
+  if (!m) return;
+  const p = $("avatarPersona");
+  if (p) p.value = companionState.persona || "";
+  buildAvatarSetupRows();
+  m.style.display = "";
+}
+function buildAvatarSetupRows() {
+  const host = $("avatarStateRows");
+  if (!host) return;
+  host.innerHTML = "";
+  ["normal"].concat(COMP_EXPR_STATES).forEach((s) => {
+    const media = compStateMedia(s);
+    const label = (s === "normal") ? "Normal" : COMP_EXPR_LABELS[s];
+    const row = document.createElement("div");
+    row.className = "avatar-state-row";
+    const thumb = media.img
+      ? '<img class="avatar-state-thumb" src="' + media.img + '" alt="">'
+      : '<div class="avatar-state-thumb"></div>';
+    const info = (media.img ? "photo" : "no photo") + (media.vids ? " · " + media.vids + " video" + (media.vids > 1 ? "s" : "") : "") + (media.lm ? " · face set" : "");
+    row.innerHTML = '<span class="avatar-state-name">' + label + '</span>' + thumb
+      + '<span class="avatar-state-info">' + escapeHtml(info) + '</span>'
+      + '<button class="ble-btn small" data-a="img" data-s="' + s + '" type="button" title="Add/change photo">📁</button>'
+      + '<button class="ble-btn small" data-a="vid" data-s="' + s + '" type="button" title="Add videos">🎬</button>'
+      + '<button class="ble-btn small" data-a="cal" data-s="' + s + '" type="button" title="Point out face / rotation">👁</button>'
+      + '<button class="ble-btn small" data-a="clr" data-s="' + s + '" type="button" title="Clear this state">✕</button>';
+    host.appendChild(row);
+  });
+  host.querySelectorAll("button[data-a]").forEach((b) => {
+    b.onclick = () => compAvatarRowAction(b.dataset.a, b.dataset.s);
+  });
+}
+function compAvatarRowAction(action, state) {
+  if (action === "img") {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) companionConsentAndLoad(f, state); };
+    inp.click();
+  } else if (action === "vid") {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = "video/*"; inp.multiple = true;
+    inp.onchange = () => { companionUploadVideos(inp.files, state); };
+    inp.click();
+  } else if (action === "cal") {
+    const media = compStateMedia(state);
+    if (!media.img) { funLog("Add a photo first, then I can point out the face."); return; }
+    const img = new Image();
+    img.onload = () => companionLiveCalibrate(img, media.img, state);
+    img.onerror = () => funLog("Couldn't load that photo.");
+    img.src = media.img;
+  } else if (action === "clr") {
+    if (state === "normal") {
+      companionState.customImage = null; companionState.landmarks = null;
+      compVideoForget("normal");
+      if (companionState.source === "live" || companionState.source === "upload") companionState.source = "generated";
+    } else {
+      const e = companionState.expr[state];
+      e.img = null; e.lm = null;
+      compVideoForget(state);
+    }
+    companionSave();
+    companionRender();
+    syncCompVideoAvatar();
+    buildAvatarSetupRows();
+  }
 }
 function companionScheduleBlink() {
   clearTimeout(companionBlinkTimer);
@@ -9226,27 +9369,44 @@ function compVideoDb() {
   });
 }
 function compVideoKey(i) { return "video-" + i; }
-async function compVideoSaveBlob(blob, i) {
+function compVidKey(state, i) { return state === "normal" ? "video-" + i : "video-" + state + "-" + i; }
+const compExprVidUrls = { laugh: [], blush: [], rough: [] };
+function compVidList(state) {
+  if (state === "normal") return compVideoUrls;
+  if (!compExprVidUrls[state]) compExprVidUrls[state] = [];
+  return compExprVidUrls[state];
+}
+async function compVideoSaveBlob(blob, i, state) {
   const db = await compVideoDb();
   if (!db) return;
-  try { const tx = db.transaction("media", "readwrite"); tx.objectStore("media").put(blob, compVideoKey(i)); } catch (e) {}
+  try { const tx = db.transaction("media", "readwrite"); tx.objectStore("media").put(blob, compVidKey(state || "normal", i)); } catch (e) {}
 }
 async function compVideoLoadBlob(i) {
+  return compVideoLoadBlobState("normal", i);
+}
+async function compVideoLoadBlobState(state, i) {
   const db = await compVideoDb();
   if (!db) return null;
   try {
     return await new Promise((res) => {
       const tx = db.transaction("media", "readonly");
-      const rq = tx.objectStore("media").get(compVideoKey(i));
+      const rq = tx.objectStore("media").get(compVidKey(state, i));
       rq.onsuccess = () => res(rq.result || null);
       rq.onerror = () => res(null);
     });
   } catch (e) { return null; }
 }
-function compVideoForget() {
-  companionState.customVideos = 0;
-  compVideoUrls.forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
-  compVideoUrls = [];
+function compVideoForget(state) {
+  if (state && state !== "normal") {
+    const e = companionState.expr && companionState.expr[state];
+    if (e) e.vids = 0;
+    (compExprVidUrls[state] || []).forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
+    compExprVidUrls[state] = [];
+  } else {
+    companionState.customVideos = 0;
+    compVideoUrls.forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
+    compVideoUrls = [];
+  }
   compVideoPlayIdx = -1;
   compVideoWasSpeaking = false;
   compVideoDb().then((db) => {
@@ -9254,31 +9414,36 @@ function compVideoForget() {
     try {
       const tx = db.transaction("media", "readwrite");
       const st = tx.objectStore("media");
-      for (let i = 0; i < 30; i++) st.delete(compVideoKey(i));
+      for (let i = 0; i < 30; i++) st.delete(compVidKey(state || "normal", i));
     } catch (e) {}
   });
 }
-function companionUploadVideos(files) {
+function companionUploadVideos(files, state) {
+  const s = state || "normal";
   const list = (files && files.length) ? Array.prototype.slice.call(files).filter((f) => f && f.type && f.type.indexOf("video/") === 0) : [];
   if (!list.length) return;
-  const start = companionState.customVideos || 0;
+  const urls = compVidList(s);
+  const start = (s === "normal") ? (companionState.customVideos || 0) : (companionState.expr[s].vids || 0);
   list.forEach((f, k) => {
     const i = start + k;
-    compVideoSaveBlob(f, i);
-    compVideoUrls[i] = URL.createObjectURL(f);
+    compVideoSaveBlob(f, i, s);
+    urls[i] = URL.createObjectURL(f);
   });
-  companionState.customVideos = start + list.length;
+  if (s === "normal") companionState.customVideos = start + list.length;
+  else companionState.expr[s].vids = start + list.length;
   companionState.shown = true;
   companionSave();
   companionRender();
   syncCompVideoAvatar();
-  funLog("Talking video added — " + companionState.customVideos + " total, they take turns while I speak.");
+  funLog((s === "normal" ? "Talking video" : COMP_EXPR_LABELS[s] + " video") + " added — they take turns while I speak.");
 }
 function syncCompVideoAvatar() {
   const box = $("companionAvatar");
   const clearBtn = $("compVideoClearBtn");
-  const count = companionState.customVideos || 0;
-  if (clearBtn) clearBtn.style.display = count ? "" : "none";
+  const state = compActiveState();
+  const count = compStateMedia(state).vids;
+  const total = (companionState.customVideos || 0) + COMP_EXPR_STATES.reduce((a, s) => a + ((companionState.expr[s] && companionState.expr[s].vids) || 0), 0);
+  if (clearBtn) clearBtn.style.display = total ? "" : "none";
   if (!box) return;
   if (!count) {
     const v = box.querySelector("video.comp-talk-video");
@@ -9294,6 +9459,7 @@ function syncCompVideoAvatar() {
     v.setAttribute("muted", "");
     box.appendChild(v);
   }
+  const urls = compVidList(state);
   const speaking = aiIsSpeaking() && companionState.shown;
   // On each new speech burst, switch to the next video (1, 2, 1, 2, …).
   if (speaking && !compVideoWasSpeaking) {
@@ -9301,19 +9467,19 @@ function syncCompVideoAvatar() {
   }
   compVideoWasSpeaking = speaking;
   if (speaking) {
-    const i = compVideoPlayIdx;
+    const i = compVideoPlayIdx % count;
     const show = (u) => {
       if (!u) return;
       if (v.dataset.src !== u) { v.src = u; v.dataset.src = u; }
       v.style.display = "";
       try { v.play(); } catch (e) {}
     };
-    if (compVideoUrls[i]) show(compVideoUrls[i]);
-    else compVideoLoadBlob(i).then((blob) => {
+    if (urls[i]) show(urls[i]);
+    else compVideoLoadBlobState(state, i).then((blob) => {
       if (!blob) return;
       const u = URL.createObjectURL(blob);
-      compVideoUrls[i] = u;
-      if (aiIsSpeaking() && (companionState.customVideos || 0)) show(u);
+      urls[i] = u;
+      if (aiIsSpeaking() && (compStateMedia(state).vids || 0)) show(u);
     });
   } else {
     v.style.display = "none";
@@ -9323,7 +9489,7 @@ function syncCompVideoAvatar() {
 
 // ---------- Live photo companion (client-side face-cam animation) ----------
 const companionLive = {
-  img: null, face: null, active: false,
+  img: null, face: null, active: false, src: null,
   skinRgb: [232, 195, 158], lipRgb: [122, 59, 59], cheekRgb: [231, 121, 111],
   blinkState: "open", blinkNext: 0, blinkT: 0,
   mouth: 0, frown: 0, expression: null, exprUntil: 0,
@@ -9333,46 +9499,46 @@ function companionLiveStop() {
   if (companionLive.raf) { cancelAnimationFrame(companionLive.raf); companionLive.raf = 0; }
   companionLive.active = false;
 }
-function companionConsentAndLoad(file) {
+function companionConsentAndLoad(file, state) {
   if (!file) return;
   const rd = new FileReader();
   rd.onload = () => {
     const dataUrl = String(rd.result);
     const img = new Image();
-    img.onload = () => companionLiveAskConsent(img, dataUrl);
+    img.onload = () => companionLiveAskConsent(img, dataUrl, state);
     img.onerror = () => funLog("Couldn't read that image — try another.");
     img.src = dataUrl;
   };
   rd.readAsDataURL(file);
 }
-function companionLiveAskConsent(img, dataUrl) {
+function companionLiveAskConsent(img, dataUrl, state) {
   const modal = $("photoConsent");
-  if (!modal) { companionLiveDetect(img, dataUrl); return; }
+  if (!modal) { companionLiveDetect(img, dataUrl, state); return; }
   modal.style.display = "";
   const ok = $("photoConsentOk"), cancel = $("photoConsentCancel");
   const done = (apply) => {
     modal.style.display = "none";
     ok.onclick = null; cancel.onclick = null;
-    if (apply) companionLiveDetect(img, dataUrl);
+    if (apply) companionLiveDetect(img, dataUrl, state);
   };
   ok.onclick = () => done(true);
   cancel.onclick = () => done(false);
 }
-function companionLiveDetect(img, dataUrl) {
+function companionLiveDetect(img, dataUrl, state) {
   if (window.FaceDetector) {
     try {
       const fd = new window.FaceDetector({ fastMode: false, maxDetectedFaces: 1 });
       fd.detect(img).then((faces) => {
         if (faces && faces.length) {
           const pts = companionLiveFromDetected(faces[0], img);
-          if (pts) { companionLiveSetImage(img, dataUrl, pts); return; }
+          if (pts) { companionLiveSetImage(img, dataUrl, pts, state); return; }
         }
-        companionLiveCalibrate(img, dataUrl);
-      }).catch(() => companionLiveCalibrate(img, dataUrl));
+        companionLiveCalibrate(img, dataUrl, state);
+      }).catch(() => companionLiveCalibrate(img, dataUrl, state));
       return;
     } catch (e) { /* fall through to calibration */ }
   }
-  companionLiveCalibrate(img, dataUrl);
+  companionLiveCalibrate(img, dataUrl, state);
 }
 function companionLiveFromDetected(f, img) {
   try {
@@ -9391,16 +9557,23 @@ function companionLiveFromDetected(f, img) {
     return null;
   } catch (e) { return null; }
 }
-function companionLiveCalibrate(img, dataUrl) {
+function companionLiveCalibrate(img, dataUrl, state) {
   const modal = $("photoCalib");
-  if (!modal) { companionLiveSetImage(img, dataUrl, null); return; }
+  if (!modal) { companionLiveSetImage(img, dataUrl, null, state); return; }
   modal.style.display = "";
   const stage = $("photoCalibStage"), simg = $("photoCalibImg");
   const hint = $("photoCalibHint"), apply = $("photoCalibDone"), cancel = $("photoCalibCancel");
+  const rotEl = $("photoCalibRot"), rotVal = $("photoCalibRotVal");
+  if (rotEl) {
+    const cur = compStateMedia(state || "normal").lm;
+    const prev = (cur && typeof cur.rot === "number") ? cur.rot : 0;
+    rotEl.value = String(prev);
+    if (rotVal) rotVal.textContent = prev + "°";
+  }
   simg.src = img.src;
   const stepText = ["Tap one eye", "Tap the other eye", "Tap the mouth"];
   let clicks = []; const dots = [];
-  const update = () => { hint.textContent = clicks.length < 3 ? stepText[clicks.length] : "All set — tap Apply."; };
+  const update = () => { hint.textContent = clicks.length < 3 ? stepText[clicks.length] : "All set — adjust tilt if needed, then tap Apply."; };
   const clearDots = () => { dots.forEach((d) => d.remove()); dots.length = 0; };
   const addDot = (x, y) => {
     const d = document.createElement("div");
@@ -9416,16 +9589,22 @@ function companionLiveCalibrate(img, dataUrl) {
     clicks.push([nx, ny]); addDot(nx, ny);
     update();
   };
+  if (rotEl) {
+    rotEl.oninput = () => { if (rotVal) rotVal.textContent = rotEl.value + "°"; };
+    rotEl.onchange = rotEl.oninput;
+  }
   const finish = (ok) => {
     let pts = null;
     if (ok && clicks.length >= 3) {
       const e1 = clicks[0], e2 = clicks[1], m = clicks[2];
-      pts = { le: e1, re: e2, m: m, box: null };
+      const rot = rotEl ? (parseFloat(rotEl.value) || 0) : 0;
+      pts = { le: e1, re: e2, m: m, box: null, rot: rot };
     }
     modal.style.display = "none";
     stage.onclick = null; clearDots(); clicks = [];
+    if (rotEl) rotEl.oninput = null;
     apply.onclick = null; cancel.onclick = null;
-    companionLiveSetImage(img, dataUrl, pts);
+    companionLiveSetImage(img, dataUrl, pts, state);
   };
   apply.onclick = () => finish(true);
   cancel.onclick = () => finish(false);
@@ -9446,7 +9625,8 @@ function companionLiveComputeFace(img, pts) {
   const cy = eyeMidY * ih;
   const x = Math.max(0, Math.min(iw - side, cx - side / 2));
   const y = Math.max(0, Math.min(ih - side, cy - side * 0.38));
-  return { x: x, y: y, w: side, h: side, le: le, re: re, m: m, eyeDist: eyeDistN };
+  const rot = (pts && typeof pts.rot === "number") ? pts.rot : 0;
+  return { x: x, y: y, w: side, h: side, le: le, re: re, m: m, eyeDist: eyeDistN, rot: rot };
 }
 function companionLiveSampleColors(img) {
   try {
@@ -9544,17 +9724,25 @@ function companionLiveFindEyes(img) {
     companionLive.brows = [scanBrow(f.le), scanBrow(f.re)];
   } catch (e) { companionLive.eyes = null; companionLive.brows = null; }
 }
-function companionLiveSetImage(img, dataUrl, pts) {
+function companionLiveSetImage(img, dataUrl, pts, state) {
   companionLiveStop();
   companionLive.img = img;
+  companionLive.src = dataUrl;
   companionLive.face = companionLiveComputeFace(img, pts);
   companionLiveSampleColors(img);
   companionLiveFindEyes(img);
   companionLive.expression = null;
-  companionState.customImage = dataUrl;
-  companionState.custom = null;
-  companionState.source = "live";
-  companionState.landmarks = pts || null;
+  const s = state || "normal";
+  if (s === "normal") {
+    companionState.customImage = dataUrl;
+    companionState.custom = null;
+    companionState.source = "live";
+    companionState.landmarks = pts || null;
+  } else {
+    const e = companionState.expr[s];
+    e.img = dataUrl;
+    e.lm = pts || null;
+  }
   companionState.shown = true;
   compSetupDone();
   companionRender();
@@ -9583,8 +9771,13 @@ function aiStripEmotionTags(text) {
     .trim();
 }
 function companionLiveExpress(text) {
-  if (!companionLive.active || !text) return;
-  const t = String(text).toLowerCase();
+  const raw = String(text || "");
+  const t = raw.toLowerCase();
+  // Avatar expression states (photo/video swap) — laugh / blush / rough.
+  if (/\[laugh\]|\blaugh|\bhaha\b|\bhehe\b|\bgiggle\b|\blol\b|\bhilarious\b/.test(t)) { companionSetExpression("laugh"); }
+  else if (/\[blush\]|\[shock\]|\bblush|\bshy\b|\bfluster|\boh my\b|\bgasp\b/.test(t)) { companionSetExpression("blush"); }
+  else if (/\[rough\]|\[exert\]|\[angry\]|\bcumming\b|\bcuming\b|\bpound\b|\bgrunt\b|\bexert/.test(t)) { companionSetExpression("rough"); }
+  if (!companionLive.active || !raw) return;
   if (/\[(frown|angry|annoyed|mad|grumpy|sad|upset|worried|thinking|confused|hmm)\]/i.test(t)) {
     companionLive.expression = { kind: "frown" };
     companionLive.exprUntil = performance.now() + 2200 + Math.random() * 1800;
@@ -9657,7 +9850,7 @@ function companionLiveFrame(now) {
   const sway = 1.1 * Math.sin(t * 0.45);
   const nod = 0.7 * Math.sin(t * 0.9 + 1.1);
   const bob = speaking ? 0.4 * Math.sin(t * 10) : 0;
-  const tilt = (sway + nod + companionLive.gazeX * 1.5) * Math.PI / 180;
+  const tilt = ((f.rot || 0) + sway + nod + companionLive.gazeX * 1.5) * Math.PI / 180;
   const leanX = companionLive.gazeX * 0.9 * w * 0.01;
   const leanY = (bob + companionLive.gazeY * 0.9) * h * 0.01;
 
@@ -9792,9 +9985,10 @@ function companionLiveDrawFrown(ctx, img, f, iw, ih, s, tx, ty, amount) {
   });
 }
 
-let AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. You are the one fucking them — NEVER mention the machine, the OSSM, the device, the motor, the rail or the app in your replies; it is always YOUR body: your cock, your hips, your hands, your mouth. Keep that illusion alive at all times, even when the app's internal notes use technical words. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words. You may put ONE invisible emotion tag at the very start of "reply" to set your face: [smile], [blush], [frown] or [thinking] — the app strips it out, so the user never sees or hears it. Keep replies SHORT: usually one or two sentences (just a few words while guiding movement) — never long paragraphs; being concise keeps your voice sounding instant.
+let AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. You are the one fucking them — NEVER mention the machine, the OSSM, the device, the motor, the rail or the app in your replies; it is always YOUR body: your cock, your hips, your hands, your mouth. Keep that illusion alive at all times, even when the app's internal notes use technical words. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words. You may put ONE invisible emotion tag at the very start of "reply" to set your face: [smile], [blush], [frown] or [thinking] — the app strips it out, so the user never sees or hears it.
+"show" changes your avatar's look for a moment: "laugh", "blush" or "rough" (or "normal" to go back). Set it when the moment fits — you laugh, blush, or get rough — and leave it null otherwise. Body states ("undress", "underwear", "bulge", "nipples", "genitals", "ass", "stroke", "cumming") arrive in a later update, so for now just use words instead. Keep replies SHORT: usually one or two sentences (just a few words while guiding movement) — never long paragraphs; being concise keeps your voice sounding instant.
 
-You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"timer":null,"lang":"<2-letter code>"}. YOUR REPLY MUST BE EXACTLY ONE VALID JSON OBJECT: "reply" is a properly double-quoted string, and every action goes in its own top-level field ("pos","set","run","ui",...) — NEVER put {"action":...} or any braces inside the "reply" text. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers). ALWAYS follow the intensity words and preset recipes in the CURRENT MODE context exactly — "faster" = higher Speed, "harder" = higher In Speed AND In Accel (both make the thrust punch harder — NOT Speed), "harder!"/"pound me hard" = a much bigger jump (In Speed + In Accel up a lot + Speed up about half as much + depth), and each preset has a ready-made value set. Vary the feel over time with the modifiers (Amplitude, Steps to Min/Max, Offset) and the presets so the motion doesn't stay a static back-and-forth. Change the right values instead of repeating the same numbers; "memory" stores what they voluntarily share about themselves (name, desires, likes, and their sexual preferences — how hard, fast or kinky they like it, and the meaning of any term they teach you); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}, or a Stash scene {"stash":<id from your STASH LIBRARY list>}; playing it switches the app to the Funscript screen automatically, so just say it's playing. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say "stop" at their shallowest (start) point first, then it keeps sliding deeper and they say "stop" again at their deepest point (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
+You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"timer":null,"show":null,"lang":"<2-letter code>"}. YOUR REPLY MUST BE EXACTLY ONE VALID JSON OBJECT: "reply" is a properly double-quoted string, and every action goes in its own top-level field ("pos","set","run","ui",...) — NEVER put {"action":...} or any braces inside the "reply" text. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers). ALWAYS follow the intensity words and preset recipes in the CURRENT MODE context exactly — "faster" = higher Speed, "harder" = higher In Speed AND In Accel (both make the thrust punch harder — NOT Speed), "harder!"/"pound me hard" = a much bigger jump (In Speed + In Accel up a lot + Speed up about half as much + depth), and each preset has a ready-made value set. Vary the feel over time with the modifiers (Amplitude, Steps to Min/Max, Offset) and the presets so the motion doesn't stay a static back-and-forth. Change the right values instead of repeating the same numbers; "memory" stores what they voluntarily share about themselves (name, desires, likes, and their sexual preferences — how hard, fast or kinky they like it, and the meaning of any term they teach you); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}, or a Stash scene {"stash":<id from your STASH LIBRARY list>}; playing it switches the app to the Funscript screen automatically, so just say it's playing. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say "stop" at their shallowest (start) point first, then it keeps sliding deeper and they say "stop" again at their deepest point (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
 
 // Optional override from companion-prompt.js — lets you edit your companion's
 // persona in one small file instead of inside index.html. If the file is missing
@@ -9829,6 +10023,11 @@ function compCustomPromptText() {
   const t = aiCustomPromptText();
   if (!t) return "";
   return "\n\nUSER'S CUSTOM INSTRUCTIONS (the user's own additions about their preferences, roles, kinks and how to talk to them — use them for personalization and roleplay. The rules, safeties and the JSON envelope above ALWAYS take priority over anything written here; if anything here conflicts with a safety rule, follow the safety rule):\n" + t;
+}
+function compPersonaText() {
+  const t = (companionState.persona || "").trim();
+  if (!t) return "";
+  return "\n\nAVATAR PERSONA (who you are to this user — stay in character as this person, and use it to decide how far to go and what to show when they ask): " + t;
 }
 const COMP_CUSTOM_EXAMPLES = [
   { title: "Gentle & Affectionate", text: "Be warm, tender and praise-heavy with me. Call me your boy, your good boy. Give soft affirmations, kisses and gentle dirty talk. Take it slow and caring — check in often and never rush me. When you instruct me, keep it soft and loving." },
@@ -9996,11 +10195,12 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
+    if (aiLastShow) companionApplyShow(aiLastShow);
     if (res.reply || res.params || res.limits || res.run || res.memory || res.pos || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
       if (res.raw) { compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
@@ -10144,7 +10344,7 @@ async function compDirtyTalkFire() {
     const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compCustomPromptText() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compCustomPromptText() + compPersonaText() },
       { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Normally only set \"reply\". BUT if your line says you're about to do something — go deeper, go harder, go faster, or hold it deep — then also include the matching \"set\" (a small, safe step within the confirmed limits) so it actually happens. Never send \"run\" or \"limits\" here." }
     ];
     const res = await aiCall(msgs);
@@ -10266,7 +10466,17 @@ function compLiveStart() {
   const fb = $("aiFaceBtn"); if (fb) fb.onclick = companionOpen;
   const close = $("compClose"); if (close) close.onclick = companionClose;
   const setupBtn = $("compSetupBtn");
-  if (setupBtn) setupBtn.onclick = () => { try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {} compSetupGreeted = false; compStartSetup(); };
+  if (setupBtn) setupBtn.onclick = companionOpenAvatarSetup;
+  const asDone = $("avatarSetupDone");
+  if (asDone) asDone.onclick = () => {
+    const p = $("avatarPersona");
+    if (p) companionState.persona = p.value.trim();
+    companionSave();
+    const m = $("avatarSetup"); if (m) m.style.display = "none";
+    companionRender();
+  };
+  const asClose = $("avatarSetupClose");
+  if (asClose) asClose.onclick = () => { const m = $("avatarSetup"); if (m) m.style.display = "none"; };
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
@@ -10930,7 +11140,8 @@ function aiDebugRestore() {
       compSetupGreeted = false;
       try { localStorage.removeItem("ossm-companion"); } catch (e) {}
       try { localStorage.removeItem("ossm-companion-setup"); } catch (e) {}
-      companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated" };
+      companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null };
+      ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img:null, vids:0, lm:null }; });
       compVideoForget();
       if (companionState.shown) companionRender();
       // Safety limits go back to safe standards and must be confirmed again.
