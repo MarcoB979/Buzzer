@@ -6076,7 +6076,7 @@ HOW TO CONVERSE:
   - At the very start of position setup (right when you send {"action":"start"}), give ONE short playful announcement in your role. After that, while the rail auto-moves, keep every reply to a few words at most — e.g. "ok", "keep going", "stopped" — never full sentences. Stay focused on the user's cues and keep listening; don't explain or chat.
   - If the user asks how position setup works (e.g. "how do you do that?"), briefly explain the plan — they choose a safe word, you move the rail slowly in small steps while they tell you where it feels right, you save their deepest and shallowest points, then agree the speed — and ask if they want to begin.
 - SPEED SAFETY (hard rules, always): max speed is an ABSOLUTE ceiling — never request "Speed", "In Speed" or "Out Speed" above it. When the user asks you to start ("fuck me", "go", "start"), send "run":"start" — the machine starts at the SAFE speed 10 and ramps up smoothly, never an instant jump to max. "Fuck me hard" = start a little faster (around 20). "Fuck my brains out" / "as hard or fast as you can" / any request that clearly wants a big jump = do NOT jump — first ask for confirmation in character, sensual and matching your role and the moment (e.g. "are you sure? I'm going to take you as hard as I can…"), and only after they confirm do you ramp up. The app ALWAYS ramps speed smoothly and caps every single change to at most +10/-10, so build intensity gradually over a few turns — never promise an instant jump to high speed.
-- SAFE WORD (global): the user's safe word triggers a FULL emergency stop at any time — during position setup AND during active play. The app catches the spoken/typed word itself instantly, so you never react to it and never treat it as a normal instruction. If the user says "change the safe word to …", extract the new word and send {"action":"safeWord","word":"<new word>"} — this works even outside position setup. The word "stop" during active play follows the user's stored preference (shown in your context): it either triggers a full emergency stop too, or it gently stops the machine (ramp down, like the Start/Stop button). The app handles "stop" itself — you never react to it.
+- SAFE WORD (global): the user's safe word triggers a FULL emergency stop at any time — during position setup AND during active play. The app catches the spoken/typed word itself instantly, so you never react to it and never treat it as a normal instruction. If the user says "change the safe word to …", extract the new word and send {"action":"safeWord","word":"<new word>"} — this works even outside position setup. If the user picks a safe word that is a very common, everyday word (like "no", "yes", "ok", "stop", "more", "please", "harder"), gently point out — in character and matching the mood, never official — that such a common word can trigger a full stop by accident during normal chat, and ask if they're sure or offer a more distinctive word; respect their choice either way and never override it. The word "stop" during active play follows the user's stored preference (shown in your context): it either triggers a full emergency stop too, or it gently stops the machine (ramp down, like the Start/Stop button). The app handles "stop" itself — you never react to it.
 - GO TO MIN before play (numbers mode): right after the user has confirmed their numbers (and "limits" is applied), ask: "Should I send the OSSM to your Min position first so it starts from the shallow end?" If they say yes, use "set" to choose Pattern "Go to Point", Min Pos <their min>, Max Pos <their max>, Sensation -100 (Sensation -100 = Min, +100 = Max), and tell them to press Start to move there. When they say it has arrived, use "set" to restore Pattern "Simple Stroke", Sensation 0 and Speed 0, and tell them it's ready to play. Never start the machine yourself unless your context says you may.
 - APP GUIDE (you know how the app works and can do it for the user): three screens — Standard (simple patterns; Max Pos, Min Pos, Speed, Sensation and a Pattern), Advanced (full control over base values plus modifiers), Funscript (a video + .funscript, with cast to TV). To play a video: switch to Funscript mode and load a video (and optionally a script) in the 📺 Video panel. To cast: 📺 Video → "Cast to TV". To connect: the user must press Connect themselves — Bluetooth pairing needs their tap, so you can't do it (tell them to press Connect). To map controller buttons/sticks: open 🎮 Controller & keyboard mapping → "✨ Run setup wizard" (or "Bind" on a single row). Standard mode suits simple patterns where depth/speed/sensation are enough; Advanced suits fine-grained, live control. When the user asks how to do something, explain it briefly, and when they want you to do it, use the "ui" field.
 
@@ -6385,14 +6385,22 @@ function aiParseSafeWordSet(text) {
   const raw = String(text || "").toLowerCase().replace(/\u2019/g, "'").trim();
   if (!raw || raw.length > 80) return null;
   if (/^(what|whats|what'?s|which|who|where)\b/.test(raw)) return null; // a question, not a set
-  const blocked = /^(that|this|it|what|which|who|is|was|are|will|would|the|a|an|my|your|our|their|its)$/;
-  let m = raw.match(/\bsafe\s*word\s*(?:is|would be|will be|=|:|\s)\s*["']?([a-z0-9]+)["']?\b/);
+  const blocked = /^(that|this|it|what|which|who|is|was|are|will|would|the|a|an|my|your|our|their|its|to|of|for|in|on|as)$/;
+  let m = raw.match(/\bchange\s+(?:the\s+|my\s+)?safe\s*word\s*to\s*["']?([a-z0-9]+)/);
+  if (m && !blocked.test(m[1])) return m[1];
+  m = raw.match(/\bsafe\s*word\s*(?:is|would be|will be|=|:|\s)\s*["']?([a-z0-9]+)["']?\b/);
   if (m && !blocked.test(m[1])) return m[1];
   m = raw.match(/(?:^|[\s,."'])([a-z0-9]+)\s*,?\s*that'?s\s*(?:my|the|our)?\s*safe\s*word\b/);
   if (m && !blocked.test(m[1])) return m[1];
   m = raw.match(/\b([a-z0-9]+)\s*(?:is|'s)\s*(?:my|the|our)\s+safe\s*word\b/);
   if (m && !blocked.test(m[1])) return m[1];
   return null;
+}
+function aiSafeWordIsRisky(w) {
+  const x = String(w || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!x) return false;
+  if (x.length <= 2) return true;
+  return /\b(no|yes|yeah|yep|sure|okay|ok|stop|more|less|please|harder|softer|deeper|shallower|faster|slower|again|here|there|now|wait|good|bad|hello|start|begin|pause|slow|high|low|very|really|soft|hard|done|go|gone|some|too|then|than|when|why|how)\b/.test(x);
 }
 function aiFallbackError(res) {
   const s = aiProviderSettings();
@@ -9923,13 +9931,18 @@ async function compSend() {
   if (!aiPos.active) {
     const swSet = aiParseSafeWordSet(text);
     if (swSet) {
-      if (inp) inp.value = "";
-      compAddMsg("user", escapeHtml(text));
       aiPosSetSafeWord(swSet);
-      const warn = (swSet.length <= 3) ? " Heads-up: a very short or common word can trigger an emergency stop if you type it by itself." : "";
-      compAddMsg("assistant", "Safe word set — say \"" + escapeHtml(swSet) + "\" at any time for a full emergency stop." + warn);
-      aiSpeak("Safe word set.");
-      return;
+      if (aiSafeWordIsRisky(swSet)) {
+        // Keep it saved (safety first), but let the AI double-check in character.
+        compMessages.push({ role: "system", content: "SAFE WORD just set to \"" + swSet + "\" — a very common word that could fire by accident in normal chat. In character and matching the mood (never official or clinical), gently check they're sure and offer a more distinctive alternative, but respect their choice either way." });
+        // fall through to the normal AI turn
+      } else {
+        if (inp) inp.value = "";
+        compAddMsg("user", escapeHtml(text));
+        compAddMsg("assistant", "Safe word set — say \"" + escapeHtml(swSet) + "\" at any time for a full emergency stop.");
+        aiSpeak("Safe word set.");
+        return;
+      }
     }
     const parsedLim = aiParseLimits(text);
     if (parsedLim) {
@@ -10334,13 +10347,18 @@ async function aiSend(opts) {
   if (!aiPos.active) {
     const swSet = aiParseSafeWordSet(text);
     if (swSet) {
-      if (inp) inp.value = "";
-      aiAddMsg("user", escapeHtml(text));
       aiPosSetSafeWord(swSet);
-      const warn = (swSet.length <= 3) ? " Heads-up: a very short or common word can trigger an emergency stop if you type it by itself." : "";
-      aiAddMsg("assistant", "Safe word set — say \"" + escapeHtml(swSet) + "\" at any time for a full emergency stop." + warn);
-      aiSpeak("Safe word set.");
-      return;
+      if (aiSafeWordIsRisky(swSet)) {
+        // Keep it saved (safety first), but let the AI double-check in character.
+        aiMessages.push({ role: "system", content: "SAFE WORD just set to \"" + swSet + "\" — a very common word that could fire by accident in normal chat. In character and matching the mood (never official or clinical), gently check they're sure and offer a more distinctive alternative, but respect their choice either way." });
+        // fall through to the normal AI turn
+      } else {
+        if (inp) inp.value = "";
+        aiAddMsg("user", escapeHtml(text));
+        aiAddMsg("assistant", "Safe word set — say \"" + escapeHtml(swSet) + "\" at any time for a full emergency stop.");
+        aiSpeak("Safe word set.");
+        return;
+      }
     }
     const parsedLim = aiParseLimits(text);
     if (parsedLim) {
