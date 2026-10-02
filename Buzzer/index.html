@@ -1003,6 +1003,11 @@
           <button class="ble-btn small" id="avatarNewBtn" type="button" title="New avatar">＋</button>
           <button class="ble-btn small" id="avatarDelBtn" type="button" title="Delete this avatar">🗑</button>
         </div>
+        <div class="avatar-builder-head" style="margin-bottom:6px;">
+          <button class="ble-btn small" id="avatarExportBtn" type="button" title="Export this avatar to share it">⬇ Export avatar</button>
+          <button class="ble-btn small" id="avatarImportBtn" type="button" title="Import a shared avatar">⬆ Import avatar</button>
+          <input type="file" id="avatarImportInput" accept=".zip,application/zip" style="display:none;">
+        </div>
         <div class="avatar-list" id="avatarList"></div>
         <div class="avatar-kind-toggle">
           <button class="ble-btn small" id="avatarKindDrawn" type="button">Simple (drawn)</button>
@@ -8969,6 +8974,7 @@ if (companionState.kind !== "drawn" && companionState.kind !== "photo") {
   companionState.kind = (companionState.customImage || (companionState.body && companionState.body.img) || Object.keys(companionState.expr || {}).some(k => companionState.expr[k] && companionState.expr[k].img)) ? "photo" : "drawn";
 }
 if (typeof companionState.consented !== "boolean") companionState.consented = false;
+if (typeof companionState.mediaId !== "string") companionState.mediaId = "";
 function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
 // ---------- Avatar expressions (per-state photos/videos + landmarks) ----------
 const COMP_EXPR_STATES = ["laugh", "blush", "rough"];
@@ -9427,7 +9433,8 @@ function compAvatarSnapshot() {
     preset: companionState.preset, custom: companionState.custom,
     customImage: companionState.customImage, customVideos: companionState.customVideos,
     landmarks: companionState.landmarks, source: companionState.source,
-    expr: companionState.expr, body: companionState.body
+    expr: companionState.expr, body: companionState.body,
+    mediaId: companionState.mediaId || ""
   };
 }
 function compAvatarApply(snap) {
@@ -9436,6 +9443,7 @@ function compAvatarApply(snap) {
   companionState.avatarId = snap.id;
   companionState.avatarName = snap.name || "Avatar";
   companionState.kind = snap.kind || "drawn";
+  companionState.mediaId = snap.mediaId || "";
   companionState.persona = snap.persona || "";
   companionState.preset = snap.preset || 0;
   companionState.custom = snap.custom || null;
@@ -9449,6 +9457,11 @@ function compAvatarApply(snap) {
   if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
   if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
   compExpr.state = "normal"; compExpr.until = 0;
+  // Clear cached video object URLs so the new avatar's videos load fresh.
+  compVideoUrls.forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
+  compVideoUrls = [];
+  Object.keys(compExprVidUrls).forEach(k => { compExprVidUrls[k] = []; });
+  compVideoPlayIdx = -1; compVideoWasSpeaking = false;
   compSetupDone();
   companionSave();
   companionRender();
@@ -9471,8 +9484,16 @@ function compAvatarSaveCurrent() {
 }
 function compAvatarDelete() {
   const id = companionState.avatarId;
+  // Remove this avatar's videos from IndexedDB (per-avatar keys).
+  try {
+    const entries = compAvatarVideoEntries();
+    compVideoDb().then((db) => {
+      if (!db) return;
+      try { const tx = db.transaction("media", "readwrite"); const st = tx.objectStore("media"); entries.forEach(e => st.delete(e.key)); } catch (e) {}
+    });
+  } catch (e) {}
   compAvatarsSave(compAvatars().filter(a => a.id !== id));
-  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: "drawn", avatarName: "", avatarId: null, consented: companionState.consented };
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: "drawn", avatarName: "", avatarId: null, mediaId: "", consented: companionState.consented };
   ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   compExpr.state = "normal"; compExpr.until = 0;
@@ -9485,7 +9506,7 @@ function compAvatarDelete() {
   funLog("Avatar deleted.");
 }
 function compAvatarNewConfirm(kind) {
-  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: kind, avatarName: "", avatarId: null, consented: companionState.consented };
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: kind, avatarName: "", avatarId: null, mediaId: newMediaId(), consented: companionState.consented };
   ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   compExpr.state = "normal"; compExpr.until = 0;
@@ -9914,7 +9935,20 @@ function compVideoDb() {
   });
 }
 function compVideoKey(i) { return "video-" + i; }
-function compVidKey(state, i) { return state === "normal" ? "video-" + i : "video-" + state + "-" + i; }
+function newMediaId() { return "av" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+function compVidKeyFor(mediaId, state, i) {
+  const p = mediaId ? (mediaId + "-") : "";
+  return p + "video-" + (state === "normal" ? "" : state + "-") + i;
+}
+function compVidKey(state, i) { return compVidKeyFor(companionState.mediaId || "", state, i); }
+function compAvatarVideoEntries() {
+  const out = [];
+  const mid = companionState.mediaId || "";
+  const push = (state, count) => { for (let i = 0; i < count; i++) out.push({ state: state, i: i, key: compVidKeyFor(mid, state, i) }); };
+  push("normal", companionState.customVideos || 0);
+  compExprKeys().forEach(s => push(s, (companionState.expr[s] && companionState.expr[s].vids) || 0));
+  return out;
+}
 const compExprVidUrls = { laugh: [], blush: [], rough: [] };
 function compVidList(state) {
   if (state === "normal") return compVideoUrls;
@@ -11044,6 +11078,9 @@ function compLiveStart() {
   const wCancel = $("avatarWelcomeCancel"); if (wCancel) wCancel.onclick = () => { compPendingConsent = null; const m = $("avatarWelcome"); if (m) m.style.display = "none"; };
   const wOk = $("avatarWelcomeOk"); if (wOk) wOk.onclick = compConsentAgree;
   const freshBtn = $("avatarFreshBtn"); if (freshBtn) freshBtn.onclick = companionRefresh;
+  const avExport = $("avatarExportBtn"); if (avExport) avExport.onclick = exportAvatar;
+  const avImport = $("avatarImportBtn"); const avImportInput = $("avatarImportInput");
+  if (avImport && avImportInput) { avImport.onclick = () => avImportInput.click(); avImportInput.onchange = () => { const f = avImportInput.files && avImportInput.files[0]; avImportInput.value = ""; importAvatar(f); }; }
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
@@ -11648,6 +11685,96 @@ async function importBackup(file) {
     }
     alert("Backup imported — the app will reload.");
     setTimeout(() => { try { location.reload(); } catch (e) {} }, 400);
+  } catch (e) {
+    alert("Import failed: " + (e && e.message ? e.message : e));
+  }
+}
+
+// ---------- Avatar-only export/import (share avatars between users) ----------
+async function exportAvatar() {
+  try {
+    const snap = compAvatarSnapshot();
+    const hasMedia = snap.customImage || (snap.body && snap.body.img) || Object.keys(snap.expr || {}).some(k => snap.expr[k] && (snap.expr[k].img || (snap.expr[k].vids || 0) > 0)) || (snap.customVideos || 0) > 0;
+    if (hasMedia && !confirm("This avatar includes photos/videos. Only export it if you own the material and are comfortable sharing it with someone else. Continue?")) return;
+    const JSZip = await loadJSZip();
+    const zip = new JSZip();
+    const mediaMeta = {};
+    const db = await backupDbOpen();
+    const entries = compAvatarVideoEntries();
+    if (db) {
+      for (const e of entries) {
+        const blob = await new Promise((res) => {
+          const tx = db.transaction("media", "readonly");
+          const rq = tx.objectStore("media").get(e.key);
+          rq.onsuccess = () => res(rq.result || null);
+          rq.onerror = () => res(null);
+        });
+        if (blob && blob instanceof Blob) {
+          mediaMeta[e.key] = { state: e.state, i: e.i, type: blob.type || "application/octet-stream" };
+          zip.file("media/" + e.key, blob);
+        }
+      }
+      try { db.close(); } catch (e) {}
+    }
+    zip.file("avatar.json", JSON.stringify(snap));
+    zip.file("manifest.json", JSON.stringify({ app: "buzzer-avatar", format: 1, name: snap.name, media: mediaMeta }));
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+    const fname = ((snap.name || "avatar").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "avatar");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "buzzer-avatar-" + fname + ".zip";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    funLog("Avatar \"" + (snap.name || "avatar") + "\" exported.");
+  } catch (e) {
+    alert("Export failed: " + (e && e.message ? e.message : e));
+  }
+}
+async function importAvatar(file) {
+  if (!file) return;
+  try {
+    const JSZip = await loadJSZip();
+    const zip = await JSZip.loadAsync(file);
+    const avFile = zip.file("avatar.json");
+    if (!avFile) throw new Error("not a Buzzer avatar file");
+    const snap = JSON.parse(await avFile.async("string"));
+    if (!snap || typeof snap !== "object") throw new Error("bad avatar data");
+    const newMid = newMediaId();
+    snap.mediaId = newMid;
+    snap.id = newMid; // fresh id so it never overwrites an existing saved avatar
+    let mediaMeta = {};
+    const mf = zip.file("manifest.json");
+    if (mf) { try { const m = JSON.parse(await mf.async("string")); if (m && m.media) mediaMeta = m.media; } catch (e) {} }
+    if (Object.keys(mediaMeta).length) {
+      const db = await backupDbOpen();
+      if (db) {
+        for (const origKey of Object.keys(mediaMeta)) {
+          const meta = mediaMeta[origKey] || {};
+          const f = zip.file("media/" + origKey);
+          if (!f) continue;
+          let arrBuf;
+          try { arrBuf = await f.async("arraybuffer"); } catch (e) { continue; }
+          const blob = new Blob([arrBuf], { type: meta.type || "application/octet-stream" });
+          const newKey = compVidKeyFor(newMid, meta.state || "normal", meta.i || 0);
+          await new Promise((res) => {
+            try {
+              const tx = db.transaction("media", "readwrite");
+              tx.objectStore("media").put(blob, newKey);
+              tx.oncomplete = () => res();
+              tx.onerror = () => res();
+            } catch (e) { res(); }
+          });
+        }
+        try { db.close(); } catch (e) {}
+      }
+    }
+    let list = compAvatars();
+    if (list.some(a => a.id === snap.id)) snap.id = newMid + "-" + Date.now().toString(36);
+    list.push(snap);
+    compAvatarsSave(list);
+    compAvatarApply(snap);
+    funLog("Avatar \"" + (snap.name || "avatar") + "\" imported.");
   } catch (e) {
     alert("Import failed: " + (e && e.message ? e.message : e));
   }
