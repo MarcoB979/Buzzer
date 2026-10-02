@@ -137,7 +137,7 @@
   .bind-group { font-size: .68rem; text-transform: uppercase; letter-spacing: 1px; color: #7dd3fc; margin: 10px 0 4px; border-bottom: 1px solid var(--border-color); padding-bottom: 3px; }
   .bind-actions { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .bind-wizard { background: #7c3aed; color: #fff; border: none; border-radius: 6px; padding: 5px 10px; font-size: .72rem; font-weight: bold; cursor: pointer; }
-  .wizard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .wizard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.72); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 16px; }
   .wizard-box { background: #111827; border: 1px solid var(--border-color); border-radius: 14px; padding: 18px; max-width: 360px; width: 100%; box-shadow: 0 20px 50px rgba(0,0,0,.8); }
   .wizard-title { font-size: .8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 8px; }
   .wizard-progress { font-size: .72rem; color: #38bdf8; font-family: monospace; margin-bottom: 10px; }
@@ -7519,11 +7519,10 @@ function aiNewSession(confirmFirst) {
   if (h) h.innerHTML = "";
   const inp = $("aiInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
-  aiPosClearSafeWord(); // safe word is per session — always ask fresh
+  aiPosClearSafeWord(); // safe word is per session — asked when positioning starts
   const lang = aiStoredLang();
   const ask = AI_ASK_LIMITS[lang] || AI_ASK_LIMITS.en;
-  const askSw = AI_ASK_SAFEWORD[lang] || AI_ASK_SAFEWORD.en;
-  const greet = ask + " " + askSw;
+  const greet = ask;
   aiMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   aiAddMsg("assistant", escapeHtml(greet));
   aiDebugPersistSoon();
@@ -10101,11 +10100,10 @@ function compNewSession(confirmFirst) {
   if (h) h.innerHTML = "";
   const inp = $("compInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
-  aiPosClearSafeWord(); // safe word is per session — always ask fresh
+  aiPosClearSafeWord(); // safe word is per session — asked when positioning starts
   const lang = aiStoredLang();
   const greetings = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
-  const askSw = AI_ASK_SAFEWORD[lang] || AI_ASK_SAFEWORD.en;
-  const greet = greetings[Math.floor(Math.random() * greetings.length)] + " " + askSw;
+  const greet = greetings[Math.floor(Math.random() * greetings.length)];
   compMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   compAddMsg("assistant", escapeHtml(greet));
   if (aiSpeakEnabled()) aiSpeak(greet);
