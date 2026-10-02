@@ -6620,11 +6620,11 @@ function aiPosContext() {
     let base = rehome + (sw ? " Safe word stored: \"" + sw + "\"." : " No safe word stored yet.") + stopTxt;
     if (aiLimitsConfirmed()) {
       const c = aiSafetyCaps();
-      base += " POSITION SETUP COMPLETE — the user's positions are saved and confirmed: min depth " + c.minDepth + " (shallowest), max depth " + c.maxDepth + " (deepest), max speed " + c.maxSpeed + ". These ARE their current limits — use them and do NOT ask for them again. When the user asks to start (\"fuck me\", \"go\", \"start\"), send \"run\":\"start\".";
+      base += " POSITION SETUP COMPLETE — the user's positions are saved and confirmed: min depth " + c.minDepth + " (shallowest), max depth " + c.maxDepth + " (deepest), max speed " + c.maxSpeed + ". These ARE their current limits — use them and do NOT ask for them again. Never re-ask for min/max/speed and never tell them to say \"stop\" to find points again — positioning is finished. When the user asks to start (\"fuck me\", \"go\", \"start\"), send \"run\":\"start\".";
     } else {
       base += " Position setup by feel (the \"pos\" field): when the user wants to find their positions together, drive it yourself — do NOT keep asking for numbers.";
       if (!sw) {
-        base += " CRITICAL: no safe word is stored yet, so before any movement you MUST ask the user to choose a safe word — do NOT send {\"pos\":{\"action\":\"start\"}} and do NOT describe any movement yet. Once they answer with a word, send {\"pos\":{\"action\":\"safeWord\",\"word\":\"<the word>\"}} and restate it, then send {\"pos\":{\"action\":\"start\"}}.";
+        base += " CRITICAL: no safe word is stored yet, so before any movement you MUST ask the user to choose a safe word — do NOT send {\"pos\":{\"action\":\"start\"}} and do NOT describe any movement yet. The moment they answer with a word, set it AND begin in the SAME reply: send {\"pos\":[{\"action\":\"safeWord\",\"word\":\"<the word>\"},{\"action\":\"start\"}]} (both actions together as an array), and restate the word in \"reply\". Never split it across turns.";
       } else {
         base += " Use {\"pos\":{\"action\":\"start\"}} ONCE to begin; the app then drives everything automatically (retract to 0, glide inward, read the ACTUAL position at each \"stop\", then ask for max speed and return to the start point by itself). After you send \"start\", just listen and encourage in a few words — do NOT send move/record/done actions. You may still send {\"pos\":{\"action\":\"safeWord\",\"word\":\"...\"}} if they ask to change the safe word.";
       }
