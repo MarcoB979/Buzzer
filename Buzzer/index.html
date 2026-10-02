@@ -696,9 +696,10 @@
   .avatar-state-namein, .avatar-state-kwin { background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; padding: 4px 6px; font-size: .75rem; }
   .avatar-state-namein { width: 92px; flex: 0 0 auto; }
   .avatar-state-kwin { flex: 1 1 100%; margin-top: 2px; }
-  .avatar-stage { font-size: .62rem; padding: 1px 6px; border-radius: 8px; margin-left: 6px; vertical-align: middle; font-weight: normal; }
+  .avatar-stage { font-size: .62rem; padding: 2px 6px; border-radius: 8px; margin-left: 6px; vertical-align: middle; font-weight: normal; border: none; cursor: pointer; line-height: 1.2; }
   .avatar-stage-tease { background: #0c4a6e; color: #7dd3fc; }
   .avatar-stage-intimate { background: #7f1d1d; color: #fca5a5; }
+  .avatar-stage-auto { background: #1e293b; color: #94a3b8; }
   .avatar-builder-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
   .avatar-builder-head select, .avatar-builder-head input { background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; padding: 5px 6px; font-size: .78rem; }
   .avatar-builder-head select { flex: 1; min-width: 0; }
@@ -9098,10 +9099,11 @@ if (!companionState.expr || typeof companionState.expr !== "object" || Array.isA
 if (typeof companionState.persona !== "string") companionState.persona = "";
 if (typeof companionState.about !== "string") companionState.about = "";
 if (!companionState.body || typeof companionState.body !== "object" || Array.isArray(companionState.body)) {
-  companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {}, kwords: {} };
+  companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {}, kwords: {}, stages: {} };
 } else {
   if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
   if (!companionState.body.kwords || typeof companionState.body.kwords !== "object") companionState.body.kwords = {};
+  if (!companionState.body.stages || typeof companionState.body.stages !== "object") companionState.body.stages = {};
   if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
   if (typeof companionState.body.img !== "string") companionState.body.img = null;
 }
@@ -9333,9 +9335,9 @@ function compExprContext() {
   }
   const ba = compBodyAvailable();
   if (ba.available.length) {
-    const tease = ba.available.filter(s => COMP_BODY_TEASE.indexOf(s) >= 0);
-    const intimate = ba.available.filter(s => COMP_BODY_INTIMATE.indexOf(s) >= 0);
-    const other = ba.available.filter(s => COMP_BODY_TEASE.indexOf(s) < 0 && COMP_BODY_INTIMATE.indexOf(s) < 0);
+    const tease = ba.available.filter(s => compBodyStage(s) === "tease");
+    const intimate = ba.available.filter(s => compBodyStage(s) === "intimate");
+    const other = ba.available.filter(s => compBodyStage(s) !== "tease" && compBodyStage(s) !== "intimate");
     const running = aiMachineRunning();
     const kw = (s) => { const w = compBodyKeywords(s); return w ? " (" + w + ")" : ""; };
     if (tease.length) out += "\n\nTEASING BODY STATES — fine during foreplay/flirting; show them when the moment matches their trigger words (\"show\":\"<state>\" pans the full-body photo to it): " + tease.map(s => '"' + s + '"' + kw(s)).join(", ") + ".";
@@ -9381,6 +9383,9 @@ function compBodyKeywords(s) {
   return COMP_BODY_DEFAULT_KEYWORDS[s] || "";
 }
 function compBodyStage(s) {
+  const b = companionState.body;
+  const ov = (b && b.stages && b.stages[s]) || "";
+  if (ov === "tease" || ov === "intimate") return ov;
   if (COMP_BODY_TEASE.indexOf(s) >= 0) return "tease";
   if (COMP_BODY_INTIMATE.indexOf(s) >= 0) return "intimate";
   return "";
@@ -9549,7 +9554,9 @@ function buildBodySetupRows() {
     const label = compBodyLabel(s);
     const stage = compBodyStage(s);
     const kw = compBodyKeywords(s);
-    const stageEl = stage ? ' <span class="avatar-stage avatar-stage-' + stage + '">' + stage + '</span>' : '';
+    const stageLabel = (stage === "tease" || stage === "intimate") ? stage : "auto";
+    const stageCls = (stage === "tease" || stage === "intimate") ? ("avatar-stage avatar-stage-" + stage) : "avatar-stage avatar-stage-auto";
+    const stageEl = ' <button class="' + stageCls + '" data-b="stage" data-bs="' + s + '" type="button" title="Category — tap to change">' + stageLabel + '</button>';
     const row = document.createElement("div");
     row.className = "avatar-state-row";
     const nameEl = builtIn
@@ -9630,6 +9637,14 @@ function compBodyRowAction(b, s) {
     buildBodySetupRows();
   } else if (b === "del") {
     delete companionState.body.points[s];
+    companionSave();
+    buildBodySetupRows();
+  } else if (b === "stage") {
+    const bd = companionState.body;
+    if (!bd.stages || typeof bd.stages !== "object") bd.stages = {};
+    const order = ["", "tease", "intimate"];
+    const next = order[(order.indexOf(bd.stages[s] || "") + 1) % order.length];
+    bd.stages[s] = next;
     companionSave();
     buildBodySetupRows();
   }
