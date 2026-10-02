@@ -6558,6 +6558,17 @@ function compWantsReal(text) {
   if (/\b(niet meer teasen|stop met teasen|ik wil je echt|doe het echt|doe het nu|ga je nu|ik wil het echt|nu echt|doe het dan)\b/.test(t)) return true;
   return false;
 }
+// Explicit "start / go / put it in" signals — when the machine is ready but
+// idle, these should actually start it instead of waiting for the AI to act.
+function compWantsStart(text) {
+  const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 60) return false;
+  if (/\b(stop|niet|nooit|never|wacht|wait|dont|don'?t|not)\b/.test(t)) return false; // a stop/refusal, not a go
+  if (aiIsStartCommand(t)) return true; // "start", "go", "begin", ...
+  if (/\b(start|begin( maar)?|ga (maar|door|rijden|erin|naar binnen)|gaan bewegen|bewegen|beweeg|ga bewegen|kom maar( op)?|toe maar|doe maar|rij maar|rijden maar)\b/.test(t)) return true;
+  if (/\b(duw (je )?(pik|lul) (in|erin)|steek (je )?(pik|lul) erin|steek (hem|m|em) erin|zet hem erin|duw hem erin|put (your|it) in|put it in me)\b/.test(t)) return true;
+  return false;
+}
 // Detect when the AI's OWN reply announces that it's about to fuck / is fucking
 // right now (prose, not a structured field) — so the app can make it real.
 function compAiInitiatesReal(text) {
@@ -6569,8 +6580,11 @@ function compAiInitiatesReal(text) {
   if (/\b(im (inside you|entering you|fucking you|thrusting|pounding) now)\b/.test(t)) return true;
   // Dutch: first-person, announcing the act about to happen / happening now.
   if (/\b(ik ga je( (nu|nou|dan))? (neuken|naaien|pakken)|ik ga (nu )?(naar binnen|erin|los)|ik (neuk|naai) je (nu|nou|meteen|dan))\b/.test(t)) return true;
-  if (/\bik (duw|schuif|steek|beuk|stoot|ram|neuk|naai)\b/.test(t) && /\b(in je|naar binnen|erin|mijn (pik|lul|cock|centimeter)|je (kutje|kontje|gaatje|billen|heupen|mondje))\b/.test(t)) return true;
+  if (/\bik (duw|schuif|steek|beuk|stoot|ram|neuk|naai|glijd|glij|dring|kom|ga)\b/.test(t) && /\b(in je|naar binnen|erin|eraan|er aan|mijn (pik|lul|cock|centimeter)|je (kutje|kontje|gaatje|billen|heupen|mondje))\b/.test(t)) return true;
   if (/\b(voel je m|voel je hem|voel je mijn|ik zit (nu )?(diep )?in je|maak je klaar|buig voorover|hou je vast|houd je vast)\b/.test(t)) return true;
+  // Entering / starting movement — "I'm sliding in", "ik glijd naar binnen", "hier kom ik".
+  if (/\b(im sliding in|im pushing in|im going in|im entering you|im inside you now|here i come|im coming in|im slipping in)\b/.test(t)) return true;
+  if (/\b(hier kom ik|ik kom (er )?aan|ik kom nu|ik kom erin|ik kom (nu )?naar binnen|ik glijd? (nu )?(langzaam )?(naar binnen|erin|diep)|ik (ga|dring) (nu )?(naar binnen|erin))\b/.test(t)) return true;
   return false;
 }
 function compCheckAiInitiated(reply) {
@@ -11375,8 +11389,8 @@ async function compSend() {
   }
   // The user clearly wants the REAL thing — stop the story and drive the
   // actual start flow (connect → safe word → positions → start) app-side.
-  if (!aiPos.active && !aiMachineRunning() && compWantsReal(text)) {
-    compEnsureRealPlay("the user clearly asked for it for real");
+  if (!aiPos.active && !aiMachineRunning() && (compWantsReal(text) || compWantsStart(text))) {
+    compEnsureRealPlay("the user asked to start/move for real");
   }
   compBusy = true;
   if (inp) inp.value = "";
