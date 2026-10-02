@@ -1339,8 +1339,8 @@
         <div class="ai-set-hint">"Forget me" erases what the AI has learned about you and resets your companion. Your settings and API keys are kept.</div>
         <button class="ble-btn small" id="backupExportBtn" type="button">⬇ Export backup</button>
         <button class="ble-btn small" id="backupImportBtn" type="button">⬆ Import backup</button>
-        <input type="file" id="backupImportInput" accept=".json,application/json" style="display:none;">
-        <div class="ai-set-hint">One file with everything on this device: settings, API keys, what the AI has learned, your avatars and their photos/videos. Import it on this or another device to restore it all. Keep it private — it contains your personal data.</div>
+        <input type="file" id="backupImportInput" accept=".zip,.json,application/zip,application/json" style="display:none;">
+        <div class="ai-set-hint">One .zip file with everything on this device: settings, API keys, what the AI has learned, your avatars and their photos/videos. Import it on this or another device to restore it all. Keep it private — it contains your personal data.</div>
       </div>
     </details>
   </div>
@@ -11524,6 +11524,21 @@ function exportDeveloperInfo() {
 }
 
 // ---------- Backup & restore (export/import everything on this device) ----------
+let jszipPromise = null;
+function loadJSZip() {
+  if (window.JSZip) return Promise.resolve(window.JSZip);
+  if (jszipPromise) return jszipPromise;
+  jszipPromise = new Promise((res, rej) => {
+    try {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js";
+      s.onload = () => (window.JSZip ? res(window.JSZip) : rej(new Error("ZIP library failed to load")));
+      s.onerror = () => rej(new Error("couldn't load the ZIP library — are you offline?"));
+      document.head.appendChild(s);
+    } catch (e) { rej(e); }
+  });
+  return jszipPromise;
+}
 function backupDbOpen() {
   return new Promise((res) => {
     try {
@@ -11546,25 +11561,18 @@ function dataUrlToBlob(dataUrl) {
   for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
   return new Blob([bytes], { type: mime });
 }
-function backupDownload(payload) {
-  const now = new Date();
-  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "buzzer-backup-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".json";
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
-}
 async function exportBackup() {
   try {
+    const JSZip = await loadJSZip();
     const ls = {};
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
       if (k == null) continue;
       try { ls[k] = localStorage.getItem(k); } catch (e) {}
     }
-    const media = {};
+    const mediaMeta = {};
+    const zip = new JSZip();
+    zip.file("localStorage.json", JSON.stringify(ls));
     const db = await backupDbOpen();
     if (db) {
       try {
@@ -11582,18 +11590,22 @@ async function exportBackup() {
             rq.onerror = () => res(null);
           });
           if (blob && typeof Blob !== "undefined" && blob instanceof Blob) {
-            media[key] = await new Promise((res) => {
-              const fr = new FileReader();
-              fr.onload = () => res(String(fr.result));
-              fr.onerror = () => res(null);
-              fr.readAsDataURL(blob);
-            });
+            mediaMeta[key] = blob.type || "application/octet-stream";
+            zip.file("media/" + key, blob);
           }
         }
       } catch (e) {}
       try { db.close(); } catch (e) {}
     }
-    backupDownload({ app: "buzzer", format: 1, exportedAt: new Date().toISOString(), localStorage: ls, media });
+    zip.file("manifest.json", JSON.stringify({ app: "buzzer", format: 2, exportedAt: new Date().toISOString(), media: mediaMeta }));
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+    const now = new Date();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "buzzer-backup-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".zip";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
     funLog("Backup exported.");
   } catch (e) {
     alert("Export failed: " + (e && e.message ? e.message : e));
@@ -11601,6 +11613,46 @@ async function exportBackup() {
 }
 async function importBackup(file) {
   if (!file) return;
+  try {
+    if ((file.name || "").toLowerCase().endsWith(".json")) return await importBackupJson(file);
+    const JSZip = await loadJSZip();
+    const zip = await JSZip.loadAsync(file);
+    const lsFile = zip.file("localStorage.json");
+    if (!lsFile) throw new Error("not a Buzzer backup (no localStorage.json)");
+    const ls = JSON.parse(await lsFile.async("string"));
+    if (!ls || typeof ls !== "object") throw new Error("bad localStorage data");
+    for (const k of Object.keys(ls)) { try { localStorage.setItem(k, ls[k]); } catch (e) {} }
+    let mediaMeta = {};
+    const mf = zip.file("manifest.json");
+    if (mf) { try { const m = JSON.parse(await mf.async("string")); if (m && m.media) mediaMeta = m.media; } catch (e) {} }
+    if (Object.keys(mediaMeta).length) {
+      const db = await backupDbOpen();
+      if (db) {
+        for (const key of Object.keys(mediaMeta)) {
+          const f = zip.file("media/" + key);
+          if (!f) continue;
+          let arrBuf;
+          try { arrBuf = await f.async("arraybuffer"); } catch (e) { continue; }
+          const blob = new Blob([arrBuf], { type: mediaMeta[key] || "application/octet-stream" });
+          await new Promise((res) => {
+            try {
+              const tx = db.transaction("media", "readwrite");
+              tx.objectStore("media").put(blob, key);
+              tx.oncomplete = () => res();
+              tx.onerror = () => res();
+            } catch (e) { res(); }
+          });
+        }
+        try { db.close(); } catch (e) {}
+      }
+    }
+    alert("Backup imported — the app will reload.");
+    setTimeout(() => { try { location.reload(); } catch (e) {} }, 400);
+  } catch (e) {
+    alert("Import failed: " + (e && e.message ? e.message : e));
+  }
+}
+async function importBackupJson(file) {
   try {
     const text = await new Promise((res, rej) => {
       const fr = new FileReader();
