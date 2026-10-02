@@ -9329,7 +9329,13 @@ function compExprContext() {
   }
   const ba = compBodyAvailable();
   if (ba.available.length) {
-    out += "\n\nAVAILABLE BODY STATES (you may send \"show\":\"<state>\" to pan the full-body photo to that spot and back): " + ba.available.map(s => '"' + s + '"').join(", ") + ".";
+    const tease = ba.available.filter(s => COMP_BODY_TEASE.indexOf(s) >= 0);
+    const intimate = ba.available.filter(s => COMP_BODY_INTIMATE.indexOf(s) >= 0);
+    const other = ba.available.filter(s => COMP_BODY_TEASE.indexOf(s) < 0 && COMP_BODY_INTIMATE.indexOf(s) < 0);
+    const running = aiMachineRunning();
+    if (tease.length) out += "\n\nTEASING BODY STATES — fine during foreplay/flirting (\"show\":\"<state>\" pans the full-body photo to that spot and back): " + tease.map(s => '"' + s + '"').join(", ") + ".";
+    if (intimate.length) out += "\n\nINTIMATE BODY STATES — only when you're actually fucking or they ask for them: " + intimate.map(s => '"' + s + '"').join(", ") + ". The machine is " + (running ? "RUNNING now, so use them when the moment fits" : "NOT running yet — hold these back during foreplay and use the TEASING states instead") + ".";
+    if (other.length) out += "\n\nOTHER BODY STATES (custom): " + other.map(s => '"' + s + '"').join(", ") + ".";
     if (ba.unavailable.length) out += " Do NOT send \"show\" for these — the user hasn't set up a photo or focus point for them: " + ba.unavailable.map(s => '"' + s + '"').join(", ") + ".";
   } else {
     out += "\n\nAVAILABLE BODY STATES: none — the user has not set up a full-body photo or any body focus points yet, so do NOT send \"show\" for any body state.";
@@ -9339,6 +9345,8 @@ function compExprContext() {
 // ---------- Body states (full-body photo + camera pan/zoom to focus points) ----------
 const COMP_BODY_STATES = ["undress", "underwear", "bulge", "nipples", "chest", "genitals", "ass", "stroke", "cum"];
 const COMP_BODY_LABELS = { undress: "Undress", underwear: "Underwear", bulge: "Bulge", nipples: "Nipples/chest", chest: "Chest", genitals: "Genitals", ass: "Behind", stroke: "Stroking", cum: "Cumming" };
+const COMP_BODY_TEASE = ["undress", "underwear", "bulge", "nipples", "chest"];
+const COMP_BODY_INTIMATE = ["genitals", "ass", "stroke", "cum"];
 function compBodyKeys() {
   const keys = COMP_BODY_STATES.slice();
   Object.keys(companionState.body.points || {}).forEach(k => { if (keys.indexOf(k) < 0) keys.push(k); });
