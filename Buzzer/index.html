@@ -9250,7 +9250,8 @@ function companionBodyStart(state) {
   if (!cv) return;
   const p = compBodyPoint(state);
   if (!p) return;
-  const facePt = companionState.body.face || { x: 0.5, y: 0.18 };
+  const hasOwn = !!(p && p.img);
+  const facePt = (!hasOwn && companionState.body.face) ? companionState.body.face : { x: 0.5, y: 0.18 };
   const st = (p.start && typeof p.start.x === "number") ? p.start : facePt;
   const startZoom = (p.start && p.start.zoom) || 3;
   companionBody.cv = cv;
@@ -9496,7 +9497,9 @@ function compBodyStateVideos(files, state) {
 }
 function companionBodyCalibrate(state, mode) {
   mode = mode || "target";
-  if (!companionState.body.img) { funLog("Add a full-body photo first."); return; }
+  const stP = (state !== "face") ? compBodyPoint(state) : null;
+  const showImg = (stP && stP.img) || companionState.body.img;
+  if (!showImg) { funLog("Add a full-body photo first."); return; }
   const modal = $("bodyCalib");
   if (!modal) return;
   modal.style.display = "";
@@ -9505,11 +9508,11 @@ function companionBodyCalibrate(state, mode) {
   const title = $("bodyCalibTitle");
   const clear = $("bodyCalibClear");
   const zoomEl = $("bodyCalibZoom"), zoomVal = $("bodyCalibZoomVal");
-  simg.src = companionState.body.img;
+  simg.src = showImg;
   let click = null; let dot = null;
   const existing = (mode === "face") ? companionState.body.face
-    : (mode === "start") ? ((compBodyPoint(state) && compBodyPoint(state).start) || null)
-    : compBodyPoint(state);
+    : (mode === "start") ? ((stP && stP.start) || null)
+    : stP;
   if (title) title.textContent = (mode === "face") ? "Tap the face position" : (mode === "start") ? "Tap the start point" : "Tap the focus point";
   if (hint) hint.textContent = (mode === "face") ? "Where the face is on the full-body photo"
     : (mode === "start") ? "Where the camera starts (zoomed in) before panning to the focus point"
