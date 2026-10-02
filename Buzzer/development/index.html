@@ -1337,6 +1337,10 @@
         <button class="ble-btn small" id="privacyNoticeBtn" type="button">📄 Privacy notice</button>
         <button class="ble-btn small danger" id="aiForget" type="button">Forget me</button>
         <div class="ai-set-hint">"Forget me" erases what the AI has learned about you and resets your companion. Your settings and API keys are kept.</div>
+        <button class="ble-btn small" id="backupExportBtn" type="button">⬇ Export backup</button>
+        <button class="ble-btn small" id="backupImportBtn" type="button">⬆ Import backup</button>
+        <input type="file" id="backupImportInput" accept=".json,application/json" style="display:none;">
+        <div class="ai-set-hint">One file with everything on this device: settings, API keys, what the AI has learned, your avatars and their photos/videos. Import it on this or another device to restore it all. Keep it private — it contains your personal data.</div>
       </div>
     </details>
   </div>
@@ -11519,6 +11523,123 @@ function exportDeveloperInfo() {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 
+// ---------- Backup & restore (export/import everything on this device) ----------
+function backupDbOpen() {
+  return new Promise((res) => {
+    try {
+      const req = indexedDB.open("ossm-companion-media", 1);
+      req.onupgradeneeded = () => { try { req.result.createObjectStore("media"); } catch (e) {} };
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => res(null);
+    } catch (e) { res(null); }
+  });
+}
+function dataUrlToBlob(dataUrl) {
+  const s = String(dataUrl);
+  const i = s.indexOf(",");
+  if (i < 0) return null;
+  const meta = s.slice(0, i);
+  const mime = (meta.match(/data:([^;]+)/) || [])[1] || "application/octet-stream";
+  let bin;
+  try { bin = atob(s.slice(i + 1)); } catch (e) { return null; }
+  const bytes = new Uint8Array(bin.length);
+  for (let j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+  return new Blob([bytes], { type: mime });
+}
+function backupDownload(payload) {
+  const now = new Date();
+  const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "buzzer-backup-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".json";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+async function exportBackup() {
+  try {
+    const ls = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k == null) continue;
+      try { ls[k] = localStorage.getItem(k); } catch (e) {}
+    }
+    const media = {};
+    const db = await backupDbOpen();
+    if (db) {
+      try {
+        const keys = await new Promise((res) => {
+          const tx = db.transaction("media", "readonly");
+          const rq = tx.objectStore("media").getAllKeys();
+          rq.onsuccess = () => res(rq.result || []);
+          rq.onerror = () => res([]);
+        });
+        for (const key of keys) {
+          const blob = await new Promise((res) => {
+            const tx = db.transaction("media", "readonly");
+            const rq = tx.objectStore("media").get(key);
+            rq.onsuccess = () => res(rq.result || null);
+            rq.onerror = () => res(null);
+          });
+          if (blob && typeof Blob !== "undefined" && blob instanceof Blob) {
+            media[key] = await new Promise((res) => {
+              const fr = new FileReader();
+              fr.onload = () => res(String(fr.result));
+              fr.onerror = () => res(null);
+              fr.readAsDataURL(blob);
+            });
+          }
+        }
+      } catch (e) {}
+      try { db.close(); } catch (e) {}
+    }
+    backupDownload({ app: "buzzer", format: 1, exportedAt: new Date().toISOString(), localStorage: ls, media });
+    funLog("Backup exported.");
+  } catch (e) {
+    alert("Export failed: " + (e && e.message ? e.message : e));
+  }
+}
+async function importBackup(file) {
+  if (!file) return;
+  try {
+    const text = await new Promise((res, rej) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result));
+      fr.onerror = () => rej(new Error("couldn't read the file"));
+      fr.readAsText(file);
+    });
+    const payload = JSON.parse(text);
+    if (!payload || payload.app !== "buzzer" || !payload.localStorage || typeof payload.localStorage !== "object") throw new Error("not a Buzzer backup file");
+    const ls = payload.localStorage || {};
+    for (const k of Object.keys(ls)) { try { localStorage.setItem(k, ls[k]); } catch (e) {} }
+    const media = payload.media || {};
+    if (Object.keys(media).length) {
+      const db = await backupDbOpen();
+      if (db) {
+        for (const key of Object.keys(media)) {
+          const dataUrl = media[key];
+          if (typeof dataUrl !== "string" || !dataUrl) continue;
+          const blob = dataUrlToBlob(dataUrl);
+          if (!blob) continue;
+          await new Promise((res) => {
+            try {
+              const tx = db.transaction("media", "readwrite");
+              tx.objectStore("media").put(blob, key);
+              tx.oncomplete = () => res();
+              tx.onerror = () => res();
+            } catch (e) { res(); }
+          });
+        }
+        try { db.close(); } catch (e) {}
+      }
+    }
+    alert("Backup imported — the app will reload.");
+    setTimeout(() => { try { location.reload(); } catch (e) {} }, 400);
+  } catch (e) {
+    alert("Import failed: " + (e && e.message ? e.message : e));
+  }
+}
+
 // ---- Developer data persistence (survives a page reload via localStorage) ----
 let aiDebugPersistTimer = null;
 function aiDebugPersist() {
@@ -11633,6 +11754,14 @@ function aiDebugRestore() {
   const forgetBtn = $("aiForget");
   const exportBtn = $("aiExportInfo");
   if (exportBtn) exportBtn.onclick = exportDeveloperInfo;
+  const bkExport = $("backupExportBtn");
+  if (bkExport) bkExport.onclick = exportBackup;
+  const bkImport = $("backupImportBtn");
+  const bkImportInput = $("backupImportInput");
+  if (bkImport && bkImportInput) {
+    bkImport.onclick = () => bkImportInput.click();
+    bkImportInput.onchange = () => { const f = bkImportInput.files && bkImportInput.files[0]; bkImportInput.value = ""; importBackup(f); };
+  }
   const customText = $("aiCustomPromptText");
   const customLoad = $("aiCustomPromptLoad");
   const customClear = $("aiCustomPromptClear");
