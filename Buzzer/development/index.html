@@ -9222,7 +9222,7 @@ function compBodyPoint(s) {
 }
 const companionBody = {
   img: null, src: null, raf: 0, active: false, cv: null, state: null,
-  cx: 0.5, cy: 0.18, zoom: 1, target: null, phase: "idle", t0: 0, holdUntil: 0, prev: null
+  cx: 0.5, cy: 0.18, zoom: 1, start: null, target: null, minZoom: 1, phase: "idle", t0: 0, holdUntil: 0, prev: null
 };
 function companionCaptureAvatar() {
   try {
@@ -9249,10 +9249,14 @@ function companionBodyStart(state) {
   if (!cv) return;
   const p = compBodyPoint(state);
   if (!p) return;
-  const f = companionState.body.face || { x: 0.5, y: 0.18 };
+  const facePt = companionState.body.face || { x: 0.5, y: 0.18 };
+  const st = (p.start && typeof p.start.x === "number") ? p.start : facePt;
+  const startZoom = (p.start && p.start.zoom) || 3;
   companionBody.cv = cv;
-  companionBody.cx = f.x; companionBody.cy = f.y; companionBody.zoom = 1;
+  companionBody.cx = st.x; companionBody.cy = st.y; companionBody.zoom = startZoom;
+  companionBody.start = { x: st.x, y: st.y, zoom: startZoom };
   companionBody.target = { x: p.x, y: p.y, zoom: p.zoom || 1.5 };
+  companionBody.minZoom = 1;
   companionBody.phase = companionBody.prev ? "fade" : "pan";
   companionBody.t0 = performance.now();
   companionBody.state = state;
@@ -9275,7 +9279,6 @@ function companionBodyFrame(now) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
   const img = companionBody.img, iw = img.naturalWidth, ih = img.naturalHeight;
-  const f = companionState.body.face || { x: 0.5, y: 0.18 };
   const ease = (t) => (t < 0.5) ? (2 * t * t) : (-1 + (4 - 2 * t) * t);
   const PAN_MS = 2500, HOLD_MS = 5200, FADE_MS = 450;
   const drawCrop = (cx, cy, zoom, alpha) => {
@@ -9287,26 +9290,30 @@ function companionBodyFrame(now) {
     ctx.drawImage(img, sx, sy, side, side, 0, 0, w, h);
     if (alpha !== undefined && alpha < 1) ctx.globalAlpha = 1;
   };
+  const applyCam = (t) => {
+    const s = companionBody.start, tg = companionBody.target, mz = companionBody.minZoom;
+    companionBody.cx = s.x + (tg.x - s.x) * ease(t);
+    companionBody.cy = s.y + (tg.y - s.y) * ease(t);
+    // Pull back to the full body around the halfway mark, then push in on the target.
+    if (t < 0.5) companionBody.zoom = s.zoom + (mz - s.zoom) * ease(t * 2);
+    else companionBody.zoom = mz + (tg.zoom - mz) * ease((t - 0.5) * 2);
+  };
   if (companionBody.phase === "fade") {
     const t = Math.min(1, (now - companionBody.t0) / FADE_MS);
     if (companionBody.prev) { try { ctx.drawImage(companionBody.prev, 0, 0, w, h); } catch (e) {} }
-    drawCrop(f.x, f.y, 1, ease(t));
+    drawCrop(companionBody.start.x, companionBody.start.y, companionBody.start.zoom, ease(t));
     if (t >= 1) { companionBody.phase = "pan"; companionBody.t0 = now; }
     return;
   }
   if (companionBody.phase === "pan") {
-    const t = Math.min(1, (now - companionBody.t0) / PAN_MS), e = ease(t);
-    companionBody.cx = f.x + (companionBody.target.x - f.x) * e;
-    companionBody.cy = f.y + (companionBody.target.y - f.y) * e;
-    companionBody.zoom = 1 + (companionBody.target.zoom - 1) * e;
+    const t = Math.min(1, (now - companionBody.t0) / PAN_MS);
+    applyCam(t);
     if (t >= 1) { companionBody.phase = "hold"; companionBody.holdUntil = now + HOLD_MS; }
   } else if (companionBody.phase === "hold") {
     if (now >= companionBody.holdUntil) { companionBody.phase = "return"; companionBody.t0 = now; }
   } else if (companionBody.phase === "return") {
-    const t = Math.min(1, (now - companionBody.t0) / PAN_MS), e = ease(t);
-    companionBody.cx = companionBody.target.x + (f.x - companionBody.target.x) * e;
-    companionBody.cy = companionBody.target.y + (f.y - companionBody.target.y) * e;
-    companionBody.zoom = companionBody.target.zoom + (1 - companionBody.target.zoom) * e;
+    const t = Math.min(1, (now - companionBody.t0) / PAN_MS);
+    applyCam(1 - t);
     if (t >= 1) { companionBodyStop(); companionSetExpression("normal"); }
   }
   drawCrop(companionBody.cx, companionBody.cy, companionBody.zoom);
@@ -9375,11 +9382,14 @@ function buildBodySetupRows() {
     const own = [];
     if (p && p.img) own.push("own photo");
     if (p && (p.vid || 0) > 0) own.push(p.vid + " video" + (p.vid > 1 ? "s" : ""));
-    const info = (p ? (Math.round(p.x * 100) + '%, ' + Math.round(p.y * 100) + '% · ' + ((p.zoom || 1.5).toFixed(1)) + '×') : 'no focus point') + (own.length ? ' · ' + own.join(' + ') : '');
+    const info = (p ? (Math.round(p.x * 100) + '%, ' + Math.round(p.y * 100) + '% · ' + ((p.zoom || 1.5).toFixed(1)) + '×') : 'no focus point')
+      + (p && p.start ? ' · from ' + Math.round(p.start.x * 100) + '%,' + Math.round(p.start.y * 100) + '%' : ' · from face')
+      + (own.length ? ' · ' + own.join(' + ') : '');
     row.innerHTML = nameEl
       + '<span class="avatar-state-info">' + escapeHtml(info) + '</span>'
       + '<button class="ble-btn small" data-b="pimg" data-bs="' + s + '" type="button" title="Own photo for this state">📁</button>'
       + '<button class="ble-btn small" data-b="pvid" data-bs="' + s + '" type="button" title="Own video(s) for this state">🎬</button>'
+      + '<button class="ble-btn small" data-b="pstart" data-bs="' + s + '" type="button" title="Set the start point (camera leaves from here)">⛳</button>'
       + '<button class="ble-btn small" data-b="pt" data-bs="' + s + '" type="button" title="Set focus point">👁</button>'
       + '<button class="ble-btn small" data-b="pclr" data-bs="' + s + '" type="button" title="Clear own photo/video">✕</button>'
       + (builtIn ? '' : '<button class="ble-btn small" data-b="del" data-bs="' + s + '" type="button" title="Remove this body state">🗑</button>')
@@ -9408,9 +9418,11 @@ function compBodyRowAction(b, s) {
     companionRender();
     buildBodySetupRows();
   } else if (b === "face") {
-    companionBodyCalibrate("face");
+    companionBodyCalibrate("face", "face");
   } else if (b === "pt") {
-    companionBodyCalibrate(s);
+    companionBodyCalibrate(s, "target");
+  } else if (b === "pstart") {
+    companionBodyCalibrate(s, "start");
   } else if (b === "pimg") {
     compEnsureConsent(() => {
       const inp = document.createElement("input");
@@ -9481,19 +9493,29 @@ function compBodyStateVideos(files, state) {
   buildBodySetupRows();
   funLog("Video added for \"" + compBodyLabel(state) + "\".");
 }
-function companionBodyCalibrate(state) {
+function companionBodyCalibrate(state, mode) {
+  mode = mode || "target";
   if (!companionState.body.img) { funLog("Add a full-body photo first."); return; }
   const modal = $("bodyCalib");
   if (!modal) return;
   modal.style.display = "";
   const stage = $("bodyCalibStage"), simg = $("bodyCalibImg");
   const hint = $("bodyCalibHint"), apply = $("bodyCalibDone"), cancel = $("bodyCalibCancel");
+  const title = $("bodyCalibTitle");
   const zoomEl = $("bodyCalibZoom"), zoomVal = $("bodyCalibZoomVal");
   simg.src = companionState.body.img;
   let click = null; let dot = null;
-  const existing = (state === "face") ? companionState.body.face : compBodyPoint(state);
+  const existing = (mode === "face") ? companionState.body.face
+    : (mode === "start") ? ((compBodyPoint(state) && compBodyPoint(state).start) || null)
+    : compBodyPoint(state);
+  if (title) title.textContent = (mode === "face") ? "Tap the face position" : (mode === "start") ? "Tap the start point" : "Tap the focus point";
+  if (hint) hint.textContent = (mode === "face") ? "Where the face is on the full-body photo"
+    : (mode === "start") ? "Where the camera starts (zoomed in) before panning to the focus point"
+    : "Tap the body part to focus on";
   if (existing && existing.x !== undefined) click = [existing.x, existing.y];
-  if (zoomEl) { zoomEl.value = String(Math.round(((existing && existing.zoom) || 1.5) * 100)); if (zoomVal) zoomVal.textContent = (((existing && existing.zoom) || 1.5).toFixed(1)) + "×"; }
+  const defZoom = (mode === "start") ? 3 : 1.5;
+  const curZoom = (existing && existing.zoom) || defZoom;
+  if (zoomEl) { zoomEl.value = String(Math.round(curZoom * 100)); if (zoomVal) zoomVal.textContent = curZoom.toFixed(1) + "×"; }
   const addDot = (nx, ny) => {
     if (dot) dot.remove();
     dot = document.createElement("div");
@@ -9517,11 +9539,14 @@ function companionBodyCalibrate(state) {
     apply.onclick = null; cancel.onclick = null;
     if (dot) dot.remove();
     if (ok && click) {
-      const zoom = zoomEl ? (parseInt(zoomEl.value, 10) / 100) : 1.5;
-      if (state === "face") companionState.body.face = { x: click[0], y: click[1] };
-      else {
+      const zoom = zoomEl ? (parseInt(zoomEl.value, 10) / 100) : defZoom;
+      if (mode === "face") companionState.body.face = { x: click[0], y: click[1] };
+      else if (mode === "start") {
+        const p = companionState.body.points[state] = companionState.body.points[state] || { x: 0.5, y: 0.5, zoom: 1.5 };
+        p.start = { x: click[0], y: click[1], zoom: zoom };
+      } else {
         const prev = companionState.body.points[state] || {};
-        companionState.body.points[state] = { x: click[0], y: click[1], zoom: zoom, name: prev.name || null, keywords: prev.keywords || "" };
+        companionState.body.points[state] = { x: click[0], y: click[1], zoom: zoom, name: prev.name || null, keywords: prev.keywords || "", img: prev.img || null, vid: prev.vid || 0, start: prev.start || null };
       }
       companionSave();
       buildBodySetupRows();
