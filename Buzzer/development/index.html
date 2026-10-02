@@ -6544,6 +6544,15 @@ function aiIsStartCommand(text) {
   if (!t || t.split(" ").length > 4) return false;
   return /\b(go|start|begin|resume|let'?s go|lets go|get going|start now|start it|start please|begin now|go now)\b/.test(t);
 }
+function compWantsReal(text) {
+  const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 140) return false;
+  if (/\b(fuck me|neuk me|naai me|geneukt worden|ik wil geneukt|wil geneukt worden|i want to be fucked|please fuck me|neuk me nu|neuk me nou|fuck me now)\b/.test(t)) return true;
+  if (/\b(wil je me (neuken|naaien)|ga je me (neuken|naaien)|wil je me nu (neuken|naaien)|ik wil (neuken|naaien|geneukt worden)|ik wil je (neuken|naaien)|ik wil met je (neuken|naaien))\b/.test(t)) return true;
+  if (/(fuck|neuk|geneuk|naai)/.test(t) && /\b(for real|echt|nu|nou|dan|serieus|alstjeblieft|aub|please|now)\b/.test(t)) return true;
+  if (/\b(niet meer teasen|stop met teasen|ik wil je echt|doe het echt|doe het nu|ga je nu|ik wil het echt|nu echt|doe het dan)\b/.test(t)) return true;
+  return false;
+}
 function aiParseSafeWordSet(text) {
   const raw = String(text || "").toLowerCase().replace(/\u2019/g, "'").trim();
   if (!raw || raw.length > 80) return null;
@@ -11299,6 +11308,11 @@ async function compSend() {
       buildCompSliders();
       return;
     }
+  }
+  // The user clearly wants the REAL thing — nudge the AI to switch from
+  // story-telling to the actual start flow instead of narrating actions.
+  if (!aiPos.active && !aiMachineRunning() && compWantsReal(text)) {
+    aiInjectSystem(null, "The user is clearly asking for the REAL thing now — they want to actually be fucked, not more story. Stop the fantasy narration and do NOT describe the machine doing things it isn't doing. If the OSSM is NOT connected, tell them warmly (in character) to press Connect. If connected but no safe word is set, ask for the safe word. If connected with a safe word but no confirmed limits, start the position flow (\"pos\"). Only describe actual movement once the machine is really moving.");
   }
   compBusy = true;
   if (inp) inp.value = "";
