@@ -9169,14 +9169,35 @@ function compAvatarAddExpr() {
   companionSave();
   buildAvatarSetupRows();
 }
+function compBodyAvailable() {
+  const b = companionState.body;
+  const hasBody = !!(b && b.img);
+  const available = [], unavailable = [];
+  compBodyKeys().forEach(s => {
+    const p = compBodyPoint(s);
+    const hasOwn = !!(p && (p.img || (p.vid || 0) > 0));
+    if (p && (hasBody || hasOwn)) available.push(s); else unavailable.push(s);
+  });
+  return { available: available, unavailable: unavailable };
+}
 function compExprContext() {
+  let out = "";
   const custom = compExprKeys().filter(k => !COMP_EXPR_LABELS[k]);
-  if (!custom.length) return "";
-  const lines = custom.map(k => {
-    const e = companionState.expr[k];
-    return '"' + k + '"' + (e.keywords ? " (when the user says: " + e.keywords + ")" : "");
-  }).join(", ");
-  return "\n\nCUSTOM AVATAR EXPRESSIONS (you may send \"show\":\"<name>\" to show one of these for a few seconds): " + lines + ".";
+  if (custom.length) {
+    const lines = custom.map(k => {
+      const e = companionState.expr[k];
+      return '"' + k + '"' + (e.keywords ? " (when the user says: " + e.keywords + ")" : "");
+    }).join(", ");
+    out += "\n\nCUSTOM AVATAR EXPRESSIONS (you may send \"show\":\"<name>\" to show one of these for a few seconds): " + lines + ".";
+  }
+  const ba = compBodyAvailable();
+  if (ba.available.length) {
+    out += "\n\nAVAILABLE BODY STATES (you may send \"show\":\"<state>\" to pan the full-body photo to that spot and back): " + ba.available.map(s => '"' + s + '"').join(", ") + ".";
+    if (ba.unavailable.length) out += " Do NOT send \"show\" for these — the user hasn't set up a photo or focus point for them: " + ba.unavailable.map(s => '"' + s + '"').join(", ") + ".";
+  } else {
+    out += "\n\nAVAILABLE BODY STATES: none — the user has not set up a full-body photo or any body focus points yet, so do NOT send \"show\" for any body state.";
+  }
+  return out;
 }
 // ---------- Body states (full-body photo + camera pan/zoom to focus points) ----------
 const COMP_BODY_STATES = ["undress", "underwear", "bulge", "nipples", "chest", "genitals", "ass", "stroke", "cum"];
