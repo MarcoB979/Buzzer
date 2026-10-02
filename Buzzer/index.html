@@ -678,11 +678,14 @@
   .photo-calib-hint { font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
   .photo-calib-rot { display: flex; align-items: center; gap: 8px; font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
   .photo-calib-rot input[type=range] { flex: 1; }
-  .avatar-state-row { display: flex; align-items: center; gap: 8px; border: 1px solid #1e293b; border-radius: 10px; padding: 8px; margin-bottom: 8px; background: #0b1220; }
+  .avatar-state-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; border: 1px solid #1e293b; border-radius: 10px; padding: 8px; margin-bottom: 8px; background: #0b1220; }
   .avatar-state-name { width: 92px; font-size: .8rem; font-weight: bold; flex: 0 0 auto; }
   .avatar-state-thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: #1e293b; flex: 0 0 auto; }
   .avatar-state-info { flex: 1; font-size: .72rem; color: #94a3b8; line-height: 1.3; min-width: 0; }
   .avatar-state-row .ble-btn { flex: 0 0 auto; }
+  .avatar-state-namein, .avatar-state-kwin { background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; padding: 4px 6px; font-size: .75rem; }
+  .avatar-state-namein { width: 92px; flex: 0 0 auto; }
+  .avatar-state-kwin { flex: 1 1 100%; margin-top: 2px; }
   #compConnect.on { background: #166534; }
   #compConnect.pulse { animation: compPulse .8s ease 3; }
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
@@ -959,6 +962,7 @@
           <textarea id="avatarPersona" rows="3" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
         </div>
         <div id="avatarStateRows"></div>
+        <button class="ble-btn small" id="avatarAddExpr" type="button" style="margin-bottom:10px;">＋ Add expression</button>
         <div class="photo-modal-actions" style="margin-top:10px;">
           <button class="ble-btn small" id="avatarSetupDone" type="button">Done</button>
         </div>
@@ -8896,6 +8900,16 @@ const COMP_EXPR_STATES = ["laugh", "blush", "rough"];
 const COMP_EXPR_LABELS = { laugh: "Laughing", blush: "Blushing", rough: "Rough / exertion" };
 const COMP_EXPR_HOLD = 6000;   // how long an expression stays before returning to normal
 let compExpr = { state: "normal", until: 0 };
+function compExprKeys() {
+  const keys = COMP_EXPR_STATES.slice();
+  Object.keys(companionState.expr || {}).forEach(k => { if (keys.indexOf(k) < 0) keys.push(k); });
+  return keys;
+}
+function compExprLabel(k) {
+  if (COMP_EXPR_LABELS[k]) return COMP_EXPR_LABELS[k];
+  const e = companionState.expr && companionState.expr[k];
+  return (e && e.name) || k;
+}
 function compStateMedia(state) {
   if (state === "normal") return { img: companionState.customImage || null, vids: companionState.customVideos || 0, lm: companionState.landmarks || null };
   const e = companionState.expr && companionState.expr[state];
@@ -8905,7 +8919,7 @@ function compActiveState() {
   return (compExpr.state && compExpr.state !== "normal" && Date.now() < compExpr.until) ? compExpr.state : "normal";
 }
 function companionSetExpression(state, holdMs) {
-  if (!state || state === "normal" || COMP_EXPR_STATES.indexOf(state) < 0) { compExpr.state = "normal"; compExpr.until = 0; }
+  if (!state || state === "normal" || !(companionState.expr && companionState.expr[state])) { compExpr.state = "normal"; compExpr.until = 0; }
   else { compExpr.state = state; compExpr.until = Date.now() + (holdMs || COMP_EXPR_HOLD); }
   companionRender();
   syncCompVideoAvatar();
@@ -8968,12 +8982,18 @@ function companionRender() {
 function companionApplyShow(v) {
   const s = String(v || "").toLowerCase().trim();
   if (!s) return;
+  const slug = s.replace(/[^a-z0-9]/g, "");
   if (s === "laugh" || s === "laughing") companionSetExpression("laugh");
   else if (s === "blush" || s === "blushing" || s === "shocked") companionSetExpression("blush");
   else if (s === "rough" || s === "exert" || s === "exertion" || s === "cum" || s === "cumming") companionSetExpression("rough");
   else if (s === "normal" || s === "neutral") companionSetExpression("normal");
   else if (["undress", "underwear", "bulge", "nipples", "chest", "genitals", "ass", "behind", "stroke", "fingering"].indexOf(s) >= 0) {
     funLog("Body state \"" + s + "\" requested — coming in phase 2.");
+  }
+  else {
+    const k = compExprKeys().find(key => key === slug || (companionState.expr[key] && companionState.expr[key].name ? String(companionState.expr[key].name).toLowerCase().replace(/[^a-z0-9]/g, "") === slug : false));
+    if (k) companionSetExpression(k);
+    else funLog("Unknown expression \"" + v + "\".");
   }
 }
 function companionOpenAvatarSetup() {
@@ -8988,26 +9008,60 @@ function buildAvatarSetupRows() {
   const host = $("avatarStateRows");
   if (!host) return;
   host.innerHTML = "";
-  ["normal"].concat(COMP_EXPR_STATES).forEach((s) => {
+  ["normal"].concat(compExprKeys()).forEach((s) => {
     const media = compStateMedia(s);
-    const label = (s === "normal") ? "Normal" : COMP_EXPR_LABELS[s];
+    const builtIn = (s === "normal") || !!COMP_EXPR_LABELS[s];
+    const label = (s === "normal") ? "Normal" : compExprLabel(s);
     const row = document.createElement("div");
     row.className = "avatar-state-row";
     const thumb = media.img
       ? '<img class="avatar-state-thumb" src="' + media.img + '" alt="">'
       : '<div class="avatar-state-thumb"></div>';
     const info = (media.img ? "photo" : "no photo") + (media.vids ? " · " + media.vids + " video" + (media.vids > 1 ? "s" : "") : "") + (media.lm ? " · face set" : "");
-    row.innerHTML = '<span class="avatar-state-name">' + label + '</span>' + thumb
+    const nameEl = builtIn
+      ? '<span class="avatar-state-name">' + escapeHtml(label) + '</span>'
+      : '<input class="avatar-state-namein" data-n="' + s + '" value="' + escapeHtml(label) + '" title="Expression name">';
+    const kwEl = builtIn
+      ? ''
+      : '<input class="avatar-state-kwin" data-k="' + s + '" value="' + escapeHtml((companionState.expr[s] && companionState.expr[s].keywords) || "") + '" placeholder="trigger words (comma separated)">';
+    row.innerHTML = nameEl + thumb
       + '<span class="avatar-state-info">' + escapeHtml(info) + '</span>'
       + '<button class="ble-btn small" data-a="img" data-s="' + s + '" type="button" title="Add/change photo">📁</button>'
       + '<button class="ble-btn small" data-a="vid" data-s="' + s + '" type="button" title="Add videos">🎬</button>'
       + '<button class="ble-btn small" data-a="cal" data-s="' + s + '" type="button" title="Point out face / rotation">👁</button>'
-      + '<button class="ble-btn small" data-a="clr" data-s="' + s + '" type="button" title="Clear this state">✕</button>';
+      + '<button class="ble-btn small" data-a="clr" data-s="' + s + '" type="button" title="Clear this state">✕</button>'
+      + kwEl;
     host.appendChild(row);
   });
   host.querySelectorAll("button[data-a]").forEach((b) => {
     b.onclick = () => compAvatarRowAction(b.dataset.a, b.dataset.s);
   });
+  host.querySelectorAll("input.avatar-state-namein").forEach((inp) => {
+    inp.onchange = () => { const e = companionState.expr[inp.dataset.n]; if (e) { e.name = inp.value.trim() || e.name; companionSave(); buildAvatarSetupRows(); } };
+  });
+  host.querySelectorAll("input.avatar-state-kwin").forEach((inp) => {
+    inp.onchange = () => { const e = companionState.expr[inp.dataset.k]; if (e) { e.keywords = inp.value.trim(); companionSave(); } };
+  });
+}
+function compAvatarAddExpr() {
+  let name = "";
+  try { name = (window.prompt("New expression name (e.g. \"decline\", \"sleepy\", \"tease\")") || "").trim(); } catch (e) {}
+  if (!name) return;
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!key) { funLog("That name has no usable characters."); return; }
+  if (companionState.expr[key]) { funLog("That expression already exists."); return; }
+  companionState.expr[key] = { name: name, img: null, vids: 0, lm: null, keywords: "" };
+  companionSave();
+  buildAvatarSetupRows();
+}
+function compExprContext() {
+  const custom = compExprKeys().filter(k => !COMP_EXPR_LABELS[k]);
+  if (!custom.length) return "";
+  const lines = custom.map(k => {
+    const e = companionState.expr[k];
+    return '"' + k + '"' + (e.keywords ? " (when the user says: " + e.keywords + ")" : "");
+  }).join(", ");
+  return "\n\nCUSTOM AVATAR EXPRESSIONS (you may send \"show\":\"<name>\" to show one of these for a few seconds): " + lines + ".";
 }
 function compAvatarRowAction(action, state) {
   if (action === "img") {
@@ -9028,14 +9082,15 @@ function compAvatarRowAction(action, state) {
     img.onerror = () => funLog("Couldn't load that photo.");
     img.src = media.img;
   } else if (action === "clr") {
+    compVideoForget(state);
     if (state === "normal") {
       companionState.customImage = null; companionState.landmarks = null;
-      compVideoForget("normal");
       if (companionState.source === "live" || companionState.source === "upload") companionState.source = "generated";
-    } else {
+    } else if (COMP_EXPR_LABELS[state]) {
       const e = companionState.expr[state];
       e.img = null; e.lm = null;
-      compVideoForget(state);
+    } else {
+      delete companionState.expr[state];
     }
     companionSave();
     companionRender();
@@ -9435,14 +9490,14 @@ function companionUploadVideos(files, state) {
   companionSave();
   companionRender();
   syncCompVideoAvatar();
-  funLog((s === "normal" ? "Talking video" : COMP_EXPR_LABELS[s] + " video") + " added — they take turns while I speak.");
+  funLog((s === "normal" ? "Talking video" : compExprLabel(s) + " video") + " added — they take turns while I speak.");
 }
 function syncCompVideoAvatar() {
   const box = $("companionAvatar");
   const clearBtn = $("compVideoClearBtn");
   const state = compActiveState();
   const count = compStateMedia(state).vids;
-  const total = (companionState.customVideos || 0) + COMP_EXPR_STATES.reduce((a, s) => a + ((companionState.expr[s] && companionState.expr[s].vids) || 0), 0);
+  const total = (companionState.customVideos || 0) + compExprKeys().reduce((a, s) => a + ((companionState.expr[s] && companionState.expr[s].vids) || 0), 0);
   if (clearBtn) clearBtn.style.display = total ? "" : "none";
   if (!box) return;
   if (!count) {
@@ -9777,6 +9832,16 @@ function companionLiveExpress(text) {
   if (/\[laugh\]|\blaugh|\bhaha\b|\bhehe\b|\bgiggle\b|\blol\b|\bhilarious\b/.test(t)) { companionSetExpression("laugh"); }
   else if (/\[blush\]|\[shock\]|\bblush|\bshy\b|\bfluster|\boh my\b|\bgasp\b/.test(t)) { companionSetExpression("blush"); }
   else if (/\[rough\]|\[exert\]|\[angry\]|\bcumming\b|\bcuming\b|\bpound\b|\bgrunt\b|\bexert/.test(t)) { companionSetExpression("rough"); }
+  else {
+    // Custom expressions via their own trigger words.
+    const custom = compExprKeys().filter(k => !COMP_EXPR_LABELS[k]);
+    for (const k of custom) {
+      const e = companionState.expr[k];
+      if (!e || !e.keywords) continue;
+      const words = String(e.keywords).split(/[,;]/).map(w => w.trim().toLowerCase()).filter(Boolean);
+      if (words.some(w => t.indexOf(w) >= 0)) { companionSetExpression(k); break; }
+    }
+  }
   if (!companionLive.active || !raw) return;
   if (/\[(frown|angry|annoyed|mad|grumpy|sad|upset|worried|thinking|confused|hmm)\]/i.test(t)) {
     companionLive.expression = { kind: "frown" };
@@ -10195,7 +10260,7 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compExprContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -10344,7 +10409,7 @@ async function compDirtyTalkFire() {
     const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compCustomPromptText() + compPersonaText() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compCustomPromptText() + compPersonaText() + compExprContext() },
       { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Normally only set \"reply\". BUT if your line says you're about to do something — go deeper, go harder, go faster, or hold it deep — then also include the matching \"set\" (a small, safe step within the confirmed limits) so it actually happens. Never send \"run\" or \"limits\" here." }
     ];
     const res = await aiCall(msgs);
@@ -10477,6 +10542,8 @@ function compLiveStart() {
   };
   const asClose = $("avatarSetupClose");
   if (asClose) asClose.onclick = () => { const m = $("avatarSetup"); if (m) m.style.display = "none"; };
+  const asAdd = $("avatarAddExpr");
+  if (asAdd) asAdd.onclick = compAvatarAddExpr;
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
