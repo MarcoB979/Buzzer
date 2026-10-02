@@ -1014,6 +1014,17 @@
       </div>
     </div>
 
+    <div class="photo-modal" id="compNameModal" style="display:none;">
+      <div class="photo-modal-card" style="max-width:360px;">
+        <div class="photo-modal-title" id="compNameTitle">Name</div>
+        <input type="text" id="compNameInput" placeholder="" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;">
+        <div class="photo-modal-actions" style="margin-top:10px;">
+          <button class="ble-btn small" id="compNameCancel" type="button">Cancel</button>
+          <button class="ble-btn small" id="compNameOk" type="button">Add</button>
+        </div>
+      </div>
+    </div>
+
     <div class="photo-modal" id="avatarSetup" style="display:none;">
       <div class="photo-modal-card" style="max-width:600px;max-height:92vh;overflow:auto;">
         <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -9274,16 +9285,26 @@ function buildAvatarSetupRows() {
     inp.onchange = () => { const e = companionState.expr[inp.dataset.k]; if (e) { e.keywords = inp.value.trim(); companionSave(); } };
   });
 }
+let compNamePending = null;
+function compPromptText(title, placeholder, cb) {
+  const m = $("compNameModal"), ti = $("compNameTitle"), inp = $("compNameInput");
+  if (!m || !inp) return;
+  if (ti) ti.textContent = title;
+  inp.placeholder = placeholder || "";
+  inp.value = "";
+  compNamePending = cb;
+  m.style.display = "";
+  setTimeout(() => { try { inp.focus(); } catch (e) {} }, 50);
+}
 function compAvatarAddExpr() {
-  let name = "";
-  try { name = (window.prompt("New expression name (e.g. \"decline\", \"sleepy\", \"tease\")") || "").trim(); } catch (e) {}
-  if (!name) return;
-  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!key) { funLog("That name has no usable characters."); return; }
-  if (companionState.expr[key]) { funLog("That expression already exists."); return; }
-  companionState.expr[key] = { name: name, img: null, vids: 0, lm: null, keywords: "" };
-  companionSave();
-  buildAvatarSetupRows();
+  compPromptText("New expression name", 'e.g. "decline", "sleepy", "tease"', (name) => {
+    const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!key) { funLog("That name has no usable characters."); return; }
+    if (companionState.expr[key]) { funLog("That expression already exists."); return; }
+    companionState.expr[key] = { name: name, img: null, vids: 0, lm: null, keywords: "" };
+    companionSave();
+    buildAvatarSetupRows();
+  });
 }
 function compBodyAvailable() {
   const b = companionState.body;
@@ -9688,15 +9709,14 @@ function companionBodyCalibrate(state, mode) {
   };
 }
 function compBodyAddState() {
-  let name = "";
-  try { name = (window.prompt("New body state name (e.g. \"thighs\", \"feet\")") || "").trim(); } catch (e) {}
-  if (!name) return;
-  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-  if (!key) { funLog("That name has no usable characters."); return; }
-  if (companionState.body.points[key]) { funLog("That body state already exists."); return; }
-  companionState.body.points[key] = { x: 0.5, y: 0.5, zoom: 1.5, name: name, keywords: "" };
-  companionSave();
-  buildBodySetupRows();
+  compPromptText("New body state name", 'e.g. "thighs", "feet"', (name) => {
+    const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!key) { funLog("That name has no usable characters."); return; }
+    if (companionState.body.points[key]) { funLog("That body state already exists."); return; }
+    companionState.body.points[key] = { x: 0.5, y: 0.5, zoom: 1.5, name: name, keywords: "" };
+    companionSave();
+    buildBodySetupRows();
+  });
 }
 // ---------- Avatar builder (saved avatars + drawn vs real) ----------
 let compPendingConsent = null;
@@ -11510,6 +11530,15 @@ function compLiveStart() {
   if (asAdd) asAdd.onclick = compAvatarAddExpr;
   const abAdd = $("avatarAddBody");
   if (abAdd) abAdd.onclick = compBodyAddState;
+  const cnOk = $("compNameOk"), cnCancel = $("compNameCancel"), cnInput = $("compNameInput");
+  if (cnOk) cnOk.onclick = () => {
+    const v = (cnInput ? cnInput.value : "").trim();
+    const cb = compNamePending; compNamePending = null;
+    const m = $("compNameModal"); if (m) m.style.display = "none";
+    if (cb && v) cb(v);
+  };
+  if (cnCancel) cnCancel.onclick = () => { compNamePending = null; const m = $("compNameModal"); if (m) m.style.display = "none"; };
+  if (cnInput) cnInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (cnOk) cnOk.click(); } });
   const asSave = $("avatarSaveBtn"); if (asSave) asSave.onclick = compAvatarSaveCurrent;
   const asNew = $("avatarNewBtn"); if (asNew) asNew.onclick = () => compEnsureConsent(() => compAvatarNewConfirm("drawn"));
   const asDel = $("avatarDelBtn"); if (asDel) asDel.onclick = compAvatarDelete;
