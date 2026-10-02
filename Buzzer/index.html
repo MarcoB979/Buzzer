@@ -11448,7 +11448,6 @@ async function compSend() {
         if (res2.params) { aiApplySet(res2.params); buildCompSliders(); }
       }
     }
-    if (res.params) { aiApplySet(res.params); buildCompSliders(); }
     if (res.limits) {
       if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
         // Wild / full submission: apply boundary changes directly (no confirmation).
@@ -11480,6 +11479,9 @@ async function compSend() {
     } else if (compPendingLimits) {
       compPendingLimits = null;
     }
+    // Apply "set" AFTER "limits" so a combined "raise the limit + raise the
+    // speed" reply uses the NEW cap (important in full-submission mode).
+    if (res.params) { aiApplySet(res.params); buildCompSliders(); }
     if (res.run && aiCanRunActive()) {
       if (res.run === "start") {
         if (aiLimitsConfirmed()) { if (aiStartMachine()) aiLog("started the machine"); }
