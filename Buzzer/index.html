@@ -9256,7 +9256,7 @@ function companionBodyFrame(now) {
   const img = companionBody.img, iw = img.naturalWidth, ih = img.naturalHeight;
   const f = companionState.body.face || { x: 0.5, y: 0.18 };
   const ease = (t) => (t < 0.5) ? (2 * t * t) : (-1 + (4 - 2 * t) * t);
-  const PAN_MS = 1000, HOLD_MS = 2600, FADE_MS = 450;
+  const PAN_MS = 2500, HOLD_MS = 5200, FADE_MS = 450;
   const drawCrop = (cx, cy, zoom, alpha) => {
     const side = Math.min(iw, ih) / Math.max(0.5, zoom);
     const cxPx = cx * iw, cyPx = cy * ih;
@@ -9319,7 +9319,7 @@ function companionShowBody(state, holdMs) {
   const hasOwn = !!(p && (p.img || (p.vid || 0) > 0));
   if (!p || (!companionState.body.img && !hasOwn)) { funLog("No body photo / focus point for \"" + state + "\" yet — set it up in the Avatar builder."); return; }
   compExpr.state = state;
-  compExpr.until = Date.now() + (holdMs || COMP_EXPR_HOLD + 4000);
+  compExpr.until = Date.now() + (holdMs || COMP_EXPR_HOLD + 8000);
   companionRender();
 }
 function buildBodySetupRows() {
@@ -10286,7 +10286,13 @@ function companionLiveCalibrate(img, dataUrl, state) {
   const autoRot = () => {
     if (clicks.length < 2) return 0;
     const a = clicks[0], b = clicks[1];
-    return -Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+    let deg = -Math.atan2(b[1] - a[1], b[0] - a[0]) * 180 / Math.PI;
+    // The eye line has no direction: a level face is 0° no matter which
+    // eye was tapped first. Wrap to the nearest level orientation so a
+    // right-to-left tap order doesn't read as a 180° flip.
+    while (deg > 90) deg -= 180;
+    while (deg < -90) deg += 180;
+    return deg;
   };
   const syncRotLabel = (auto) => {
     if (!rotVal) return;
