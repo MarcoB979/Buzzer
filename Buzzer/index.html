@@ -696,6 +696,9 @@
   .avatar-state-namein, .avatar-state-kwin { background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; padding: 4px 6px; font-size: .75rem; }
   .avatar-state-namein { width: 92px; flex: 0 0 auto; }
   .avatar-state-kwin { flex: 1 1 100%; margin-top: 2px; }
+  .avatar-stage { font-size: .62rem; padding: 1px 6px; border-radius: 8px; margin-left: 6px; vertical-align: middle; font-weight: normal; }
+  .avatar-stage-tease { background: #0c4a6e; color: #7dd3fc; }
+  .avatar-stage-intimate { background: #7f1d1d; color: #fca5a5; }
   .avatar-builder-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
   .avatar-builder-head select, .avatar-builder-head input { background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; padding: 5px 6px; font-size: .78rem; }
   .avatar-builder-head select { flex: 1; min-width: 0; }
@@ -9095,9 +9098,10 @@ if (!companionState.expr || typeof companionState.expr !== "object" || Array.isA
 if (typeof companionState.persona !== "string") companionState.persona = "";
 if (typeof companionState.about !== "string") companionState.about = "";
 if (!companionState.body || typeof companionState.body !== "object" || Array.isArray(companionState.body)) {
-  companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
+  companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {}, kwords: {} };
 } else {
   if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
+  if (!companionState.body.kwords || typeof companionState.body.kwords !== "object") companionState.body.kwords = {};
   if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
   if (typeof companionState.body.img !== "string") companionState.body.img = null;
 }
@@ -9333,9 +9337,10 @@ function compExprContext() {
     const intimate = ba.available.filter(s => COMP_BODY_INTIMATE.indexOf(s) >= 0);
     const other = ba.available.filter(s => COMP_BODY_TEASE.indexOf(s) < 0 && COMP_BODY_INTIMATE.indexOf(s) < 0);
     const running = aiMachineRunning();
-    if (tease.length) out += "\n\nTEASING BODY STATES — fine during foreplay/flirting (\"show\":\"<state>\" pans the full-body photo to that spot and back): " + tease.map(s => '"' + s + '"').join(", ") + ".";
-    if (intimate.length) out += "\n\nINTIMATE BODY STATES — only when you're actually fucking or they ask for them: " + intimate.map(s => '"' + s + '"').join(", ") + ". The machine is " + (running ? "RUNNING now, so use them when the moment fits" : "NOT running yet — hold these back during foreplay and use the TEASING states instead") + ".";
-    if (other.length) out += "\n\nOTHER BODY STATES (custom): " + other.map(s => '"' + s + '"').join(", ") + ".";
+    const kw = (s) => { const w = compBodyKeywords(s); return w ? " (" + w + ")" : ""; };
+    if (tease.length) out += "\n\nTEASING BODY STATES — fine during foreplay/flirting; show them when the moment matches their trigger words (\"show\":\"<state>\" pans the full-body photo to it): " + tease.map(s => '"' + s + '"' + kw(s)).join(", ") + ".";
+    if (intimate.length) out += "\n\nINTIMATE BODY STATES — only when you're actually fucking or they ask for them: " + intimate.map(s => '"' + s + '"' + kw(s)).join(", ") + ". The machine is " + (running ? "RUNNING now, so use them when the moment fits" : "NOT running yet — hold these back during foreplay and use the TEASING states instead") + ".";
+    if (other.length) out += "\n\nOTHER BODY STATES (custom — show them when the user's words match their trigger words): " + other.map(s => '"' + s + '"' + kw(s)).join(", ") + ".";
     if (ba.unavailable.length) out += " Do NOT send \"show\" for these — the user hasn't set up a photo or focus point for them: " + ba.unavailable.map(s => '"' + s + '"').join(", ") + ".";
   } else {
     out += "\n\nAVAILABLE BODY STATES: none — the user has not set up a full-body photo or any body focus points yet, so do NOT send \"show\" for any body state.";
@@ -9347,6 +9352,17 @@ const COMP_BODY_STATES = ["undress", "underwear", "bulge", "nipples", "chest", "
 const COMP_BODY_LABELS = { undress: "Undress", underwear: "Underwear", bulge: "Bulge", nipples: "Nipples/chest", chest: "Chest", genitals: "Genitals", ass: "Behind", stroke: "Stroking", cum: "Cumming" };
 const COMP_BODY_TEASE = ["undress", "underwear", "bulge", "nipples", "chest"];
 const COMP_BODY_INTIMATE = ["genitals", "ass", "stroke", "cum"];
+const COMP_BODY_DEFAULT_KEYWORDS = {
+  undress: "undress, strip, take it off, uitkleden",
+  underwear: "underwear, tease, boxers, briefs",
+  bulge: "bulge, hard, boner, erection",
+  nipples: "nipples, tits",
+  chest: "chest, torso, body",
+  genitals: "cock, pussy, dick, genitals, fucking",
+  ass: "ass, behind, hole",
+  stroke: "stroking, jack off, wank, stroke",
+  cum: "cumming, cum, coming, orgasm"
+};
 function compBodyKeys() {
   const keys = COMP_BODY_STATES.slice();
   Object.keys(companionState.body.points || {}).forEach(k => { if (keys.indexOf(k) < 0) keys.push(k); });
@@ -9356,6 +9372,18 @@ function compBodyLabel(k) {
   if (COMP_BODY_LABELS[k]) return COMP_BODY_LABELS[k];
   const p = companionState.body.points[k];
   return (p && p.name) || k;
+}
+function compBodyKeywords(s) {
+  const b = companionState.body;
+  if (b && b.kwords && b.kwords[s]) return b.kwords[s];
+  const p = compBodyPoint(s);
+  if (p && p.keywords) return p.keywords;
+  return COMP_BODY_DEFAULT_KEYWORDS[s] || "";
+}
+function compBodyStage(s) {
+  if (COMP_BODY_TEASE.indexOf(s) >= 0) return "tease";
+  if (COMP_BODY_INTIMATE.indexOf(s) >= 0) return "intimate";
+  return "";
 }
 function compIsBodyState(s) {
   if (!s) return false;
@@ -9519,12 +9547,15 @@ function buildBodySetupRows() {
     const p = compBodyPoint(s);
     const builtIn = !!COMP_BODY_LABELS[s];
     const label = compBodyLabel(s);
+    const stage = compBodyStage(s);
+    const kw = compBodyKeywords(s);
+    const stageEl = stage ? ' <span class="avatar-stage avatar-stage-' + stage + '">' + stage + '</span>' : '';
     const row = document.createElement("div");
     row.className = "avatar-state-row";
     const nameEl = builtIn
-      ? '<span class="avatar-state-name">' + escapeHtml(label) + '</span>'
-      : '<input class="avatar-state-namein" data-bn="' + s + '" value="' + escapeHtml(label) + '" title="Body state name">';
-    const kwEl = builtIn ? '' : '<input class="avatar-state-kwin" data-bk="' + s + '" value="' + escapeHtml((p && p.keywords) || "") + '" placeholder="trigger words (comma separated)">';
+      ? '<span class="avatar-state-name">' + escapeHtml(label) + stageEl + '</span>'
+      : '<input class="avatar-state-namein" data-bn="' + s + '" value="' + escapeHtml(label) + '" title="Body state name">' + stageEl;
+    const kwEl = '<input class="avatar-state-kwin" data-bk="' + s + '" value="' + escapeHtml(kw) + '" placeholder="trigger words (comma separated)">';
     const own = [];
     if (p && p.img) own.push("own photo");
     if (p && (p.vid || 0) > 0) own.push(p.vid + " video" + (p.vid > 1 ? "s" : ""));
@@ -9547,7 +9578,14 @@ function buildBodySetupRows() {
     inp.onchange = () => { const p = companionState.body.points[inp.dataset.bn]; if (p) { p.name = inp.value.trim() || p.name; companionSave(); buildBodySetupRows(); } };
   });
   host.querySelectorAll("input.avatar-state-kwin[data-bk]").forEach((inp) => {
-    inp.onchange = () => { const p = companionState.body.points[inp.dataset.bk]; if (p) { p.keywords = inp.value.trim(); companionSave(); } };
+    inp.onchange = () => {
+      const s = inp.dataset.bk;
+      if (!companionState.body.kwords || typeof companionState.body.kwords !== "object") companionState.body.kwords = {};
+      companionState.body.kwords[s] = inp.value.trim();
+      const p = companionState.body.points[s];
+      if (p) p.keywords = inp.value.trim();
+      companionSave();
+    };
   });
 }
 function compBodyRowAction(b, s) {
@@ -10817,10 +10855,8 @@ function companionLiveExpress(text) {
   if (companionState.body && companionState.body.img) {
     const bkeys = compBodyKeys().filter(k => !COMP_BODY_LABELS[k]);
     for (const k of bkeys) {
-      const p = companionState.body.points[k];
-      if (!p || !p.keywords) continue;
-      const words = String(p.keywords).split(/[,;]/).map(w => w.trim().toLowerCase()).filter(Boolean);
-      if (words.some(w => t.indexOf(w) >= 0)) { companionShowBody(k); break; }
+      const words = compBodyKeywords(k).split(/[,;]/).map(w => w.trim().toLowerCase()).filter(Boolean);
+      if (words.length && words.some(w => t.indexOf(w) >= 0)) { companionShowBody(k); break; }
     }
   }
   if (!companionLive.active || !raw) return;
