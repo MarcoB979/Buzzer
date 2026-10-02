@@ -414,6 +414,14 @@
   .online-videos summary::after { content: "▾"; font-size: .7rem; }
   .online-videos[open] summary { margin-bottom: 8px; }
   .online-videos[open] summary::after { content: "▴"; }
+  .about-fold { margin-bottom: 10px; }
+  .about-fold summary { list-style: none; cursor: pointer; user-select: none; font-size: .85rem; font-weight: bold; color: #e2e8f0; display: flex; align-items: center; justify-content: space-between; padding: 2px 0; }
+  .about-fold summary::-webkit-details-marker { display: none; }
+  .about-fold .summary-left { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .about-fold .summary-value { font-weight: normal; font-size: .7rem; color: #38bdf8; }
+  .about-fold summary::after { content: "▾"; font-size: .7rem; color: #94a3b8; }
+  .about-fold[open] summary { margin-bottom: 6px; }
+  .about-fold[open] summary::after { content: "▴"; }
   .online-body { display: flex; flex-direction: column; gap: 8px; }
   .online-controls { display: flex; flex-direction: column; gap: 6px; }
   .online-controls input, .online-controls select { background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; width: 100%; box-sizing: border-box; }
@@ -1011,11 +1019,14 @@
           <span>✨ Avatar builder</span>
           <button class="ble-btn small" id="avatarSetupClose" type="button">✕</button>
         </div>
-        <div class="photo-modal-body" style="font-size:.8rem;">
-          <label style="display:block;margin-bottom:4px;">About yourself (who you are — the AI uses this to understand you and pick the right role)</label>
-          <textarea id="avatarAbout" rows="3" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. I'm a sissy boy, I like being dominated, body type, cock size…"></textarea>
-          <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">Who you are — your identity, role, body and preferences. The AI reads this to address you and play the right role. Updated automatically when you share things in chat.</div>
-        </div>
+        <details class="about-fold" id="aboutFold">
+          <summary><span class="summary-left">About yourself<span class="summary-value" id="aboutFoldVal"></span></span></summary>
+          <div class="photo-modal-body" style="font-size:.8rem;">
+            <label style="display:block;margin-bottom:4px;">Who you are — the AI uses this to understand you and pick the right role</label>
+            <textarea id="avatarAbout" rows="3" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. I'm a sissy boy, I like being dominated, body type, cock size…"></textarea>
+            <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">Updated automatically when you share things in chat. This is extra context — the builder below is the main part.</div>
+          </div>
+        </details>
         <div class="avatar-builder-head">
           <input type="text" id="avatarNameInput" placeholder="Avatar name">
           <button class="ble-btn small" id="avatarSaveBtn" type="button" title="Save this avatar">💾</button>
@@ -9205,6 +9216,7 @@ function companionOpenAvatarSetup() {
   if (p) p.value = companionState.persona || "";
   const ab = $("avatarAbout");
   if (ab) ab.value = companionState.about || "";
+  syncAboutFold();
   buildAvatarSwitcher();
   syncKindUI();
   buildAvatarSetupRows();
@@ -9759,6 +9771,7 @@ function compAvatarSaveCurrent() {
     if (pa) companionState.persona = pa.value.trim();
     const ab = $("avatarAbout");
     if (ab) companionState.about = ab.value.trim();
+    syncAboutFold();
   }
   const snap = compAvatarSnapshot();
   const name = (companionState.avatarName || "").trim();
@@ -11028,6 +11041,10 @@ function compAboutText() {
   if (!t) return "";
   return "\n\nABOUT THE USER (who THEY are — their identity, role, gender, body and preferences. Use this to address them, pick pronouns and your role, and keep the dynamic right): " + t;
 }
+function syncAboutFold() {
+  const v = $("aboutFoldVal");
+  if (v) v.textContent = (companionState.about || "").trim() ? "· set" : "";
+}
 const COMP_CUSTOM_EXAMPLES = [
   { title: "Gentle & Affectionate", text: "Be warm, tender and praise-heavy with me. Call me your boy, your good boy. Give soft affirmations, kisses and gentle dirty talk. Take it slow and caring — check in often and never rush me. When you instruct me, keep it soft and loving." },
   { title: "Strict Dom", text: "Be a firm, confident dom. Talk down to me playfully, give short commands and make me earn it. Tease and edge me. I like being told what to do, and being punished for being cheeky. Give me short, demanding instructions every 30–90 seconds. Call me your slut." },
@@ -11219,7 +11236,7 @@ async function compSend() {
       aiLog("stored a preference (memory)");
       if (inSetup) { try { localStorage.setItem("ossm-ai-memory-enabled", "1"); } catch (e) {} }
     }
-    if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); aiLog("updated about-you"); }
+    if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); syncAboutFold(); aiLog("updated about-you"); }
     if (res.face) companionApplyFace(res.face);
     if (res.avatar) { companionApplyAvatar(res.avatar); compSetupDone(); }
     if (res.video) aiApplyVideo(res.video);
@@ -11471,6 +11488,7 @@ function compLiveStart() {
     if (p) companionState.persona = p.value.trim();
     const ab = $("avatarAbout");
     if (ab) companionState.about = ab.value.trim();
+    syncAboutFold();
     companionSave();
     const m = $("avatarSetup"); if (m) m.style.display = "none";
     companionRender();
@@ -11657,7 +11675,7 @@ async function aiSend(opts) {
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && aiMemoryActive()) { aiSetMemory(res.memory); aiLog("stored a preference (memory)"); }
-    if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); aiLog("updated about-you"); }
+    if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); syncAboutFold(); aiLog("updated about-you"); }
     // Safety-limit changes: propose first, apply only after a clear confirmation.
     if (res.limits) {
       if (aiLimitsConfirmed() && compFreedomDirectRaise()) {
