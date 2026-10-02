@@ -912,6 +912,7 @@
             <button class="ble-btn small" id="compPrev" type="button" title="Previous avatar">◀</button>
             <button class="ble-btn small" id="compNext" type="button" title="Next avatar">▶</button>
             <button class="ble-btn small" id="compBuilderBtn" type="button" title="Open the Avatar builder">🧑 Builder</button>
+            <button class="ble-btn small" id="compFreedomBtn" type="button" title="Companion initiative — tap to change">🛡 Strict</button>
           </div>
           <div class="comp-social" id="compSocial" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
           <div class="comp-sliders" id="compSliders"></div>
@@ -8038,6 +8039,16 @@ function compFreedom() {
 }
 function compSetFreedom(m) {
   try { localStorage.setItem("ossm-companion-freedom", m); } catch (e) {}
+  syncCompFreedomUI();
+}
+function compFreedomLabel(f) {
+  return { strict: "🛡 Strict", playful: "😊 Playful", wild: "🔥 Wild", full: "⛓ Full" }[f] || f;
+}
+function syncCompFreedomUI() {
+  const sel = $("compFreedom");
+  if (sel) sel.value = compFreedom();
+  const b = $("compFreedomBtn");
+  if (b) b.textContent = compFreedomLabel(compFreedom());
 }
 function compFreedomStep() {
   const f = compFreedom();
@@ -12606,7 +12617,7 @@ function aiDebugRestore() {
   const compFreedomSel = $("compFreedom");
   if (compFreedomSel) {
     compFreedomSel.value = compFreedom();
-    const freedomWarn = (v) => {
+    window.compFreedomWarn = (v) => {
       const ov = $("freedomOverlay"), icon = $("freedomIcon"), title = $("freedomTitle"), body = $("freedomBody");
       if (!ov) return false;
       if (v === "full") {
@@ -12621,11 +12632,11 @@ function aiDebugRestore() {
       ov.style.display = "flex";
       return true;
     };
-    let freedomPending = null;
+    window.compFreedomPending = null;
     compFreedomSel.addEventListener("change", () => {
       const v = compFreedomSel.value;
       if (v === "wild" || v === "full") {
-        if (freedomWarn(v)) { freedomPending = v; return; }
+        if (compFreedomWarn(v)) { compFreedomPending = v; return; }
       }
       compSetFreedom(v);
       syncAiFreeWarning();
@@ -12633,11 +12644,22 @@ function aiDebugRestore() {
     const freedomClose = () => { const ov = $("freedomOverlay"); if (ov) ov.style.display = "none"; };
     const freedomAccept = $("freedomAccept");
     const freedomCancel = $("freedomCancel");
-    if (freedomAccept) freedomAccept.onclick = () => { if (freedomPending) compSetFreedom(freedomPending); freedomPending = null; freedomClose(); syncAiFreeWarning(); };
-    if (freedomCancel) freedomCancel.onclick = () => { if (freedomPending) compFreedomSel.value = compFreedom(); freedomPending = null; freedomClose(); };
+    if (freedomAccept) freedomAccept.onclick = () => { if (compFreedomPending) compSetFreedom(compFreedomPending); compFreedomPending = null; freedomClose(); syncAiFreeWarning(); };
+    if (freedomCancel) freedomCancel.onclick = () => { compFreedomPending = null; syncCompFreedomUI(); freedomClose(); };
     const fov = $("freedomOverlay");
-    if (fov) fov.addEventListener("click", (e) => { if (e.target === fov) { if (freedomPending) compFreedomSel.value = compFreedom(); freedomPending = null; freedomClose(); } });
+    if (fov) fov.addEventListener("click", (e) => { if (e.target === fov) { compFreedomPending = null; syncCompFreedomUI(); freedomClose(); } });
   }
+  const compFreeBtn = $("compFreedomBtn");
+  if (compFreeBtn) {
+    compFreeBtn.onclick = () => {
+      const order = ["strict", "playful", "wild", "full"];
+      const next = order[(order.indexOf(compFreedom()) + 1) % order.length];
+      if ((next === "wild" || next === "full") && compFreedomWarn(next)) { compFreedomPending = next; return; }
+      compSetFreedom(next);
+      syncAiFreeWarning();
+    };
+  }
+  syncCompFreedomUI();
   const localInput = $("aiLocalFolder");
   if (localInput) {
     localInput.addEventListener("change", () => {
