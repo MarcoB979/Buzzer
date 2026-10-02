@@ -6553,6 +6553,57 @@ function compWantsReal(text) {
   if (/\b(niet meer teasen|stop met teasen|ik wil je echt|doe het echt|doe het nu|ga je nu|ik wil het echt|nu echt|doe het dan)\b/.test(t)) return true;
   return false;
 }
+// Detect when the AI's OWN reply announces that it's about to fuck / is fucking
+// right now (prose, not a structured field) — so the app can make it real.
+function compAiInitiatesReal(text) {
+  const t = (text || "").toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 400) return false;
+  // English: first-person, announcing the act about to happen / happening now.
+  if (/(im going to|im gonna|im about to|ill|i will|now im|im now)/.test(t) && /\b(fuck|take you|thrust|pound|slam|enter you|shove|slide|push|inside you)\b/.test(t)) return true;
+  if (/\b(here (it|we) (comes?|goes?)|here i come|get ready|bend over)\b/.test(t) && /\b(cock|dick|fuck|pound|thrust|slide|push|shove|inside)\b/.test(t)) return true;
+  if (/\b(im (inside you|entering you|fucking you|thrusting|pounding) now)\b/.test(t)) return true;
+  // Dutch: first-person, announcing the act about to happen / happening now.
+  if (/\b(ik ga je( (nu|nou|dan))? (neuken|naaien|pakken)|ik ga (nu )?(naar binnen|erin|los)|ik (neuk|naai) je (nu|nou|meteen|dan))\b/.test(t)) return true;
+  if (/\bik (duw|schuif|steek|beuk|stoot|ram|neuk|naai)\b/.test(t) && /\b(in je|naar binnen|erin|mijn (pik|lul|cock|centimeter)|je (kutje|kontje|gaatje|billen|heupen|mondje))\b/.test(t)) return true;
+  if (/\b(voel je m|voel je hem|voel je mijn|ik zit (nu )?(diep )?in je|maak je klaar|buig voorover|hou je vast|houd je vast)\b/.test(t)) return true;
+  return false;
+}
+function compCheckAiInitiated(reply) {
+  if (!reply) return;
+  const clean = aiStripEmotionTags(reply);
+  if (clean && compAiInitiatesReal(clean)) compEnsureRealPlay("the AI announced it's about to fuck");
+}
+// The one place that turns "let's actually play" into the REAL procedure:
+// connect → safe word → positions → start. Runs app-side (never trusts the
+// LLM for safety-critical state).
+function compEnsureRealPlay(reason) {
+  const why = reason || "real play requested";
+  if (aiMachineRunning()) return;           // already moving — nothing to do
+  if (aiPos.active || aiPos.moving) return; // already in position setup
+  if (!connected) {
+    aiInjectSystem(
+      "I can't move yet — the OSSM isn't connected. Press Connect and I'll take you for real.",
+      "APP: " + why + " but the OSSM is NOT connected. Tell them in character to press Connect and wait. Do NOT describe any movement you are not actually doing."
+    );
+    if (aiSpeakEnabled()) aiSpeak("Press Connect and I'll take you for real.");
+    return;
+  }
+  if (!aiPosSafeWord()) {
+    aiInjectSystem(
+      aiPosNeedSafeWordText(),
+      "APP: " + why + " but no safe word is set this session. Do NOT describe any movement. In character, ask them for a safe word first."
+    );
+    if (aiSpeakEnabled()) aiSpeak(aiPosNeedSafeWordText());
+    return;
+  }
+  if (!aiLimitsConfirmed()) {
+    aiInjectSystem(null, "APP: " + why + ". Safe word is set but safety limits are not confirmed yet — start the position flow now so we can find their positions together.");
+    aiPosApplyEnvelope({ action: "start" }, aiCanRunActive());
+    return;
+  }
+  if (!aiCanRunActive()) return; // "can run" is disabled
+  if (aiStartMachine()) aiLog("real play started (" + why + ")");
+}
 function aiParseSafeWordSet(text) {
   const raw = String(text || "").toLowerCase().replace(/\u2019/g, "'").trim();
   if (!raw || raw.length > 80) return null;
@@ -11309,10 +11360,10 @@ async function compSend() {
       return;
     }
   }
-  // The user clearly wants the REAL thing — nudge the AI to switch from
-  // story-telling to the actual start flow instead of narrating actions.
+  // The user clearly wants the REAL thing — stop the story and drive the
+  // actual start flow (connect → safe word → positions → start) app-side.
   if (!aiPos.active && !aiMachineRunning() && compWantsReal(text)) {
-    aiInjectSystem(null, "The user is clearly asking for the REAL thing now — they want to actually be fucked, not more story. Stop the fantasy narration and do NOT describe the machine doing things it isn't doing. If the OSSM is NOT connected, tell them warmly (in character) to press Connect. If connected but no safe word is set, ask for the safe word. If connected with a safe word but no confirmed limits, start the position flow (\"pos\"). Only describe actual movement once the machine is really moving.");
+    compEnsureRealPlay("the user clearly asked for it for real");
   }
   compBusy = true;
   if (inp) inp.value = "";
@@ -11386,6 +11437,7 @@ async function compSend() {
           if (aiSpeakEnabled()) aiSpeak(clean);
           companionLiveExpress(res2.reply);
         }
+        if (res2.reply) compCheckAiInitiated(res2.reply);
         if (res2.lang) { try { localStorage.setItem("ossm-ai-lang", res2.lang); } catch (e) {} }
         if (res2.memory && (memOn || inSetup) && aiIsKeyedProvider()) { aiSetMemory(res2.memory); aiLog("stored a preference (memory)"); }
         if (res2.addon) aiApplyAddon(res2.addon);
@@ -11444,6 +11496,9 @@ async function compSend() {
     }
     if (res.addon) aiApplyAddon(res.addon);
     if (res.timer) compApplyTimer(res.timer);
+    // If the AI's reply announced it's about to fuck (in prose, no structured
+    // field), make it real instead of leaving it as a story.
+    if (res.reply) compCheckAiInitiated(res.reply);
   } catch (e) {
     if (th) th.remove();
     compAddMsg("assistant", "Hmm, I lost the connection — try again?");
