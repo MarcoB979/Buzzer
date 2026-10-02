@@ -692,6 +692,12 @@
   .avatar-builder-head input { width: 110px; }
   .avatar-kind-toggle { display: flex; gap: 6px; margin: 6px 0 10px; }
   .avatar-kind-toggle .ble-btn.active { background: #1d4ed8; }
+  .avatar-list { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 8px; margin-bottom: 6px; }
+  .avatar-card { display: flex; flex-direction: column; align-items: center; gap: 4px; background: #0b1220; border: 1px solid #1e293b; border-radius: 10px; padding: 6px; cursor: pointer; min-width: 68px; color: #e2e8f0; }
+  .avatar-card img { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; background: #1e293b; }
+  .avatar-card .avatar-card-nothumb { width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1e293b; font-size: 1.2rem; }
+  .avatar-card .avatar-card-name { font-size: .68rem; max-width: 68px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .avatar-card.active { border-color: #38bdf8; }
   #compConnect.on { background: #166534; }
   #compConnect.pulse { animation: compPulse .8s ease 3; }
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
@@ -871,7 +877,6 @@
           <button class="ble-btn small" id="compLiveTop" type="button" title="Keep listening — talk hands-free while playing">🎧</button>
           <button class="ble-btn small" id="compSpeakTop" type="button" title="Toggle spoken replies">🔊</button>
           <button class="ble-btn small" id="compNew" type="button" title="New session — clears the chat and limits, keeps your avatar and memory" style="font-size:1.05rem;line-height:1;">↻</button>
-          <button class="ble-btn small" id="compSetupBtn" type="button" title="Set up your companion — persona &amp; look">✨ Setup</button>
           <button class="ble-btn small" id="compClose" type="button" title="Close companion">✕</button>
         </div>
         <input type="file" id="aiLocalFolder" webkitdirectory multiple style="display:none;">
@@ -888,14 +893,9 @@
             <div class="comp-watch-video" id="comp-watch-video"></div>
           </div>
           <div class="companion-controls">
-            <button class="ble-btn small" id="compPrev" type="button" title="Previous face">◀</button>
-            <button class="ble-btn small" id="compNext" type="button" title="Next face">▶</button>
-            <button class="ble-btn small" id="compRefresh" type="button" title="Generate a fresh look">🔄</button>
-            <button class="ble-btn small" id="compUploadBtn" type="button" title="Use your own image">📁</button>
-            <input type="file" id="compUpload" accept="image/*" style="display:none;">
-            <button class="ble-btn small" id="compVideoBtn" type="button" title="Add a talking video — they take turns while I speak">🎬</button>
-            <input type="file" id="compVideoInput" accept="video/*" multiple style="display:none;">
-            <button class="ble-btn small" id="compVideoClearBtn" type="button" title="Remove all talking videos" style="display:none;">✕</button>
+            <button class="ble-btn small" id="compPrev" type="button" title="Previous avatar">◀</button>
+            <button class="ble-btn small" id="compNext" type="button" title="Next avatar">▶</button>
+            <button class="ble-btn small" id="compBuilderBtn" type="button" title="Open the Avatar builder">🧑 Avatar builder</button>
           </div>
           <div class="comp-social" id="compSocial" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
           <div class="comp-sliders" id="compSliders"></div>
@@ -982,12 +982,11 @@
           • <b>Simple (drawn)</b> — an illustrated face, generated instantly.<br>
           • <b>Real (photo/video)</b> — your own photos and videos, animated on this device (eye blinks, lip movement, expressions, and body focus).<br><br>
           Your avatar is saved on this device and reused every session, so the AI stays in character without re-asking who it is.<br><br>
-          <b>You are solely responsible for the rights to any photos or videos you use.</b> By continuing you confirm you own them (or have permission), that anyone shown consents where required, and that using them here complies with all applicable laws.
+          <b>You are solely responsible for the rights to ALL photos and videos you use in this avatar</b> — including expression photos, talking videos and the full-body photo. By continuing you confirm you own them (or have permission), that anyone shown consents where required, and that using and animating them here complies with all applicable laws.
         </div>
         <div class="photo-modal-actions" style="flex-wrap:wrap;">
           <button class="ble-btn small" id="avatarWelcomeCancel" type="button">Cancel</button>
-          <button class="ble-btn small" id="avatarWelcomeDrawn" type="button">I agree — create simple</button>
-          <button class="ble-btn small" id="avatarWelcomePhoto" type="button">I agree — create real</button>
+          <button class="ble-btn small" id="avatarWelcomeOk" type="button">I own the material &amp; agree</button>
         </div>
       </div>
     </div>
@@ -1000,11 +999,11 @@
         </div>
         <div class="avatar-builder-head">
           <input type="text" id="avatarNameInput" placeholder="Avatar name">
-          <select id="avatarSelect"></select>
           <button class="ble-btn small" id="avatarSaveBtn" type="button" title="Save this avatar">💾</button>
           <button class="ble-btn small" id="avatarNewBtn" type="button" title="New avatar">＋</button>
           <button class="ble-btn small" id="avatarDelBtn" type="button" title="Delete this avatar">🗑</button>
         </div>
+        <div class="avatar-list" id="avatarList"></div>
         <div class="avatar-kind-toggle">
           <button class="ble-btn small" id="avatarKindDrawn" type="button">Simple (drawn)</button>
           <button class="ble-btn small" id="avatarKindPhoto" type="button">Real (photo/video)</button>
@@ -1020,7 +1019,10 @@
           <div id="avatarBodyRows"></div>
           <button class="ble-btn small" id="avatarAddBody" type="button" style="margin-bottom:10px;">＋ Add body state</button>
         </div>
-        <div id="avatarDrawnHint" style="display:none;font-size:.78rem;color:#94a3b8;margin:8px 0;">Use the ◀ ▶ 🔄 buttons under the avatar to pick a drawn look — it's saved with this avatar.</div>
+        <div id="avatarDrawnHint" style="display:none;margin:8px 0;">
+          <button class="ble-btn small" id="avatarFreshBtn" type="button">🔄 Generate a fresh look</button>
+          <span style="font-size:.78rem;color:#94a3b8;"> — saved with this avatar.</span>
+        </div>
         <div class="photo-modal-actions" style="margin-top:10px;">
           <button class="ble-btn small" id="avatarSetupDone" type="button">Done</button>
         </div>
@@ -8962,6 +8964,7 @@ if (!companionState.body || typeof companionState.body !== "object" || Array.isA
 if (companionState.kind !== "drawn" && companionState.kind !== "photo") {
   companionState.kind = (companionState.customImage || (companionState.body && companionState.body.img) || Object.keys(companionState.expr || {}).some(k => companionState.expr[k] && companionState.expr[k].img)) ? "photo" : "drawn";
 }
+if (typeof companionState.consented !== "boolean") companionState.consented = false;
 function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
 // ---------- Avatar expressions (per-state photos/videos + landmarks) ----------
 const COMP_EXPR_STATES = ["laugh", "blush", "rough"];
@@ -9292,10 +9295,12 @@ function buildBodySetupRows() {
 }
 function compBodyRowAction(b, s) {
   if (b === "photo") {
-    const inp = document.createElement("input");
-    inp.type = "file"; inp.accept = "image/*";
-    inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compBodyUpload(f); };
-    inp.click();
+    compEnsureConsent(() => {
+      const inp = document.createElement("input");
+      inp.type = "file"; inp.accept = "image/*";
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compBodyUpload(f); };
+      inp.click();
+    });
   } else if (b === "photoclr") {
     companionState.body.img = null;
     companionSave();
@@ -9384,6 +9389,27 @@ function compBodyAddState() {
   buildBodySetupRows();
 }
 // ---------- Avatar builder (saved avatars + drawn vs real) ----------
+let compPendingConsent = null;
+function compEnsureConsent(then) {
+  if (companionState.consented) { if (then) then(); }
+  else { compPendingConsent = then; const m = $("avatarWelcome"); if (m) m.style.display = ""; }
+}
+function compConsentAgree() {
+  companionState.consented = true;
+  companionSave();
+  const cb = compPendingConsent; compPendingConsent = null;
+  const m = $("avatarWelcome"); if (m) m.style.display = "none";
+  if (cb) cb();
+}
+function compAvatarStep(delta) {
+  const list = compAvatars();
+  if (!list.length) { funLog("No saved avatars yet — open the Avatar builder to create one."); return; }
+  const cur = companionState.avatarId || "";
+  let idx = list.findIndex(a => a.id === cur);
+  if (idx < 0) idx = 0;
+  const next = list[(((idx + delta) % list.length) + list.length) % list.length];
+  compAvatarApply(next);
+}
 function compAvatars() {
   try { const a = JSON.parse(localStorage.getItem("ossm-companion-avatars") || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
 }
@@ -9442,7 +9468,7 @@ function compAvatarSaveCurrent() {
 function compAvatarDelete() {
   const id = companionState.avatarId;
   compAvatarsSave(compAvatars().filter(a => a.id !== id));
-  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: "drawn", avatarName: "", avatarId: null };
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: "drawn", avatarName: "", avatarId: null, consented: companionState.consented };
   ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   compExpr.state = "normal"; compExpr.until = 0;
@@ -9455,7 +9481,7 @@ function compAvatarDelete() {
   funLog("Avatar deleted.");
 }
 function compAvatarNewConfirm(kind) {
-  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: kind, avatarName: "", avatarId: null };
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: kind, avatarName: "", avatarId: null, consented: companionState.consented };
   ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   compExpr.state = "normal"; compExpr.until = 0;
@@ -9469,18 +9495,37 @@ function compAvatarNewConfirm(kind) {
   const p = $("avatarPersona"); if (p) p.value = "";
   funLog("New avatar created — pick Simple or Real, then set it up.");
 }
+function compAvatarThumb(a) {
+  if (!a) return "";
+  if (a.kind === "drawn" || (!a.customImage && !(a.body && a.body.img) && !Object.keys(a.expr || {}).some(k => a.expr[k] && a.expr[k].img))) {
+    const p = COMPANION_PRESETS[((a.preset || 0) % COMPANION_PRESETS.length + COMPANION_PRESETS.length) % COMPANION_PRESETS.length];
+    const g = Object.assign({ style: "lorelei", seed: "Noah" }, p, a.custom || {});
+    const hair = String(g.hair || "#f6d365").replace("#", "");
+    return "https://api.dicebear.com/9.x/" + (g.style || "lorelei") + "/svg?seed=" + encodeURIComponent(g.seed || "Noah") + "&hairColor=" + encodeURIComponent(hair);
+  }
+  if (a.customImage) return a.customImage;
+  if (a.body && a.body.img) return a.body.img;
+  const k = Object.keys(a.expr || {}).find(k => a.expr[k] && a.expr[k].img);
+  return k ? a.expr[k].img : "";
+}
 function buildAvatarSwitcher() {
-  const sel = $("avatarSelect");
-  if (!sel) return;
+  const host = $("avatarList");
+  if (!host) return;
+  host.innerHTML = "";
   const list = compAvatars();
   const cur = companionState.avatarId || "";
-  sel.innerHTML = "";
   if (!list.length) {
-    const o = document.createElement("option"); o.value = ""; o.textContent = "(unsaved)"; sel.appendChild(o);
-  } else {
-    list.forEach(a => { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name || "Avatar"; sel.appendChild(o); });
+    host.innerHTML = '<span style="font-size:.75rem;color:#94a3b8;">No saved avatars yet — set one up and press 💾.</span>';
   }
-  sel.value = cur || "";
+  list.forEach(a => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "avatar-card" + (a.id === cur ? " active" : "");
+    const thumb = compAvatarThumb(a);
+    card.innerHTML = (thumb ? '<img src="' + thumb + '" alt="">' : '<span class="avatar-card-nothumb">👤</span>') + '<span class="avatar-card-name">' + escapeHtml(a.name || "Avatar") + '</span>';
+    card.onclick = () => compAvatarApply(a);
+    host.appendChild(card);
+  });
   const ni = $("avatarNameInput");
   if (ni) ni.value = companionState.avatarName || "";
 }
@@ -9502,15 +9547,19 @@ function compAvatarSetKind(kind) {
 }
 function compAvatarRowAction(action, state) {
   if (action === "img") {
-    const inp = document.createElement("input");
-    inp.type = "file"; inp.accept = "image/*";
-    inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) companionConsentAndLoad(f, state); };
-    inp.click();
+    compEnsureConsent(() => {
+      const inp = document.createElement("input");
+      inp.type = "file"; inp.accept = "image/*";
+      inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) companionConsentAndLoad(f, state); };
+      inp.click();
+    });
   } else if (action === "vid") {
-    const inp = document.createElement("input");
-    inp.type = "file"; inp.accept = "video/*"; inp.multiple = true;
-    inp.onchange = () => { companionUploadVideos(inp.files, state); };
-    inp.click();
+    compEnsureConsent(() => {
+      const inp = document.createElement("input");
+      inp.type = "file"; inp.accept = "video/*"; inp.multiple = true;
+      inp.onchange = () => { companionUploadVideos(inp.files, state); };
+      inp.click();
+    });
   } else if (action === "cal") {
     const media = compStateMedia(state);
     if (!media.img) { funLog("Add a photo first, then I can point out the face."); return; }
@@ -10004,17 +10053,8 @@ function companionConsentAndLoad(file, state) {
   rd.readAsDataURL(file);
 }
 function companionLiveAskConsent(img, dataUrl, state) {
-  const modal = $("photoConsent");
-  if (!modal) { companionLiveDetect(img, dataUrl, state); return; }
-  modal.style.display = "";
-  const ok = $("photoConsentOk"), cancel = $("photoConsentCancel");
-  const done = (apply) => {
-    modal.style.display = "none";
-    ok.onclick = null; cancel.onclick = null;
-    if (apply) companionLiveDetect(img, dataUrl, state);
-  };
-  ok.onclick = () => done(true);
-  cancel.onclick = () => done(false);
+  // Consent is given once in the Avatar builder (covers all material).
+  companionLiveDetect(img, dataUrl, state);
 }
 function companionLiveDetect(img, dataUrl, state) {
   if (window.FaceDetector) {
@@ -10977,8 +11017,6 @@ function compLiveStart() {
 (function wireCompanion() {
   const fb = $("aiFaceBtn"); if (fb) fb.onclick = companionOpen;
   const close = $("compClose"); if (close) close.onclick = companionClose;
-  const setupBtn = $("compSetupBtn");
-  if (setupBtn) setupBtn.onclick = companionOpenAvatarSetup;
   const asDone = $("avatarSetupDone");
   if (asDone) asDone.onclick = () => {
     const p = $("avatarPersona");
@@ -10994,15 +11032,14 @@ function compLiveStart() {
   const abAdd = $("avatarAddBody");
   if (abAdd) abAdd.onclick = compBodyAddState;
   const asSave = $("avatarSaveBtn"); if (asSave) asSave.onclick = compAvatarSaveCurrent;
-  const asNew = $("avatarNewBtn"); if (asNew) asNew.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = ""; };
+  const asNew = $("avatarNewBtn"); if (asNew) asNew.onclick = () => compEnsureConsent(() => compAvatarNewConfirm("drawn"));
   const asDel = $("avatarDelBtn"); if (asDel) asDel.onclick = compAvatarDelete;
-  const asSel = $("avatarSelect"); if (asSel) asSel.onchange = () => { const snap = compAvatars().find(a => a.id === asSel.value); if (snap) compAvatarApply(snap); };
   const asName = $("avatarNameInput"); if (asName) asName.onchange = () => { companionState.avatarName = asName.value.trim(); companionSave(); buildAvatarSwitcher(); };
   const kDrawn = $("avatarKindDrawn"); if (kDrawn) kDrawn.onclick = () => compAvatarSetKind("drawn");
   const kPhoto = $("avatarKindPhoto"); if (kPhoto) kPhoto.onclick = () => compAvatarSetKind("photo");
-  const wCancel = $("avatarWelcomeCancel"); if (wCancel) wCancel.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = "none"; };
-  const wDrawn = $("avatarWelcomeDrawn"); if (wDrawn) wDrawn.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = "none"; compAvatarNewConfirm("drawn"); };
-  const wPhoto = $("avatarWelcomePhoto"); if (wPhoto) wPhoto.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = "none"; compAvatarNewConfirm("photo"); };
+  const wCancel = $("avatarWelcomeCancel"); if (wCancel) wCancel.onclick = () => { compPendingConsent = null; const m = $("avatarWelcome"); if (m) m.style.display = "none"; };
+  const wOk = $("avatarWelcomeOk"); if (wOk) wOk.onclick = compConsentAgree;
+  const freshBtn = $("avatarFreshBtn"); if (freshBtn) freshBtn.onclick = companionRefresh;
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
@@ -11013,14 +11050,9 @@ function compLiveStart() {
   const compLocal = $("compLocalBtn");
   if (compLocal) compLocal.onclick = () => { const inp = $("aiLocalFolder"); if (inp) inp.click(); };
   window.addEventListener("resize", () => { if (companionState.shown) companionApplyLayout(); });
-  const prev = $("compPrev"); if (prev) prev.onclick = () => companionPreset(-1);
-  const next = $("compNext"); if (next) next.onclick = () => companionPreset(1);
-  const up = $("compUploadBtn"); const upi = $("compUpload");
-  if (up && upi) { up.onclick = () => upi.click(); upi.onchange = () => { const f = upi.files && upi.files[0]; upi.value = ""; companionUpload(f); }; }
-  const vidBtn = $("compVideoBtn"); const vidInp = $("compVideoInput");
-  if (vidBtn && vidInp) { vidBtn.onclick = () => vidInp.click(); vidInp.onchange = () => { companionUploadVideos(vidInp.files); vidInp.value = ""; }; }
-  const vidClear = $("compVideoClearBtn");
-  if (vidClear) vidClear.onclick = () => { compVideoForget(); companionSave(); companionRender(); syncCompVideoAvatar(); };
+  const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
+  const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
+  const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
@@ -11028,7 +11060,6 @@ function compLiveStart() {
   const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
   const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
   const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
-  const refreshBtn = $("compRefresh"); if (refreshBtn) refreshBtn.onclick = companionRefresh;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
   setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompRailPos(); syncCompVideoAvatar(); }, 180);
   document.addEventListener("pointermove", (e) => {
