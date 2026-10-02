@@ -9737,11 +9737,16 @@ function compAvatarApply(snap) {
 }
 function compAvatarSaveCurrent() {
   // Read the name/persona straight from the inputs so a freshly typed
-  // persona is saved even if the user didn't blur the field first.
-  const ni = $("avatarNameInput");
-  if (ni) companionState.avatarName = ni.value.trim();
-  const pa = $("avatarPersona");
-  if (pa) companionState.persona = pa.value.trim();
+  // persona is saved even if the user didn't blur the field first. Only do
+  // this when the builder is actually open — otherwise the inputs are
+  // stale/empty and would wipe a saved name or persona.
+  const setup = $("avatarSetup");
+  if (setup && setup.style.display !== "none") {
+    const ni = $("avatarNameInput");
+    if (ni) companionState.avatarName = ni.value.trim();
+    const pa = $("avatarPersona");
+    if (pa) companionState.persona = pa.value.trim();
+  }
   const snap = compAvatarSnapshot();
   const name = (companionState.avatarName || "").trim();
   if (name) snap.name = name;
