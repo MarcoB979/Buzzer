@@ -675,7 +675,7 @@
   .photo-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
   .photo-modal-actions .ble-btn.danger { background: #7f1d1d; }
   .photo-calib-stage { position: relative; width: fit-content; max-width: 100%; margin: 0 auto 10px; overflow: hidden; border-radius: 10px; cursor: crosshair; background: #000; }
-  .photo-calib-stage img { display: block; max-width: 100%; max-height: 46vh; width: auto; height: auto; transform-origin: center center; }
+  .photo-calib-stage img { display: block; max-width: 100%; max-height: 46vh; width: auto; height: auto; transform-origin: 0 0; }
   .photo-calib-dot { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #38bdf8; border: 2px solid #fff; transform: translate(-50%,-50%); pointer-events: none; box-shadow: 0 0 6px rgba(0,0,0,.5); }
   .photo-calib-hint { font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
   .photo-calib-rot { display: flex; align-items: center; gap: 8px; font-size: .78rem; color: #94a3b8; margin-bottom: 10px; }
@@ -10272,7 +10272,9 @@ function companionLiveCalibrate(img, dataUrl, state) {
   simg.src = img.src;
   const stepText = ["Tap one eye", "Tap the other eye", "Tap the mouth"];
   let zoom = 1;
+  let panX = 0, panY = 0;
   let userRotated = false;
+  let panMode = false, panStart = null, moved = false;
   // Pre-load existing points (for re-calibration) so they can be dragged.
   const prevLm = compStateMedia(state || "normal").lm;
   let clicks = [];
@@ -10301,21 +10303,32 @@ function companionLiveCalibrate(img, dataUrl, state) {
   };
   const renderDots = () => {
     stage.querySelectorAll(".photo-calib-dot").forEach(d => d.remove());
+    const fitW = simg.offsetWidth || 1, fitH = simg.offsetHeight || 1;
     clicks.forEach((c) => {
       const d = document.createElement("div");
       d.className = "photo-calib-dot";
-      const sx = (c[0] - 0.5) * zoom + 0.5;
-      const sy = (c[1] - 0.5) * zoom + 0.5;
-      d.style.left = (sx * 100) + "%"; d.style.top = (sy * 100) + "%";
+      const px = (panX + c[0] * fitW * zoom) / fitW * 100;
+      const py = (panY + c[1] * fitH * zoom) / fitH * 100;
+      d.style.left = px + "%"; d.style.top = py + "%";
       stage.appendChild(d);
     });
   };
-  const applyZoom = () => {
-    simg.style.transform = "scale(" + zoom + ")";
+  const applyTransform = () => {
+    simg.style.transform = "translate(" + panX + "px, " + panY + "px) scale(" + zoom + ")";
     if (zoomVal) zoomVal.textContent = Math.round(zoom * 100) + "%";
     renderDots();
   };
-  const updateHint = () => { hint.textContent = clicks.length < 3 ? stepText[clicks.length] : "Drag a dot to adjust, zoom to be precise — then tap Apply."; };
+  const setZoom = (newZ) => {
+    newZ = Math.max(1, Math.min(5, newZ));
+    const fitW = simg.offsetWidth || 1, fitH = simg.offsetHeight || 1;
+    const cx = fitW / 2, cy = fitH / 2;
+    // Keep the image point under the viewport center fixed while zooming.
+    panX = cx - (cx - panX) * (newZ / zoom);
+    panY = cy - (cy - panY) * (newZ / zoom);
+    zoom = newZ;
+    applyTransform();
+  };
+  const updateHint = () => { hint.textContent = clicks.length < 3 ? stepText[clicks.length] : "Drag a dot to adjust, drag empty space to pan, scroll to zoom — then tap Apply."; };
   const updateAutoRot = () => {
     if (!userRotated && rotEl && clicks.length >= 2) {
       rotEl.value = String(Math.round(autoRot() * 10) / 10);
@@ -10329,24 +10342,39 @@ function companionLiveCalibrate(img, dataUrl, state) {
     let nearest = -1, best = 0.05;
     clicks.forEach((c, idx) => { const d = Math.hypot(c[0] - p[0], c[1] - p[1]); if (d < best) { best = d; nearest = idx; } });
     if (nearest >= 0) { dragging = nearest; try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
-    else if (clicks.length < 3) { clicks.push(p); renderDots(); updateAutoRot(); updateHint(); }
+    else { panMode = true; moved = false; panStart = { x: e.clientX, y: e.clientY, tx: panX, ty: panY }; try { stage.setPointerCapture(e.pointerId); } catch (err) {} }
   });
   stage.addEventListener("pointermove", (e) => {
-    if (dragging < 0) return;
-    const p = toNorm(e);
-    if (!p) return;
-    clicks[dragging] = p;
-    renderDots();
-    updateAutoRot();
+    if (dragging >= 0) {
+      const p = toNorm(e);
+      if (p) { clicks[dragging] = p; renderDots(); updateAutoRot(); }
+    } else if (panMode) {
+      const dx = e.clientX - panStart.x, dy = e.clientY - panStart.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) moved = true;
+      panX = panStart.tx + dx; panY = panStart.ty + dy;
+      applyTransform();
+    }
   });
-  const endDrag = () => { dragging = -1; };
+  const endDrag = (e) => {
+    if (panMode && !moved) {
+      const p = toNorm(e);
+      if (p && clicks.length < 3) { clicks.push(p); renderDots(); updateAutoRot(); updateHint(); }
+    }
+    panMode = false; dragging = -1;
+  };
   stage.addEventListener("pointerup", endDrag);
   stage.addEventListener("pointercancel", endDrag);
+  stage.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.15 : 0.15;
+    setZoom(zoom + delta);
+    if (zoomEl) zoomEl.value = String(Math.round(zoom * 100));
+  }, { passive: false });
   if (rotEl) {
     rotEl.oninput = () => { userRotated = true; syncRotLabel(false); };
   }
   if (zoomEl) {
-    zoomEl.oninput = () => { zoom = (parseInt(zoomEl.value, 10) || 100) / 100; applyZoom(); };
+    zoomEl.oninput = () => { setZoom((parseInt(zoomEl.value, 10) || 100) / 100); };
   }
   const finish = (ok) => {
     let pts = null;
@@ -10365,7 +10393,7 @@ function companionLiveCalibrate(img, dataUrl, state) {
   apply.onclick = () => finish(true);
   cancel.onclick = () => finish(false);
   syncRotLabel(false);
-  applyZoom();
+  applyTransform();
   updateHint();
 }
 function companionLiveComputeFace(img, pts) {
