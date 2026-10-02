@@ -7381,6 +7381,16 @@ function aiPosReadyText() {
   const c = aiSafetyCaps();
   return L.replace("{min}", String(c.minDepth)).replace("{max}", String(c.maxDepth)).replace("{spd}", String(c.maxSpeed));
 }
+const AI_POS_DISTRESS = {
+  en: "Oh no — I've stopped everything. Are you okay? Take your time.",
+  nl: "Oh nee — ik ben meteen gestopt. Gaat het? Neem je tijd.",
+  de: "Oh nein — ich habe sofort gestoppt. Geht es dir gut? Lass dir Zeit.",
+  fr: "Oh non — j'ai tout arrêté. Ça va ? Prends ton temps."
+};
+function aiPosDistressText() {
+  const L = AI_POS_DISTRESS[aiStoredLang()] || AI_POS_DISTRESS.en;
+  return L;
+}
 const AI_POS_VERIFY = {
   en: "I stopped at {n}. Is that your point? Say \"yes\" to save it, or \"a bit more\" / \"a bit back\".",
   nl: "Ik ben gestopt op {n}. Is dat je punt? Zeg \"ja\" om het op te slaan, of \"iets meer\" / \"iets terug\".",
@@ -8435,11 +8445,13 @@ function aiPosIsHardStop(t) {
   return aiPosLooksLikeStop(t);
 }
 function aiPosLooksLikeStop(t) {
-  // Tolerate common typos of "stop"/"stoppen"/"halt"/"pauze"/"wait".
+  // Tolerate common typos of "stop"/"stoppen"/"halt"/"pauze"/"wacht", but only
+  // for words of length >= 4. Short words ("wat", "tot", "dit"…) are far too
+  // common in normal sentences and caused false stops (e.g. "wat" ~ "wait").
   const words = String(t || "").toLowerCase().split(/[^a-z]+/).filter(Boolean);
-  const targets = ["stop", "stoppen", "halt", "pauze", "wacht", "wait"];
+  const targets = ["stop", "stoppen", "halt", "pauze", "wacht"];
   for (const w of words) {
-    if (w.length < 3 || w.length > 8) continue;
+    if (w.length < 4 || w.length > 8) continue;
     for (const tg of targets) {
       if (w.startsWith(tg) || tg.startsWith(w)) return true;
       if (Math.abs(w.length - tg.length) <= 1 && aiPosEditDistance(w, tg) <= 1) return true;
@@ -8457,6 +8469,27 @@ function aiPosEditDistance(a, b) {
     d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
   }
   return d[m][n];
+}
+function aiPosIsDistress(t) {
+  // Pain / discomfort / alarm words — these ALWAYS abort, never record a point.
+  if (/\b(pijn|auw|au|ouch|ow|oww|doet (zeer|pijn)|(zeer|pijn) doen|te diep|te ver|niet (goed|fijn|lekker|ok|oke|leuk)|hurts?|pain|painful|too (deep|far|much)|uncomfortable|kapot|ziekenhuis|stoppen (nu|aub|alsjeblieft)|stop (nu|please|aub|alsjeblieft))\b/.test(t)) return true;
+  // Emphatic NO + STOP ("NEE! STOP!") is an alarm, not a boundary point.
+  if (/\b(nee|no|non|nein)\b/.test(t) && /\b(stop|stoppen|pijn|au|ouch|niet|kapot|doet)\b/.test(t)) return true;
+  return false;
+}
+function aiPosAbortDistress(text) {
+  aiPosStopAuto();
+  aiPosStop();
+  aiPos.moving = false;
+  aiPos.awaitingConfirm = null;
+  monitor("local: distress — aborting position setup: " + text, "warn");
+  const msg = aiPosDistressText();
+  aiAddMsg("assistant", msg);
+  if (aiSpeakEnabled()) aiSpeak(msg);
+  aiPosReset();
+  aiPosRestoreMode();
+  aiPosSyncAp();
+  aiInjectSystem(null, "APP ABORTED POSITION SETUP because the user sounded hurt or alarmed. The machine is fully stopped. Do NOT describe any movement and do NOT restart positioning. Stay warm and in character, check on them, and wait for them to tell you what is wrong.");
 }
 function aiPosIsKeepGoing(t) {
   return /\b(verder|meer|dieper|deeper|more|further|keep going|go on|go further|ga door|ga verder|doorgaan|continue|door|plus|a bit more|a little more|iets meer|een beetje meer|nog meer|nog wat|nog verder)\b/.test(t);
@@ -8486,6 +8519,13 @@ function aiPosHandleInput(text, inp) {
     aiStopLive();
     aiAddMsg("assistant", "Safe word — full emergency stop.");
     aiSpeak("Emergency stop.");
+    return true;
+  }
+  // 1b) pain / distress / alarm → abort the whole setup, never record a point
+  if (aiPosIsDistress(tl)) {
+    if (inp) inp.value = "";
+    aiAddMsg("user", escapeHtml(text));
+    aiPosAbortDistress(text);
     return true;
   }
   // Speed step: the user answers the max-speed question with a number.
@@ -8623,6 +8663,14 @@ function aiPosApplyEnvelope(P, canRun) {
     return;
   }
   if (a === "start") {
+    if (aiLimitsConfirmed()) {
+      aiLog("blocked position setup start — safety limits already confirmed this session");
+      aiInjectSystem(
+        "I skipped re-running position setup — your safety limits are already confirmed for this session.",
+        "APP BLOCKED POSITION SETUP: the safety limits are ALREADY confirmed this session. Do NOT restart positioning, do NOT describe any movement, and do NOT send {\"action\":\"start\"} again. Just continue within the existing limits (\"run\":\"start\" is enough when they want to play)."
+      );
+      return;
+    }
     if (!aiPosSafeWord()) {
       aiLog("blocked position setup start — no safe word set yet");
       aiInjectSystem(
