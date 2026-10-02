@@ -6725,9 +6725,14 @@ function aiMachineRunning() {
   return speed() > 0;
 }
 function aiStartMachine() {
-  if (!connected) { aiAddMsg("system", "Not connected — connect the OSSM first."); return; }
-  if (!machineRunningState()) { aiAddMsg("system", "The OSSM isn't ready yet (still homing)."); return; }
-  if (aiMachineRunning()) return; // already running
+  if (!connected) { aiAddMsg("system", "Not connected — connect the OSSM first."); return false; }
+  if (!machineRunningState()) { aiAddMsg("system", "The OSSM isn't ready yet (still homing)."); return false; }
+  if (aiMachineRunning()) return false; // already running
+  if (!aiPosSafeWord()) {
+    aiAddMsg("system", "Set a safe word first — tell me a word that stops everything instantly.");
+    aiInjectSystem(null, "APP BLOCKED START: no safe word is set this session. Do NOT describe movement and do NOT start. Ask the user for a safe word first.");
+    return false;
+  }
   const caps = aiSafetyCaps();
   if (appMode === "std") {
     const t = aiStartTarget > 0 ? aiStartTarget : (stdLastSpeed > 0 ? stdLastSpeed : DEFAULT_RESUME_SPEED);
@@ -6740,6 +6745,7 @@ function aiStartMachine() {
     monitor("OSSM started");
     rampSpeed(speed(), clamp(t, 0, caps.maxSpeed));
   }
+  return true;
 }
 function aiPauseMachine() {
   if (!connected || !aiMachineRunning()) return; // already paused
@@ -7312,6 +7318,12 @@ const AI_REMIND_SAFEWORD = {
   de: (w) => " Dein Sicherheitswort ist weiterhin \"" + w + "\" — sag \"ändere das Sicherheitswort zu …\", wenn du ein neues möchtest.",
   fr: (w) => " Ton mot de sécurité est toujours \"" + w + "\" — dis \"change le mot de sécurité en …\" si tu en veux un nouveau."
 };
+const AI_ASK_SAFEWORD = {
+  en: "Before we do anything, tell me your safe word — the one word that stops everything instantly.",
+  nl: "Voor we iets doen, vertel me je veiligheidswoord — dat ene woord dat alles meteen stopt.",
+  de: "Bevor wir irgendetwas tun, sag mir dein Sicherheitswort — das eine Wort, das alles sofort stoppt.",
+  fr: "Avant de faire quoi que ce soit, dis-moi ton mot de sécurité — le mot qui arrête tout instantanément."
+};
 const AI_POS_CONFIRM = {
   en: { min: "Is this your START point — the shallowest spot, where each stroke should begin?", max: "Is this your DEEPEST point?", generic: "Is this the spot?" },
   nl: { min: "Is dit je STARTPUNT — het ondiepste punt, waar elke slag begint?", max: "Is dit je DIEPSTE punt?", generic: "Is dit de goede plek?" },
@@ -7487,10 +7499,11 @@ function aiNewSession(confirmFirst) {
   if (h) h.innerHTML = "";
   const inp = $("aiInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
+  aiPosClearSafeWord(); // safe word is per session — always ask fresh
   const lang = aiStoredLang();
   const ask = AI_ASK_LIMITS[lang] || AI_ASK_LIMITS.en;
-  const sw = aiPosSafeWord();
-  const greet = sw ? (ask + (AI_REMIND_SAFEWORD[lang] || AI_REMIND_SAFEWORD.en)(sw)) : ask;
+  const askSw = AI_ASK_SAFEWORD[lang] || AI_ASK_SAFEWORD.en;
+  const greet = ask + " " + askSw;
   aiMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   aiAddMsg("assistant", escapeHtml(greet));
   aiDebugPersistSoon();
@@ -7969,10 +7982,25 @@ function aiPosSetRehomeConfirmed() {
   try { localStorage.setItem("ossm-ai-pos-rehome", "1"); } catch (e) {}
 }
 function aiPosSafeWord() {
-  try { return (localStorage.getItem("ossm-ai-pos-safeword") || "").trim(); } catch (e) { return ""; }
+  try { return (sessionStorage.getItem("ossm-ai-pos-safeword") || "").trim(); } catch (e) { return ""; }
 }
 function aiPosSetSafeWord(w) {
-  try { localStorage.setItem("ossm-ai-pos-safeword", w); } catch (e) {}
+  const v = String(w || "").trim();
+  try { sessionStorage.setItem("ossm-ai-pos-safeword", v); } catch (e) {}
+  if (v) aiMemoryRemoveSafeWordNote();
+}
+function aiPosClearSafeWord() {
+  try { sessionStorage.removeItem("ossm-ai-pos-safeword"); } catch (e) {}
+  aiMemoryRemoveSafeWordNote();
+}
+function aiMemoryRemoveSafeWordNote() {
+  // The safe word lives ONLY in the app (per session). Strip any old
+  // "stopword/safe word" line from the AI's memory so it can never contradict
+  // the active safe word.
+  const m = aiMemory();
+  if (!m) return;
+  const lines = m.split("\n").map(l => l.trim()).filter(l => l && !/\b(stopwoord|safe\s*word|veiligheidswoord|sicherheitswort|mot de s[ée]curit[ée])\b/i.test(l));
+  aiSetMemory(lines.join("\n"));
 }
 function aiStopMode() {
   try { return localStorage.getItem("ossm-ai-stop-mode") === "gentle" ? "gentle" : "emergency"; } catch (e) { return "emergency"; }
@@ -10029,9 +10057,11 @@ function compNewSession(confirmFirst) {
   if (h) h.innerHTML = "";
   const inp = $("compInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
+  aiPosClearSafeWord(); // safe word is per session — always ask fresh
   const lang = aiStoredLang();
   const greetings = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
-  const greet = greetings[Math.floor(Math.random() * greetings.length)];
+  const askSw = AI_ASK_SAFEWORD[lang] || AI_ASK_SAFEWORD.en;
+  const greet = greetings[Math.floor(Math.random() * greetings.length)] + " " + askSw;
   compMessages.push({ role: "assistant", content: greet, ts: Date.now() });
   compAddMsg("assistant", escapeHtml(greet));
   if (aiSpeakEnabled()) aiSpeak(greet);
@@ -11141,7 +11171,7 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compExprContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compExprContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -11230,7 +11260,7 @@ async function compSend() {
     }
     if (res.run && aiCanRunActive()) {
       if (res.run === "start") {
-        if (aiLimitsConfirmed()) { aiStartMachine(); aiLog("started the machine"); }
+        if (aiLimitsConfirmed()) { if (aiStartMachine()) aiLog("started the machine"); }
         else { compAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); aiLog("wanted to start — blocked (no limits)"); }
       }
       else if (res.run === "pause") { aiPauseMachine(); aiLog("paused the machine"); }
@@ -11558,7 +11588,7 @@ async function aiSend(opts) {
       if (!aiCanRun()) { aiAddMsg("assistant", "I'm not allowed to start the machine — \"can run (start/pause)\" is off in the AI settings."); }
       else if (aiMachineRunning()) { aiAddMsg("assistant", "Already moving."); }
       else if (!aiLimitsConfirmed()) { aiAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); }
-      else { aiStartMachine(); aiLog("started the machine (local)"); aiAddMsg("assistant", "Starting."); aiSpeak("Starting."); }
+      else { if (aiStartMachine()) { aiLog("started the machine (local)"); aiAddMsg("assistant", "Starting."); aiSpeak("Starting."); } }
       return;
     }
   }
@@ -11636,7 +11666,7 @@ async function aiSend(opts) {
     if (res.params) aiApplySet(res.params);
     if (res.run && aiCanRunActive()) {
       if (res.run === "start") {
-        if (aiLimitsConfirmed()) { aiStartMachine(); aiLog("started the machine"); }
+        if (aiLimitsConfirmed()) { if (aiStartMachine()) aiLog("started the machine"); }
         else { aiAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); aiLog("wanted to start — blocked (no limits)"); }
       }
       else if (res.run === "pause") { aiPauseMachine(); aiLog("paused the machine"); }
