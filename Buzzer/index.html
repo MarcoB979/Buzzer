@@ -686,6 +686,12 @@
   .avatar-state-namein, .avatar-state-kwin { background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; padding: 4px 6px; font-size: .75rem; }
   .avatar-state-namein { width: 92px; flex: 0 0 auto; }
   .avatar-state-kwin { flex: 1 1 100%; margin-top: 2px; }
+  .avatar-builder-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .avatar-builder-head select, .avatar-builder-head input { background: #0b1220; border: 1px solid #1e293b; border-radius: 6px; color: #e2e8f0; padding: 5px 6px; font-size: .78rem; }
+  .avatar-builder-head select { flex: 1; min-width: 0; }
+  .avatar-builder-head input { width: 110px; }
+  .avatar-kind-toggle { display: flex; gap: 6px; margin: 6px 0 10px; }
+  .avatar-kind-toggle .ble-btn.active { background: #1d4ed8; }
   #compConnect.on { background: #166534; }
   #compConnect.pulse { animation: compPulse .8s ease 3; }
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
@@ -951,18 +957,70 @@
       </div>
     </div>
 
+    <div class="photo-modal" id="bodyCalib" style="display:none;">
+      <div class="photo-modal-card">
+        <div class="photo-modal-title" id="bodyCalibTitle">Tap the focus point</div>
+        <div class="photo-calib-stage" id="bodyCalibStage"><img id="bodyCalibImg" alt=""></div>
+        <div class="photo-calib-hint" id="bodyCalibHint">Tap the body part to focus on</div>
+        <div class="photo-calib-rot">
+          <span>Zoom</span>
+          <input type="range" id="bodyCalibZoom" min="100" max="300" step="10" value="150">
+          <span id="bodyCalibZoomVal">1.5×</span>
+        </div>
+        <div class="photo-modal-actions">
+          <button class="ble-btn small" id="bodyCalibCancel" type="button">Cancel</button>
+          <button class="ble-btn small" id="bodyCalibDone" type="button">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="photo-modal" id="avatarWelcome" style="display:none;">
+      <div class="photo-modal-card">
+        <div class="photo-modal-title">Create a new avatar</div>
+        <div class="photo-modal-body">
+          You can build two kinds of avatars:<br>
+          • <b>Simple (drawn)</b> — an illustrated face, generated instantly.<br>
+          • <b>Real (photo/video)</b> — your own photos and videos, animated on this device (eye blinks, lip movement, expressions, and body focus).<br><br>
+          Your avatar is saved on this device and reused every session, so the AI stays in character without re-asking who it is.<br><br>
+          <b>You are solely responsible for the rights to any photos or videos you use.</b> By continuing you confirm you own them (or have permission), that anyone shown consents where required, and that using them here complies with all applicable laws.
+        </div>
+        <div class="photo-modal-actions" style="flex-wrap:wrap;">
+          <button class="ble-btn small" id="avatarWelcomeCancel" type="button">Cancel</button>
+          <button class="ble-btn small" id="avatarWelcomeDrawn" type="button">I agree — create simple</button>
+          <button class="ble-btn small" id="avatarWelcomePhoto" type="button">I agree — create real</button>
+        </div>
+      </div>
+    </div>
+
     <div class="photo-modal" id="avatarSetup" style="display:none;">
       <div class="photo-modal-card" style="max-width:600px;max-height:92vh;overflow:auto;">
         <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
-          <span>✨ Avatar setup</span>
+          <span>✨ Avatar builder</span>
           <button class="ble-btn small" id="avatarSetupClose" type="button">✕</button>
+        </div>
+        <div class="avatar-builder-head">
+          <input type="text" id="avatarNameInput" placeholder="Avatar name">
+          <select id="avatarSelect"></select>
+          <button class="ble-btn small" id="avatarSaveBtn" type="button" title="Save this avatar">💾</button>
+          <button class="ble-btn small" id="avatarNewBtn" type="button" title="New avatar">＋</button>
+          <button class="ble-btn small" id="avatarDelBtn" type="button" title="Delete this avatar">🗑</button>
+        </div>
+        <div class="avatar-kind-toggle">
+          <button class="ble-btn small" id="avatarKindDrawn" type="button">Simple (drawn)</button>
+          <button class="ble-btn small" id="avatarKindPhoto" type="button">Real (photo/video)</button>
         </div>
         <div class="photo-modal-body" style="font-size:.8rem;">
           <label style="display:block;margin-bottom:4px;">Who is this avatar? (persona — the AI uses this to stay in character and decide what to show)</label>
           <textarea id="avatarPersona" rows="3" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
         </div>
-        <div id="avatarStateRows"></div>
-        <button class="ble-btn small" id="avatarAddExpr" type="button" style="margin-bottom:10px;">＋ Add expression</button>
+        <div id="avatarPhotoSections">
+          <div id="avatarStateRows"></div>
+          <button class="ble-btn small" id="avatarAddExpr" type="button" style="margin-bottom:10px;">＋ Add expression</button>
+          <div style="font-size:.8rem;font-weight:bold;margin:14px 0 4px;">Body states (full-body photo)</div>
+          <div id="avatarBodyRows"></div>
+          <button class="ble-btn small" id="avatarAddBody" type="button" style="margin-bottom:10px;">＋ Add body state</button>
+        </div>
+        <div id="avatarDrawnHint" style="display:none;font-size:.78rem;color:#94a3b8;margin:8px 0;">Use the ◀ ▶ 🔄 buttons under the avatar to pick a drawn look — it's saved with this avatar.</div>
         <div class="photo-modal-actions" style="margin-top:10px;">
           <button class="ble-btn small" id="avatarSetupDone" type="button">Done</button>
         </div>
@@ -8894,6 +8952,16 @@ if (!companionState.expr || typeof companionState.expr !== "object" || Array.isA
   ["laugh", "blush", "rough"].forEach(s => { const e = companionState.expr[s] || { img:null, vids:0, lm:null }; e.img = e.img || null; e.vids = e.vids || 0; e.lm = e.lm || null; companionState.expr[s] = e; });
 }
 if (typeof companionState.persona !== "string") companionState.persona = "";
+if (!companionState.body || typeof companionState.body !== "object" || Array.isArray(companionState.body)) {
+  companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
+} else {
+  if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
+  if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
+  if (typeof companionState.body.img !== "string") companionState.body.img = null;
+}
+if (companionState.kind !== "drawn" && companionState.kind !== "photo") {
+  companionState.kind = (companionState.customImage || (companionState.body && companionState.body.img) || Object.keys(companionState.expr || {}).some(k => companionState.expr[k] && companionState.expr[k].img)) ? "photo" : "drawn";
+}
 function companionSave() { try { localStorage.setItem("ossm-companion", JSON.stringify(companionState)); } catch (e) {} }
 // ---------- Avatar expressions (per-state photos/videos + landmarks) ----------
 const COMP_EXPR_STATES = ["laugh", "blush", "rough"];
@@ -8937,6 +9005,21 @@ function companionRender() {
   const box = $("companionAvatar");
   if (!box) return;
   const state = compActiveState();
+  if (compIsBodyState(state)) {
+    companionLiveStop();
+    box.innerHTML = '<div class="companion-img live"><canvas class="live"></canvas></div>';
+    if (companionState.body.img) {
+      if (companionBody.img && companionBody.src === companionState.body.img) companionBodyStart(state);
+      else {
+        const im = new Image();
+        im.onload = () => { companionBody.img = im; companionBody.src = companionState.body.img; companionBodyStart(state); };
+        im.src = companionState.body.img;
+      }
+    } else {
+      box.innerHTML = '<div class="companion-img generated"></div>';
+    }
+    return;
+  }
   const media = compStateMedia(state);
   const fallback = (state !== "normal") ? compStateMedia("normal") : null;
   const img = media.img || (fallback && fallback.img) || null;
@@ -8985,10 +9068,12 @@ function companionApplyShow(v) {
   const slug = s.replace(/[^a-z0-9]/g, "");
   if (s === "laugh" || s === "laughing") companionSetExpression("laugh");
   else if (s === "blush" || s === "blushing" || s === "shocked") companionSetExpression("blush");
-  else if (s === "rough" || s === "exert" || s === "exertion" || s === "cum" || s === "cumming") companionSetExpression("rough");
+  else if (s === "rough" || s === "exert" || s === "exertion") companionSetExpression("rough");
   else if (s === "normal" || s === "neutral") companionSetExpression("normal");
-  else if (["undress", "underwear", "bulge", "nipples", "chest", "genitals", "ass", "behind", "stroke", "fingering"].indexOf(s) >= 0) {
-    funLog("Body state \"" + s + "\" requested — coming in phase 2.");
+  else if (compIsBodyState(s)) companionShowBody(s);
+  else if (["cumming", "fingering", "behind"].indexOf(s) >= 0) {
+    const alias = { cumming: "cum", fingering: "stroke", behind: "ass" }[s];
+    companionShowBody(alias);
   }
   else {
     const k = compExprKeys().find(key => key === slug || (companionState.expr[key] && companionState.expr[key].name ? String(companionState.expr[key].name).toLowerCase().replace(/[^a-z0-9]/g, "") === slug : false));
@@ -9001,7 +9086,10 @@ function companionOpenAvatarSetup() {
   if (!m) return;
   const p = $("avatarPersona");
   if (p) p.value = companionState.persona || "";
+  buildAvatarSwitcher();
+  syncKindUI();
   buildAvatarSetupRows();
+  buildBodySetupRows();
   m.style.display = "";
 }
 function buildAvatarSetupRows() {
@@ -9062,6 +9150,355 @@ function compExprContext() {
     return '"' + k + '"' + (e.keywords ? " (when the user says: " + e.keywords + ")" : "");
   }).join(", ");
   return "\n\nCUSTOM AVATAR EXPRESSIONS (you may send \"show\":\"<name>\" to show one of these for a few seconds): " + lines + ".";
+}
+// ---------- Body states (full-body photo + camera pan/zoom to focus points) ----------
+const COMP_BODY_STATES = ["undress", "underwear", "bulge", "nipples", "chest", "genitals", "ass", "stroke", "cum"];
+const COMP_BODY_LABELS = { undress: "Undress", underwear: "Underwear", bulge: "Bulge", nipples: "Nipples/chest", chest: "Chest", genitals: "Genitals", ass: "Behind", stroke: "Stroking", cum: "Cumming" };
+function compBodyKeys() {
+  const keys = COMP_BODY_STATES.slice();
+  Object.keys(companionState.body.points || {}).forEach(k => { if (keys.indexOf(k) < 0) keys.push(k); });
+  return keys;
+}
+function compBodyLabel(k) {
+  if (COMP_BODY_LABELS[k]) return COMP_BODY_LABELS[k];
+  const p = companionState.body.points[k];
+  return (p && p.name) || k;
+}
+function compIsBodyState(s) {
+  if (!s) return false;
+  return COMP_BODY_STATES.indexOf(s) >= 0 || !!(companionState.body.points && companionState.body.points[s]);
+}
+function compBodyPoint(s) {
+  const b = companionState.body;
+  return (b && b.points && b.points[s]) || null;
+}
+const companionBody = {
+  img: null, src: null, raf: 0, active: false, cv: null, state: null,
+  cx: 0.5, cy: 0.18, zoom: 1, target: null, phase: "idle", t0: 0, holdUntil: 0
+};
+function companionBodyStop() {
+  if (companionBody.raf) { cancelAnimationFrame(companionBody.raf); companionBody.raf = 0; }
+  companionBody.active = false;
+}
+function companionBodyStart(state) {
+  companionBodyStop();
+  const box = $("companionAvatar");
+  if (!box) return;
+  const cv = box.querySelector("canvas.live");
+  if (!cv) return;
+  const p = compBodyPoint(state);
+  if (!p) return;
+  const f = companionState.body.face || { x: 0.5, y: 0.18 };
+  companionBody.cv = cv;
+  companionBody.cx = f.x; companionBody.cy = f.y; companionBody.zoom = 1;
+  companionBody.target = { x: p.x, y: p.y, zoom: p.zoom || 1.5 };
+  companionBody.phase = "pan";
+  companionBody.t0 = performance.now();
+  companionBody.state = state;
+  companionBody.active = true;
+  const loop = () => {
+    if (!companionBody.active) { companionBody.raf = 0; return; }
+    companionBodyFrame(performance.now());
+    companionBody.raf = requestAnimationFrame(loop);
+  };
+  companionBody.raf = requestAnimationFrame(loop);
+}
+function companionBodyFrame(now) {
+  const cv = companionBody.cv;
+  if (!cv || !companionBody.img) return;
+  const ctx = cv.getContext("2d");
+  if (!ctx) return;
+  const w = cv.clientWidth || 300, h = cv.clientHeight || 300;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+  const img = companionBody.img, iw = img.naturalWidth, ih = img.naturalHeight;
+  const f = companionState.body.face || { x: 0.5, y: 0.18 };
+  const ease = (t) => (t < 0.5) ? (2 * t * t) : (-1 + (4 - 2 * t) * t);
+  const PAN_MS = 1000, HOLD_MS = 2600;
+  if (companionBody.phase === "pan") {
+    const t = Math.min(1, (now - companionBody.t0) / PAN_MS), e = ease(t);
+    companionBody.cx = f.x + (companionBody.target.x - f.x) * e;
+    companionBody.cy = f.y + (companionBody.target.y - f.y) * e;
+    companionBody.zoom = 1 + (companionBody.target.zoom - 1) * e;
+    if (t >= 1) { companionBody.phase = "hold"; companionBody.holdUntil = now + HOLD_MS; }
+  } else if (companionBody.phase === "hold") {
+    if (now >= companionBody.holdUntil) { companionBody.phase = "return"; companionBody.t0 = now; }
+  } else if (companionBody.phase === "return") {
+    const t = Math.min(1, (now - companionBody.t0) / PAN_MS), e = ease(t);
+    companionBody.cx = companionBody.target.x + (f.x - companionBody.target.x) * e;
+    companionBody.cy = companionBody.target.y + (f.y - companionBody.target.y) * e;
+    companionBody.zoom = companionBody.target.zoom + (1 - companionBody.target.zoom) * e;
+    if (t >= 1) { companionBodyStop(); companionSetExpression("normal"); }
+  }
+  const side = Math.min(iw, ih) / Math.max(0.5, companionBody.zoom);
+  const cxPx = companionBody.cx * iw, cyPx = companionBody.cy * ih;
+  const sx = Math.max(0, Math.min(iw - side, cxPx - side / 2));
+  const sy = Math.max(0, Math.min(ih - side, cyPx - side / 2));
+  ctx.drawImage(img, sx, sy, side, side, 0, 0, w, h);
+}
+function companionShowBody(state, holdMs) {
+  const p = compBodyPoint(state);
+  if (!p || !companionState.body.img) { funLog("No body photo / focus point for \"" + state + "\" yet — set it up in the Avatar builder."); return; }
+  compExpr.state = state;
+  compExpr.until = Date.now() + (holdMs || COMP_EXPR_HOLD + 4000);
+  companionRender();
+}
+function buildBodySetupRows() {
+  const host = $("avatarBodyRows");
+  if (!host) return;
+  host.innerHTML = "";
+  const hasImg = !!(companionState.body && companionState.body.img);
+  const photoRow = document.createElement("div");
+  photoRow.className = "avatar-state-row";
+  photoRow.innerHTML = '<span class="avatar-state-name">Body photo</span>'
+    + '<span class="avatar-state-info">' + (hasImg ? "set" : "no full-body photo") + '</span>'
+    + '<button class="ble-btn small" data-b="photo" type="button" title="Add/change full-body photo">📁</button>'
+    + (hasImg ? '<button class="ble-btn small" data-b="photoclr" type="button" title="Remove body photo">✕</button>' : '');
+  host.appendChild(photoRow);
+  const f = companionState.body.face || { x: 0.5, y: 0.18 };
+  const faceRow = document.createElement("div");
+  faceRow.className = "avatar-state-row";
+  faceRow.innerHTML = '<span class="avatar-state-name">Face (start)</span>'
+    + '<span class="avatar-state-info">' + Math.round(f.x * 100) + '%, ' + Math.round(f.y * 100) + '%</span>'
+    + '<button class="ble-btn small" data-b="face" type="button" title="Set the face position">👁</button>';
+  host.appendChild(faceRow);
+  compBodyKeys().forEach((s) => {
+    const p = compBodyPoint(s);
+    const builtIn = !!COMP_BODY_LABELS[s];
+    const label = compBodyLabel(s);
+    const row = document.createElement("div");
+    row.className = "avatar-state-row";
+    const nameEl = builtIn
+      ? '<span class="avatar-state-name">' + escapeHtml(label) + '</span>'
+      : '<input class="avatar-state-namein" data-bn="' + s + '" value="' + escapeHtml(label) + '" title="Body state name">';
+    const kwEl = builtIn ? '' : '<input class="avatar-state-kwin" data-bk="' + s + '" value="' + escapeHtml((p && p.keywords) || "") + '" placeholder="trigger words (comma separated)">';
+    const info = p ? (Math.round(p.x * 100) + '%, ' + Math.round(p.y * 100) + '% · ' + ((p.zoom || 1.5).toFixed(1)) + '×') : 'no focus point';
+    row.innerHTML = nameEl
+      + '<span class="avatar-state-info">' + escapeHtml(info) + '</span>'
+      + '<button class="ble-btn small" data-b="pt" data-bs="' + s + '" type="button" title="Set focus point">👁</button>'
+      + (builtIn ? '' : '<button class="ble-btn small" data-b="del" data-bs="' + s + '" type="button" title="Remove this body state">✕</button>')
+      + kwEl;
+    host.appendChild(row);
+  });
+  host.querySelectorAll("button[data-b]").forEach((b) => { b.onclick = () => compBodyRowAction(b.dataset.b, b.dataset.bs || b.dataset.b); });
+  host.querySelectorAll("input.avatar-state-namein[data-bn]").forEach((inp) => {
+    inp.onchange = () => { const p = companionState.body.points[inp.dataset.bn]; if (p) { p.name = inp.value.trim() || p.name; companionSave(); buildBodySetupRows(); } };
+  });
+  host.querySelectorAll("input.avatar-state-kwin[data-bk]").forEach((inp) => {
+    inp.onchange = () => { const p = companionState.body.points[inp.dataset.bk]; if (p) { p.keywords = inp.value.trim(); companionSave(); } };
+  });
+}
+function compBodyRowAction(b, s) {
+  if (b === "photo") {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compBodyUpload(f); };
+    inp.click();
+  } else if (b === "photoclr") {
+    companionState.body.img = null;
+    companionSave();
+    companionRender();
+    buildBodySetupRows();
+  } else if (b === "face") {
+    companionBodyCalibrate("face");
+  } else if (b === "pt") {
+    companionBodyCalibrate(s);
+  } else if (b === "del") {
+    delete companionState.body.points[s];
+    companionSave();
+    buildBodySetupRows();
+  }
+}
+function compBodyUpload(file) {
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    companionState.body.img = String(rd.result);
+    companionSave();
+    companionRender();
+    buildBodySetupRows();
+    funLog("Full-body photo set — now tap each body state to set its focus point.");
+  };
+  rd.readAsDataURL(file);
+}
+function companionBodyCalibrate(state) {
+  if (!companionState.body.img) { funLog("Add a full-body photo first."); return; }
+  const modal = $("bodyCalib");
+  if (!modal) return;
+  modal.style.display = "";
+  const stage = $("bodyCalibStage"), simg = $("bodyCalibImg");
+  const hint = $("bodyCalibHint"), apply = $("bodyCalibDone"), cancel = $("bodyCalibCancel");
+  const zoomEl = $("bodyCalibZoom"), zoomVal = $("bodyCalibZoomVal");
+  simg.src = companionState.body.img;
+  let click = null; let dot = null;
+  const existing = (state === "face") ? companionState.body.face : compBodyPoint(state);
+  if (existing && existing.x !== undefined) click = [existing.x, existing.y];
+  if (zoomEl) { zoomEl.value = String(Math.round(((existing && existing.zoom) || 1.5) * 100)); if (zoomVal) zoomVal.textContent = (((existing && existing.zoom) || 1.5).toFixed(1)) + "×"; }
+  const addDot = (nx, ny) => {
+    if (dot) dot.remove();
+    dot = document.createElement("div");
+    dot.className = "photo-calib-dot";
+    dot.style.left = (nx * 100) + "%"; dot.style.top = (ny * 100) + "%";
+    stage.appendChild(dot);
+  };
+  if (click) addDot(click[0], click[1]);
+  stage.onclick = (e) => {
+    const r = simg.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const nx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+    const ny = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height));
+    click = [nx, ny]; addDot(nx, ny);
+  };
+  if (zoomEl) zoomEl.oninput = () => { if (zoomVal) zoomVal.textContent = (parseInt(zoomEl.value, 10) / 100).toFixed(1) + "×"; };
+  const finish = (ok) => {
+    modal.style.display = "none";
+    stage.onclick = null;
+    if (zoomEl) zoomEl.oninput = null;
+    apply.onclick = null; cancel.onclick = null;
+    if (dot) dot.remove();
+    if (ok && click) {
+      const zoom = zoomEl ? (parseInt(zoomEl.value, 10) / 100) : 1.5;
+      if (state === "face") companionState.body.face = { x: click[0], y: click[1] };
+      else {
+        const prev = companionState.body.points[state] || {};
+        companionState.body.points[state] = { x: click[0], y: click[1], zoom: zoom, name: prev.name || null, keywords: prev.keywords || "" };
+      }
+      companionSave();
+      buildBodySetupRows();
+    }
+  };
+  apply.onclick = () => finish(true);
+  cancel.onclick = () => finish(false);
+}
+function compBodyAddState() {
+  let name = "";
+  try { name = (window.prompt("New body state name (e.g. \"thighs\", \"feet\")") || "").trim(); } catch (e) {}
+  if (!name) return;
+  const key = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!key) { funLog("That name has no usable characters."); return; }
+  if (companionState.body.points[key]) { funLog("That body state already exists."); return; }
+  companionState.body.points[key] = { x: 0.5, y: 0.5, zoom: 1.5, name: name, keywords: "" };
+  companionSave();
+  buildBodySetupRows();
+}
+// ---------- Avatar builder (saved avatars + drawn vs real) ----------
+function compAvatars() {
+  try { const a = JSON.parse(localStorage.getItem("ossm-companion-avatars") || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function compAvatarsSave(list) { try { localStorage.setItem("ossm-companion-avatars", JSON.stringify(list)); } catch (e) {} }
+function compAvatarSnapshot() {
+  return {
+    id: companionState.avatarId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 7)),
+    name: companionState.avatarName || "Avatar",
+    kind: companionState.kind || ((companionState.customImage || Object.keys(companionState.expr || {}).some(k => companionState.expr[k] && companionState.expr[k].img)) ? "photo" : "drawn"),
+    persona: companionState.persona || "",
+    preset: companionState.preset, custom: companionState.custom,
+    customImage: companionState.customImage, customVideos: companionState.customVideos,
+    landmarks: companionState.landmarks, source: companionState.source,
+    expr: companionState.expr, body: companionState.body
+  };
+}
+function compAvatarApply(snap) {
+  if (!snap || typeof snap !== "object") return;
+  companionLiveStop(); companionBodyStop();
+  companionState.avatarId = snap.id;
+  companionState.avatarName = snap.name || "Avatar";
+  companionState.kind = snap.kind || "drawn";
+  companionState.persona = snap.persona || "";
+  companionState.preset = snap.preset || 0;
+  companionState.custom = snap.custom || null;
+  companionState.customImage = snap.customImage || null;
+  companionState.customVideos = snap.customVideos || 0;
+  companionState.landmarks = snap.landmarks || null;
+  companionState.source = snap.source || "generated";
+  companionState.expr = snap.expr || {};
+  ["laugh", "blush", "rough"].forEach(s => { const e = companionState.expr[s] = companionState.expr[s] || { img: null, vids: 0, lm: null }; e.img = e.img || null; e.vids = e.vids || 0; e.lm = e.lm || null; });
+  companionState.body = snap.body || { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
+  if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
+  if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
+  compExpr.state = "normal"; compExpr.until = 0;
+  compSetupDone();
+  companionSave();
+  companionRender();
+  syncCompVideoAvatar();
+}
+function compAvatarSaveCurrent() {
+  const snap = compAvatarSnapshot();
+  const name = (companionState.avatarName || "").trim();
+  if (name) snap.name = name;
+  let list = compAvatars();
+  const idx = list.findIndex(a => a.id === snap.id);
+  if (idx >= 0) list[idx] = snap; else list.push(snap);
+  compAvatarsSave(list);
+  companionState.avatarId = snap.id;
+  companionState.avatarName = snap.name;
+  companionSave();
+  compSetupDone();
+  buildAvatarSwitcher();
+  funLog("Avatar \"" + snap.name + "\" saved.");
+}
+function compAvatarDelete() {
+  const id = companionState.avatarId;
+  compAvatarsSave(compAvatars().filter(a => a.id !== id));
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: "drawn", avatarName: "", avatarId: null };
+  ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
+  companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
+  compExpr.state = "normal"; compExpr.until = 0;
+  companionSave();
+  companionRender();
+  buildAvatarSwitcher();
+  buildAvatarSetupRows();
+  buildBodySetupRows();
+  syncKindUI();
+  funLog("Avatar deleted.");
+}
+function compAvatarNewConfirm(kind) {
+  companionState = { preset: 0, custom: null, customImage: null, customVideos: 0, shown: companionState.shown, source: "generated", persona: "", expr: null, body: null, kind: kind, avatarName: "", avatarId: null };
+  ["laugh", "blush", "rough"].forEach(s => { companionState.expr = companionState.expr || {}; companionState.expr[s] = { img: null, vids: 0, lm: null }; });
+  companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
+  compExpr.state = "normal"; compExpr.until = 0;
+  companionSave();
+  companionRender();
+  buildAvatarSwitcher();
+  buildAvatarSetupRows();
+  buildBodySetupRows();
+  syncKindUI();
+  const ni = $("avatarNameInput"); if (ni) ni.value = "";
+  const p = $("avatarPersona"); if (p) p.value = "";
+  funLog("New avatar created — pick Simple or Real, then set it up.");
+}
+function buildAvatarSwitcher() {
+  const sel = $("avatarSelect");
+  if (!sel) return;
+  const list = compAvatars();
+  const cur = companionState.avatarId || "";
+  sel.innerHTML = "";
+  if (!list.length) {
+    const o = document.createElement("option"); o.value = ""; o.textContent = "(unsaved)"; sel.appendChild(o);
+  } else {
+    list.forEach(a => { const o = document.createElement("option"); o.value = a.id; o.textContent = a.name || "Avatar"; sel.appendChild(o); });
+  }
+  sel.value = cur || "";
+  const ni = $("avatarNameInput");
+  if (ni) ni.value = companionState.avatarName || "";
+}
+function syncKindUI() {
+  const kind = companionState.kind || "drawn";
+  const d = $("avatarKindDrawn"), p = $("avatarKindPhoto");
+  if (d) d.classList.toggle("active", kind === "drawn");
+  if (p) p.classList.toggle("active", kind === "photo");
+  const sec = $("avatarPhotoSections");
+  const hint = $("avatarDrawnHint");
+  if (sec) sec.style.display = (kind === "photo") ? "" : "none";
+  if (hint) hint.style.display = (kind === "drawn") ? "" : "none";
+}
+function compAvatarSetKind(kind) {
+  companionState.kind = kind;
+  companionSave();
+  syncKindUI();
+  companionRender();
 }
 function compAvatarRowAction(action, state) {
   if (action === "img") {
@@ -9842,6 +10279,16 @@ function companionLiveExpress(text) {
       if (words.some(w => t.indexOf(w) >= 0)) { companionSetExpression(k); break; }
     }
   }
+  // Custom body states via trigger words (only when a body photo is set).
+  if (companionState.body && companionState.body.img) {
+    const bkeys = compBodyKeys().filter(k => !COMP_BODY_LABELS[k]);
+    for (const k of bkeys) {
+      const p = companionState.body.points[k];
+      if (!p || !p.keywords) continue;
+      const words = String(p.keywords).split(/[,;]/).map(w => w.trim().toLowerCase()).filter(Boolean);
+      if (words.some(w => t.indexOf(w) >= 0)) { companionShowBody(k); break; }
+    }
+  }
   if (!companionLive.active || !raw) return;
   if (/\[(frown|angry|annoyed|mad|grumpy|sad|upset|worried|thinking|confused|hmm)\]/i.test(t)) {
     companionLive.expression = { kind: "frown" };
@@ -10051,7 +10498,7 @@ function companionLiveDrawFrown(ctx, img, f, iw, ih, s, tx, ty, amount) {
 }
 
 let AI_COMPANION_SYSTEM = `You are the user's AI companion — a warm, playful, flirtatious friend-with-benefits. You chat naturally: share desires, tease, flirt, and talk kinky. You know the user personally (their name and what they like, from memory) and you care about consent and comfort, but you are adventurous and eager. Keep replies warm, personal and in the user's language, matching their energy — playful when they flirt, tender when they share, dirty when they talk kinky. You are their sex buddy, never a machine-focused bot or a customer-service assistant. You are the one fucking them — NEVER mention the machine, the OSSM, the device, the motor, the rail or the app in your replies; it is always YOUR body: your cock, your hips, your hands, your mouth. Keep that illusion alive at all times, even when the app's internal notes use technical words. Always write in plain, normal text: never use emoticons, emoji, asterisks, or roleplay actions like *smiles* or *winks* — just words. You may put ONE invisible emotion tag at the very start of "reply" to set your face: [smile], [blush], [frown] or [thinking] — the app strips it out, so the user never sees or hears it.
-"show" changes your avatar's look for a moment: "laugh", "blush" or "rough" (or "normal" to go back). Set it when the moment fits — you laugh, blush, or get rough — and leave it null otherwise. Body states ("undress", "underwear", "bulge", "nipples", "genitals", "ass", "stroke", "cumming") arrive in a later update, so for now just use words instead. Keep replies SHORT: usually one or two sentences (just a few words while guiding movement) — never long paragraphs; being concise keeps your voice sounding instant.
+"show" changes your avatar's look for a moment: "laugh", "blush" or "rough" (or "normal" to go back). Set it when the moment fits — you laugh, blush, or get rough — and leave it null otherwise. Body states: "undress", "underwear", "bulge", "nipples", "chest", "genitals", "ass", "stroke", "cum" — the app pans the full-body photo to that part and back. Use them when the moment fits (tease with "underwear" or "bulge" before going further). Keep replies SHORT: usually one or two sentences (just a few words while guiding movement) — never long paragraphs; being concise keeps your voice sounding instant.
 
 You can ALSO control the machine when they ask — you drive it through Advanced Penetration mode (the full, fine-grained control) whenever the device supports it, using this same JSON envelope: {"reply":"<your reply>","set":{...},"limits":{...},"run":null,"memory":null,"pos":null,"ui":null,"face":null,"avatar":null,"video":null,"search":null,"timer":null,"show":null,"lang":"<2-letter code>"}. YOUR REPLY MUST BE EXACTLY ONE VALID JSON OBJECT: "reply" is a properly double-quoted string, and every action goes in its own top-level field ("pos","set","run","ui",...) — NEVER put {"action":...} or any braces inside the "reply" text. "set"/"limits"/"run"/"pos"/"ui" control the OSSM as described in your context (base values like Max Pos, Min Pos, In Speed, Out Speed, In Accel, Out Accel, Speed, plus optional time modifiers). ALWAYS follow the intensity words and preset recipes in the CURRENT MODE context exactly — "faster" = higher Speed, "harder" = higher In Speed AND In Accel (both make the thrust punch harder — NOT Speed), "harder!"/"pound me hard" = a much bigger jump (In Speed + In Accel up a lot + Speed up about half as much + depth), and each preset has a ready-made value set. Vary the feel over time with the modifiers (Amplitude, Steps to Min/Max, Offset) and the presets so the motion doesn't stay a static back-and-forth. Change the right values instead of repeating the same numbers; "memory" stores what they voluntarily share about themselves (name, desires, likes, and their sexual preferences — how hard, fast or kinky they like it, and the meaning of any term they teach you); "avatar" sets your whole look when they describe it: {"style":"anime|cartoon|fantasy|animal","seed":"<any short word>","hair":"<color name or hex>","skin":"<color name or hex>"} — "animal" gives animal ears (the closest to furry the generator offers). When you set an avatar, always match what the user is attracted to (from memory): if they like men, make yourself clearly male (short, masculine hair — never a long feminine style); if they like young/twink men, male with hair, never bald and never bearded; if they like women, make yourself female (long, feminine hair — never male). "face" is a simpler hair/skin-only shorthand for the same thing. "video" plays one of the user's videos when they ask to watch porn — {"url":"<the exact url from your FAVORITE VIDEOS list>"} or a local file {"local":"<the exact name from your LOCAL VIDEOS list>"}, or a Stash scene {"stash":<id from your STASH LIBRARY list>}; playing it switches the app to the Funscript screen automatically, so just say it's playing. "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say "stop" at their shallowest (start) point first, then it keeps sliding deeper and they say "stop" again at their deepest point (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
 
@@ -10544,6 +10991,18 @@ function compLiveStart() {
   if (asClose) asClose.onclick = () => { const m = $("avatarSetup"); if (m) m.style.display = "none"; };
   const asAdd = $("avatarAddExpr");
   if (asAdd) asAdd.onclick = compAvatarAddExpr;
+  const abAdd = $("avatarAddBody");
+  if (abAdd) abAdd.onclick = compBodyAddState;
+  const asSave = $("avatarSaveBtn"); if (asSave) asSave.onclick = compAvatarSaveCurrent;
+  const asNew = $("avatarNewBtn"); if (asNew) asNew.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = ""; };
+  const asDel = $("avatarDelBtn"); if (asDel) asDel.onclick = compAvatarDelete;
+  const asSel = $("avatarSelect"); if (asSel) asSel.onchange = () => { const snap = compAvatars().find(a => a.id === asSel.value); if (snap) compAvatarApply(snap); };
+  const asName = $("avatarNameInput"); if (asName) asName.onchange = () => { companionState.avatarName = asName.value.trim(); companionSave(); buildAvatarSwitcher(); };
+  const kDrawn = $("avatarKindDrawn"); if (kDrawn) kDrawn.onclick = () => compAvatarSetKind("drawn");
+  const kPhoto = $("avatarKindPhoto"); if (kPhoto) kPhoto.onclick = () => compAvatarSetKind("photo");
+  const wCancel = $("avatarWelcomeCancel"); if (wCancel) wCancel.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = "none"; };
+  const wDrawn = $("avatarWelcomeDrawn"); if (wDrawn) wDrawn.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = "none"; compAvatarNewConfirm("drawn"); };
+  const wPhoto = $("avatarWelcomePhoto"); if (wPhoto) wPhoto.onclick = () => { const m = $("avatarWelcome"); if (m) m.style.display = "none"; compAvatarNewConfirm("photo"); };
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
