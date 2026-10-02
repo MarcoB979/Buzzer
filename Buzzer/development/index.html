@@ -6565,7 +6565,7 @@ function compWantsStart(text) {
   if (!t || t.length > 60) return false;
   if (/\b(stop|niet|nooit|never|wacht|wait|dont|don'?t|not)\b/.test(t)) return false; // a stop/refusal, not a go
   if (aiIsStartCommand(t)) return true; // "start", "go", "begin", ...
-  if (/\b(start|begin( maar)?|ga (maar|door|rijden|erin|naar binnen)|gaan bewegen|bewegen|beweeg|ga bewegen|kom maar( op)?|toe maar|doe maar|rij maar|rijden maar)\b/.test(t)) return true;
+  if (/\b(start|begin( maar)?|ga (maar|door|rijden|erin|naar binnen)|gaan bewegen|bewegen|beweeg|ga bewegen|ga verder|doorgaan|continue|ga weer|opnieuw|nog een keer|weer doorgaan|kom maar( op)?|toe maar|doe maar|rij maar|rijden maar)\b/.test(t)) return true;
   if (/\b(duw (je )?(pik|lul) (in|erin)|steek (je )?(pik|lul) erin|steek (hem|m|em) erin|zet hem erin|duw hem erin|put (your|it) in|put it in me)\b/.test(t)) return true;
   return false;
 }
@@ -6622,6 +6622,101 @@ function compEnsureRealPlay(reason) {
   }
   if (!aiCanRunActive()) return; // "can run" is disabled
   if (aiStartMachine()) aiLog("real play started (" + why + ")");
+}
+// ---------- Cum / refractory scenarios ----------
+// When the AI (or the stamina timer) triggers a "cum", the app picks one of:
+//   keep     — he stays hard and keeps going (some guys go on forever)
+//   pullout  — he pulls out, comments on the cum, asks to go again
+//   rest     — he pulls out, goes soft, dirty-talks for 1–2 min, then gets hard again
+// All machine control is app-side; the AI only narrates in character.
+const COMP_STAMINA_DEFAULT_MS = 20 * 60 * 1000;
+const COMP_STAMINA_QUICKIE_MS = 3 * 60 * 1000;
+const COMP_REST_MIN_MS = 60 * 1000;
+const COMP_REST_MAX_MS = 120 * 1000;
+let compCum = { startedAt: 0, staminaMs: COMP_STAMINA_DEFAULT_MS, quickie: false, inFlow: false, restTimer: null, lastCumAt: 0 };
+
+function compQuickie(text) {
+  const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 80) return false;
+  return /\b(quickie|quick fuck|quick one|snel(le)? (sessie|beurt|nummer)|even snel|vlugge sessie|snel klaarkomen)\b/.test(t);
+}
+function compCumWords(text) {
+  const t = (text || "").toLowerCase().replace(/['\u2019]/g, "").replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 300) return false;
+  if (/\b(im cumming|im cuming|im gonna cum|im going to cum|here it comes|im coming|i came)\b/.test(t)) return true;
+  if (/\b(ik kom (klaar|in je|diep|nu)|ik spuit|ik ga (klaar)?komen|klaarkomen|klaargekomen|vol spuiten|zaad)\b/.test(t)) return true;
+  return false;
+}
+function compResetCum() {
+  if (compCum.restTimer) { clearTimeout(compCum.restTimer); compCum.restTimer = null; }
+  compCum.inFlow = false;
+  compCum.startedAt = 0;
+  compCum.staminaMs = COMP_STAMINA_DEFAULT_MS;
+  compCum.quickie = false;
+}
+function compStaminaContext() {
+  if (compCum.quickie) return "\n\nSTAMINA: this is a QUICKIE — you cum fast, after only a few minutes of real play. Play the short, urgent, no-nonsense scenario.";
+  const m = Math.max(1, Math.round(compCum.staminaMs / 60000));
+  return "\n\nSTAMINA: you can keep going for about " + m + " minutes of real play before you cum. The app tracks this and will cue you when it's time — follow its cue in character.";
+}
+function compStaminaTick() {
+  if (!compModeActive) return;
+  if (aiMachineRunning()) {
+    if (!compCum.startedAt) compCum.startedAt = Date.now();
+    else if (!compCum.inFlow && Date.now() - compCum.startedAt >= compCum.staminaMs) {
+      compHandleCum("stamina");
+    }
+  } else if (!compCum.inFlow) {
+    compCum.startedAt = 0;
+  }
+}
+function compHandleCum(reason) {
+  if (!compModeActive || compCum.inFlow || !aiMachineRunning()) return;
+  compCum.inFlow = true;
+  compCum.lastCumAt = Date.now();
+  const r = Math.random();
+  const scenario = r < 0.3 ? "keep" : (r < 0.65 ? "pullout" : "rest");
+  // TODO(later): fire the EJECT cumpump here so he "cums inside" for real —
+  // if (addonEnabled("eject")) { /* turn the pump on for a moment */ }
+  if (scenario === "keep") {
+    compCum.startedAt = Date.now();
+    compCum.inFlow = false;
+    aiInjectSystem(null, "APP: you just came but you're STILL HARD — stay in character and KEEP fucking; do NOT stop the machine.");
+    return;
+  }
+  aiPauseMachine();
+  compRetractRail();
+  if (scenario === "pullout") {
+    compCum.inFlow = false;
+    aiInjectSystem(null, "APP: you just came and pulled out (the rail retracts by itself). In character, comment on your cum in/on them, then ask if they want you to go again. Do NOT penetrate again until they say yes.");
+  } else {
+    aiInjectSystem(null, "APP: you just came and went soft — you pulled out (the rail retracts by itself). Stay soft and do dirty talk for a minute or two (sucking, jerking, licking, praising them). Do NOT penetrate and do NOT claim to be hard yet.");
+    compCum.restTimer = setTimeout(() => {
+      compCum.restTimer = null;
+      compCum.inFlow = false;
+      compCum.startedAt = 0;
+      aiInjectSystem(null, "APP: you're HARD again now — in character, tell them (suggest or command) you want to continue, then start fucking again (\"run\":\"start\").");
+    }, COMP_REST_MIN_MS + Math.random() * (COMP_REST_MAX_MS - COMP_REST_MIN_MS));
+  }
+}
+async function compRetractRail() {
+  if (!connected || !stdCmd || !apAvailable()) return;
+  const pointIdx = aiPosPointIndex();
+  if (pointIdx < 0) return;
+  aiPosReturnAp = (appMode === "ap");
+  await aiPosEnterStd();
+  if (!connected || !stdCmd) { aiPosReturnAp = false; return; }
+  stdWriteReliable("set:min:0");
+  stdWriteReliable("set:max:100");
+  stdWriteReliable("set:sensation:0");
+  stdWriteReliable("set:pattern:" + pointIdx);
+  stdWriteReliable("set:speed:" + AI_POS_RETRACT_SPEED);
+  setTimeout(() => {
+    if (!connected || !stdCmd) return;
+    stdWriteReliable("set:speed:0");
+    aiPosRestoreMode();
+    aiPosSyncAp();
+  }, AI_POS_RETRACT_CHUNK);
 }
 function aiParseSafeWordSet(text) {
   const raw = String(text || "").toLowerCase().replace(/\u2019/g, "'").trim();
@@ -10275,6 +10370,7 @@ function compNewSession(confirmFirst) {
   compLiveStop();
   compBusy = false;
   compMessages = [];
+  compResetCum();
   compPendingLimits = null;
   compLimitsGreeted = false;
   aiLimitsClearConfirmed();
@@ -11387,6 +11483,11 @@ async function compSend() {
       return;
     }
   }
+  // The user asked for a quickie — cut the stamina down for this session.
+  if (compQuickie(text)) {
+    compCum.quickie = true;
+    compCum.staminaMs = COMP_STAMINA_QUICKIE_MS;
+  }
   // The user clearly wants the REAL thing — stop the story and drive the
   // actual start flow (connect → safe word → positions → start) app-side.
   if (!aiPos.active && !aiMachineRunning() && (compWantsReal(text) || compWantsStart(text))) {
@@ -11415,7 +11516,7 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -11531,6 +11632,8 @@ async function compSend() {
     // If the AI's reply announced it's about to fuck (in prose, no structured
     // field), make it real instead of leaving it as a story.
     if (res.reply) compCheckAiInitiated(res.reply);
+    // Cum event: the AI set the "cum" body state or narrated cumming.
+    if (compCumWords(aiStripEmotionTags(res.reply || "")) || aiLastShow === "cum") compHandleCum("reply");
   } catch (e) {
     if (th) th.remove();
     compAddMsg("assistant", "Hmm, I lost the connection — try again?");
@@ -11602,6 +11705,8 @@ async function compDirtyTalkFire() {
 
 // Keep the cycle alive: if play is running but nothing is pending, schedule one.
 setInterval(() => { if (compDirtyTalkActive() && !compDirtyTimer) compDirtyTalkSchedule(); }, 5000);
+// Stamina clock: after enough real play, cue the avatar to cum.
+setInterval(compStaminaTick, 10000);
 
 // ---------- AI-scheduled timed lines (custom "timer" envelope) ----------
 let compTimerLines = [];
