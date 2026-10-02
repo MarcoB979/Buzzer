@@ -6336,7 +6336,7 @@ function aiExtractJson(text) {
   // Parses either a JSON envelope {"reply": "...", "set": {...}, "limits": {...}, "run": "..", "memory": "..", "pos": {...}, "lang": ".."} or a flat params object.
   // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
   aiLastShow = null;
-  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, lang: null, show: null });
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, show: null });
   if (!text) return empty();
   const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
@@ -6419,10 +6419,17 @@ function aiExtractJson(text) {
       }
     }
   }
-  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer) {
-    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, lang };
+  let about = null;
+  if (typeof j.about === "string" && j.about.trim()) about = j.about.trim().slice(0, 2000);
+  let safeWord = null;
+  if (typeof j.safeWord === "string" && j.safeWord.trim()) safeWord = { action: "safeWord", word: j.safeWord.trim() };
+  else if (j.safeWord && typeof j.safeWord === "object" && !Array.isArray(j.safeWord) && typeof j.safeWord.word === "string" && j.safeWord.word.trim()) {
+    safeWord = { action: "safeWord", word: j.safeWord.word.trim() };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, lang: null };
+  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer || about || safeWord || aiLastShow) {
+    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, about, safeWord, lang };
+  }
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null };
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -7771,7 +7778,7 @@ async function aiCallDeepSeek(messages, key) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer || parsed.about || parsed.safeWord || aiLastShow) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, about: parsed.about, safeWord: parsed.safeWord, lang: parsed.lang, error: null };
         lastErr = "DeepSeek replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -7800,7 +7807,7 @@ async function aiCallOpenAI(messages) {
         let content = raw;
         try { content = JSON.parse(raw).choices[0].message.content; } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer || parsed.about || parsed.safeWord || aiLastShow) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, about: parsed.about, safeWord: parsed.safeWord, lang: parsed.lang, error: null };
         lastErr = "the model replied but I couldn't parse it";
       } else {
         let msg = "";
@@ -7847,7 +7854,7 @@ async function aiCallGemini(messages) {
           content = parts.map(p => (p && p.text) ? p.text : "").join("");
         } catch (e) {}
         const parsed = aiExtractJson(content);
-        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, lang: parsed.lang, error: null };
+        if (parsed.reply || parsed.params || parsed.limits || parsed.run || parsed.memory || parsed.pos || parsed.ui || parsed.face || parsed.avatar || parsed.video || parsed.search || parsed.addon || parsed.timer || parsed.about || parsed.safeWord || aiLastShow) return { raw: content, reply: parsed.reply, params: parsed.params, limits: parsed.limits, run: parsed.run, memory: parsed.memory, pos: parsed.pos, ui: parsed.ui, face: parsed.face, avatar: parsed.avatar, video: parsed.video, search: parsed.search, addon: parsed.addon, timer: parsed.timer, about: parsed.about, safeWord: parsed.safeWord, lang: parsed.lang, error: null };
         lastErr = "Gemini replied but I couldn't parse it";
       } else {
         let msg = "";
