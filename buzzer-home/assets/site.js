@@ -32,6 +32,27 @@
     revealEls.forEach(function (el) { el.classList.add('in'); });
   }
 
+  // Hero avatar slideshow
+  var slides = [
+    { img: 'assets/img/avatars/avatar-1.jpeg', name: 'Leo' },
+    { img: 'assets/img/avatars/avatar-2.jpeg', name: 'Ava' },
+    { img: 'assets/img/avatars/avatar-3.jpeg', name: 'Nina' }
+  ];
+  var faceEl = document.getElementById('heroAvatar');
+  var nameEl = document.getElementById('heroAvatarName');
+  if (faceEl && slides.length > 1) {
+    var idx = 0;
+    setInterval(function () {
+      idx = (idx + 1) % slides.length;
+      faceEl.style.opacity = '0';
+      setTimeout(function () {
+        faceEl.src = slides[idx].img;
+        if (nameEl) nameEl.textContent = slides[idx].name;
+        faceEl.style.opacity = '1';
+      }, 260);
+    }, 3000);
+  }
+
   // Footer year
   var y = document.querySelector('[data-year]');
   if (y) y.textContent = new Date().getFullYear();
