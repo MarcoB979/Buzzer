@@ -13701,6 +13701,9 @@ function coyoteStart() {
   st.on = true;
   coyoteWrite(st, coyoteBuildPacket());
   st.timer = setInterval(() => { if (st.on && st.connected) coyoteWrite(st, coyoteBuildPacket()); }, 100);
+  if (coyoteSliderVal("a_power", 0) <= 0 && coyoteSliderVal("b_power", 0) <= 0) {
+    monitor("Coyote: running — raise the A or B intensity slider to feel it", "warn");
+  }
   coyoteRender();
 }
 function coyoteStop() {
@@ -13717,7 +13720,12 @@ function coyoteSlider(key, v) {
   const st = coyoteState();
   st.sliderValues = st.sliderValues || {};
   st.sliderValues[key] = v;
-  if (key === "limit" && st.connected) coyoteWrite(st, coyoteBuildBF()); // soft limit applies immediately
+  if (!st.connected) return;
+  if (key === "limit") { coyoteWrite(st, coyoteBuildBF()); return; } // soft limit applies immediately
+  // Raising a channel from zero starts the stream automatically, so the sliders
+  // work on their own — no need to press Start or load a preset first. Once the
+  // stream is running, the 100 ms loop keeps applying every slider value.
+  if (!st.on && (key === "a_power" || key === "b_power") && v > 0) coyoteStart();
 }
 function coyoteLoadPresetFile(file) {
   const reader = new FileReader();
@@ -13743,6 +13751,9 @@ function coyotePlayPreset() {
   if (!st.on) coyoteStart(); // starts the 100 ms stream (first packet is slider-based and safe)
   st.presetPlaying = true;
   st.preset.idx = 0;
+  if (coyoteSliderVal("a_power", 0) <= 0) {
+    monitor("Coyote: preset playing — raise the A intensity slider to feel it", "warn");
+  }
   coyoteRender();
 }
 function coyoteStopPreset() {
