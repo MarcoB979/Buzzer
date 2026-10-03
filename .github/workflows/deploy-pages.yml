@@ -27,19 +27,26 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
-      - name: Add .nojekyll
-        run: touch ./Buzzer/.nojekyll
+      - name: Assemble Pages site
+        run: |
+          # The app stays at the Pages root (unchanged public URL).
+          mkdir -p ./site
+          cp -r ./Buzzer/. ./site/
+          # The landing site lives at /buzzer-home/.
+          mkdir -p ./site/buzzer-home
+          cp -r ./buzzer-home/. ./site/buzzer-home/
+          touch ./site/.nojekyll
 
       - name: Stamp build time
         run: |
           STAMP="$(TZ=Europe/Amsterdam date +'%Y-%m-%d %H:%M')"
-          sed -i "s/__BUILD_TIME__/${STAMP}/g" ./Buzzer/index.html
-          sed -i "s/__BUILD_TIME__/${STAMP}/g" ./Buzzer/development/index.html
+          sed -i "s/__BUILD_TIME__/${STAMP}/g" ./site/index.html
+          sed -i "s/__BUILD_TIME__/${STAMP}/g" ./site/development/index.html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./Buzzer
+          path: ./site
 
       - name: Deploy to GitHub Pages
         id: deployment
