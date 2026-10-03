@@ -2216,10 +2216,13 @@ function setBase(i, v) {
   if (aiLimitsConfirmed()) {
     const caps = aiSafetyCaps();
     if (key === "Max Pos") { lo = Math.max(lo, caps.minDepth); hi = Math.min(hi, caps.maxDepth); }
-    else if (key === "Min Pos") hi = Math.min(hi, caps.minDepth);
+    else if (key === "Min Pos") { lo = Math.max(lo, caps.minDepth); hi = Math.min(hi, caps.maxDepth); }
     else if (key === SPEED_KEY) hi = Math.min(hi, caps.maxSpeed);
   }
   v = clamp(Math.round(v), lo, hi);
+  // Keep Min Pos <= Max Pos so the stroke window is never inverted.
+  if (key === "Min Pos") { const mx = getSetting("Max Pos"); if (v > Math.round(mx.value)) v = Math.round(mx.value); }
+  else if (key === "Max Pos") { const mn = getSetting("Min Pos"); if (v < Math.round(mn.value)) v = Math.round(mn.value); }
   s.value = v;
   settings[key] = s;
   if (i >= 0 && i < BASE_NAMES.length) activeBaseIndex = i; // highlight the moved setting
@@ -6847,6 +6850,7 @@ function aiModeContext(cur) {
     + "- In Accel vs Out Accel = how SHARP each direction starts: high In Accel = a sudden, hard hit; low = a soft glide.\n"
     + "- Speed is the overall tempo. \"In Speed\"/\"Out Speed\" are 0-100 feel factors ON TOP of it (NOT capped by max speed): to go faster overall raise \"Speed\" (up to max speed); to make the PUNCH itself harder raise \"In Speed\" toward 100 and \"In Accel\".\n"
     + "- Max Pos - Min Pos = stroke length; deeper (higher Max Pos) + faster = more intense.\n"
+    + "- VARY THE STROKE WINDOW — don't only do full strokes (Min Pos = min depth, Max Pos = max depth). Mix it up: short deep strokes (raise Min Pos close to Max Pos), middle strokes, shallow strokes and build-ups — change BOTH Min Pos and Max Pos for a natural rhythm, keeping Min Pos <= Max Pos and both within the confirmed limits.\n"
     + "INTENSITY WORDS (follow these exactly):\n"
     + "- \"faster / sneller / quicker / speed up\" = raise \"Speed\" (the tempo) — this makes the whole stroke faster and more powerful.\n"
     + "- \"harder\" = raise \"In Speed\" (toward 100) AND \"In Accel\". NEVER lower anything when they ask for more. If they also say faster (\"harder and faster\", \"sneller en harder\"), raise \"Speed\" too — hard and fast go together.\n"
@@ -7739,7 +7743,7 @@ function aiApplyParams(p) {
       const s = getSetting(baseKey(i));
       const caps = aiSafetyCaps();
       let lo = s.min, hi = s.max;
-      if (k === "Max Pos") hi = Math.min(s.max, caps.maxDepth);
+      if (k === "Max Pos") { lo = Math.max(s.min, caps.minDepth); hi = Math.min(s.max, caps.maxDepth); }
       else if (k === "Min Pos") { lo = Math.max(s.min, caps.minDepth); hi = Math.min(s.max, caps.maxDepth); }
       else if (k === "Speed") hi = Math.min(s.max, caps.maxSpeed);
       // In Speed / Out Speed are 0-100 FEEL factors (100 = full tempo in that
@@ -7792,6 +7796,9 @@ function aiApplyParams(p) {
       }
     }
   }
+  // Keep the stroke window valid (Min Pos <= Max Pos).
+  const mnS = getSetting("Min Pos"), mxS = getSetting("Max Pos");
+  if (mnS.value > mxS.value) { mnS.value = mxS.value; settings["Min Pos"] = mnS; writeControl("1:" + mnS.value + ",").catch(() => {}); }
   buildInterface();
   return applied;
 }
@@ -10497,7 +10504,7 @@ function buildCompSliders() {
     let rmin = r.min, rmax = r.max;
     if (caps) {
       if (d.i === 0) { rmin = Math.max(rmin, caps.minDepth); rmax = Math.min(rmax, caps.maxDepth); } // Max Pos: [min, max]
-      else if (d.i === 1) rmax = Math.min(rmax, caps.minDepth); // Min Pos: [0, min]
+      else if (d.i === 1) { rmin = Math.max(rmin, caps.minDepth); rmax = Math.min(rmax, caps.maxDepth); } // Min Pos: [min, max]
       else if (d.i === 6) rmax = Math.min(rmax, caps.maxSpeed); // Speed: [0, max speed] (In/Out Speed stay 0-100)
     }
     wrap.appendChild(sliderEl(d.label, rmin, rmax, clamp(Math.round(settingValue(baseKey(d.i))), rmin, rmax), d.color, (v) => (d.i === 6 ? setSpeed(v) : setBase(d.i, v))));
