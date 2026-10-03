@@ -10151,6 +10151,44 @@ function compScenes() {
   try { const a = JSON.parse(localStorage.getItem("ossm-companion-scenes") || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
 }
 function compScenesSave(list) { try { localStorage.setItem("ossm-companion-scenes", JSON.stringify(list)); } catch (e) {} }
+// Sample scenes shipped with the app, seeded once on first run.
+const BUNDLED_SCENES = [
+  {
+    name: "The bar — a beautiful stranger",
+    strict: 70,
+    desc: `You meet a gorgeous woman at a bar. She is flirty and charming; you chat and both get horny. After about 5 minutes of chatting you both head to the toilet [timer: every 5 minutes] — she walks straight into the men's room, which surprises you, but you follow her in. At the urinals she steps up next to you, unzips, and pulls out a thick cock bigger than yours [scene:dick]. You are shocked at first, then turned on. You kiss [scene:kissing], you stroke her [scene:stroke], you suck her [scene:suck]. She whispers she still has to piss — you answer 'piss on me' and she sprays all over you [toy:eject start speed=50 shots=30 force=50]. Then she bends you over [scene:pantsdown] and fucks you for the first time [scene:inass]. A stranger walks in, sees you both, and joins. When you finish [scene:cum] you go back to the bar [scene:goback] and never see each other again [scene:bye]. She turns out to be a trans woman — stay true to that throughout; do not change her into anything else.`,
+    states: [
+      { key: "bar", name: "At the bar", keywords: "bar, drink, cheers" },
+      { key: "talking", name: "Talking", keywords: "talk, chat, flirt, laugh" },
+      { key: "toilet", name: "Toilet", keywords: "toilet, bathroom, men's room, urinal" },
+      { key: "kissing", name: "Kissing", keywords: "kiss, lips" },
+      { key: "bulge", name: "Bulge", keywords: "bulge, hard, boner, erection" },
+      { key: "stroke", name: "Stroking", keywords: "stroke, jack, wank" },
+      { key: "suck", name: "Sucking", keywords: "suck, blowjob, mouth" },
+      { key: "dick", name: "She pulls it out", keywords: "pulls out, big dick, her cock" },
+      { key: "pantsdown", name: "Pants down", keywords: "pants down, bend over" },
+      { key: "inass", name: "First time", keywords: "in my ass, fuck me, first time" },
+      { key: "cum", name: "Cumming", keywords: "cum, coming, orgasm" },
+      { key: "goback", name: "Back to the bar", keywords: "go back, back to the bar" },
+      { key: "bye", name: "Goodbye", keywords: "goodbye, bye, never again" }
+    ]
+  }
+];
+function compSceneSeedDefaults() {
+  try {
+    if (localStorage.getItem("ossm-companion-scenes-seeded") === "1") return;
+    const list = compScenes();
+    BUNDLED_SCENES.forEach(s => {
+      list.push({
+        id: "sc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: s.name, desc: s.desc, strict: s.strict || 50, avatarId: "",
+        states: (s.states || []).map(st => ({ key: st.key, name: st.name, keywords: st.keywords || "", img: null, vids: 0, start: null, target: null }))
+      });
+    });
+    compScenesSave(list);
+    localStorage.setItem("ossm-companion-scenes-seeded", "1");
+  } catch (e) {}
+}
 function compSceneCurrent() {
   const id = companionState.sceneId || "";
   return compScenes().find(s => s.id === id) || null;
@@ -10189,6 +10227,38 @@ function compSceneFromKeywords(text) {
     if (words.length && words.some(w => t.indexOf(w) >= 0)) return st.key || st.name;
   }
   return null;
+}
+// Parse one [toy:<device> <action> key=value ...] marker.
+function compToyParse(marker) {
+  const m = String(marker || "").match(/^\[toy\s*:\s*([a-z0-9]+)\s+(start|stop|on|off)((?:\s+[a-z0-9_]+=\d+)*)\s*\]$/i);
+  if (!m) return null;
+  const pairs = {};
+  const re = /([a-z0-9_]+)=(\d+)/g;
+  let p; while ((p = re.exec(m[3]))) pairs[p[1].toLowerCase()] = parseInt(p[2], 10);
+  return { device: m[1].toLowerCase(), action: m[2].toLowerCase(), pairs };
+}
+// Execute a parsed toy marker through the existing addon handler (with its safety caps).
+function compToyExecute(toy) {
+  if (!toy) return;
+  const def = ADDON_DEFS.find(x => x.id === toy.device);
+  if (!def) { funLog("Unknown toy \"" + toy.device + "\"."); return; }
+  if (!addonEnabled(toy.device)) { funLog(def.name + " isn't enabled — enable it in addon settings first."); return; }
+  const action = (toy.action === "on") ? "start" : (toy.action === "off") ? "stop" : toy.action;
+  const actions = [{ device: toy.device, action: action }];
+  for (const k of Object.keys(toy.pairs)) {
+    if (def.sliders.some(s => s.key === k)) actions.push({ device: toy.device, action: "set", key: k, value: toy.pairs[k] });
+  }
+  aiApplyAddon(actions);
+  aiLog("scene toy: " + toy.device + " " + action);
+}
+// Execute + strip every [toy:...] and [scene:...] marker in a reply, return the clean text.
+function compSceneProcessMarkers(text) {
+  let t = String(text || "");
+  t = t.replace(/\[toy\s*:\s*[a-z0-9]+\s+(?:start|stop|on|off)(?:\s+[a-z0-9_]+=\d+)*\s*\]/gi, (m) => { const toy = compToyParse(m); if (toy) compToyExecute(toy); return " "; });
+  let sceneKey = null;
+  t = t.replace(/\[scene\s*:?\s*[a-z0-9][a-z0-9 _-]*\]/gi, (m) => { if (!sceneKey) sceneKey = m.replace(/^\[scene\s*:?\s*/i, "").replace(/\]$/, "").trim(); return " "; });
+  if (sceneKey) compSceneShow(sceneKey);
+  return t.replace(/\s{2,}/g, " ").trim();
 }
 function compSceneSyncName() {
   const el = $("compSceneName");
@@ -12346,10 +12416,9 @@ async function compSend() {
       compMessages.pop();
     }
     if (res.reply) {
-      const scTrig = compSceneFromText(res.reply);
-      if (scTrig.key) compSceneShow(scTrig.key);
-      else if (!compSceneAnim.active) { const kw = compSceneFromKeywords(res.reply); if (kw) compSceneShow(kw); }
-      const clean = aiStripEmotionTags(scTrig.clean);
+      const markerClean = compSceneProcessMarkers(res.reply);
+      if (!compSceneAnim.active) { const kw = compSceneFromKeywords(markerClean); if (kw) compSceneShow(kw); }
+      const clean = aiStripEmotionTags(markerClean);
       compAddMsg("assistant", escapeHtml(clean));
       if (aiSpeakEnabled()) aiSpeak(clean);
       companionLiveExpress(res.reply);
@@ -12547,11 +12616,10 @@ function compTimerSchedule() {
     if (compBusy) { compTimerHandle = setTimeout(compTimerSchedule, 2000); return; }
     compTimerLines.shift();
     const line = item.lines[Math.floor(Math.random() * item.lines.length)];
-    const scTrig = compSceneFromText(line);
-    if (scTrig.key) compSceneShow(scTrig.key);
-    compAddMsg("assistant", escapeHtml(scTrig.clean));
-    if (aiSpeakEnabled()) aiSpeak(scTrig.clean);
-    companionLiveExpress(scTrig.clean);
+    const lineClean = compSceneProcessMarkers(line);
+    compAddMsg("assistant", escapeHtml(lineClean));
+    if (aiSpeakEnabled()) aiSpeak(lineClean);
+    companionLiveExpress(lineClean);
     compTimerSchedule();
   }, ms);
 }
@@ -12672,6 +12740,7 @@ function compLiveStart() {
 }
 
 (function wireCompanion() {
+  compSceneSeedDefaults();
   const fb = $("aiFaceBtn"); if (fb) fb.onclick = companionOpen;
   const close = $("compClose"); if (close) close.onclick = companionClose;
   const asDone = $("avatarSetupDone");
