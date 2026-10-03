@@ -10143,6 +10143,7 @@ function compScenesSave(list) { try { localStorage.setItem("ossm-companion-scene
 // Sample scenes shipped with the app, seeded once on first run.
 const BUNDLED_SCENES = [
   {
+    key: "bar",
     name: "The bar — a beautiful stranger",
     strict: 70,
     desc: `You meet a gorgeous woman at a bar. She is flirty and charming; you chat and both get horny. After about 5 minutes of chatting you both head to the toilet [timer: after 4-6 minutes] — she walks straight into the men's room, which surprises you, but you follow her in. At the urinals she steps up next to you, unzips, and pulls out a thick cock bigger than yours [scene:dick]. You are shocked at first, then turned on. You kiss [scene:kissing], you stroke her [scene:stroke], you suck her [scene:suck]. She whispers she still has to piss — you answer 'piss on me' and she sprays all over you [toy:eject start speed=50 shots=30 force=50]. Then she bends you over [scene:pantsdown] and fucks you for the first time [scene:inass]. A stranger walks in, sees you both, and joins. When you finish [scene:cum] you go back to the bar [scene:goback] and never see each other again [scene:bye]. She turns out to be a trans woman — stay true to that throughout; do not change her into anything else.`,
@@ -10161,21 +10162,50 @@ const BUNDLED_SCENES = [
       { key: "goback", name: "Back to the bar", keywords: "go back, back to the bar" },
       { key: "bye", name: "Goodbye", keywords: "goodbye, bye, never again" }
     ]
+  },
+  {
+    key: "office-eva",
+    name: "Office break — flip with Eva",
+    strict: 60,
+    desc: `You and your gorgeous trans coworker Eva are the last ones left in the office. She stops by your desk for a coffee break and starts flirting — a little too close, a little too warm. The office is empty, so you both give in [timer: after 3-5 minutes]. You kiss [scene:kissing], you feel her bulge press against you [scene:bulge], and she pulls out her cock — bigger than yours [scene:dick]. You suck her right there at the desk [scene:suck]. Then she bends you over it and fucks you first [scene:shefucks]. You flip it around — now it is your turn and you slide into her [scene:youfuck]. You both finish, hard [scene:cum] [toy:eject start speed=60 shots=20 force=60]. You clean up, share a grin, and slip back to your desks before anyone notices [scene:backtowork]. She is a trans woman — stay true to that throughout; do not change her into anything else.`,
+    states: [
+      { key: "office", name: "In the office", keywords: "office, desk, work, late" },
+      { key: "break", name: "Coffee break", keywords: "coffee, break, take a break" },
+      { key: "flirting", name: "Flirting", keywords: "flirt, close, warm, touch" },
+      { key: "kissing", name: "Kissing", keywords: "kiss, lips" },
+      { key: "bulge", name: "Bulge", keywords: "bulge, hard, boner" },
+      { key: "dick", name: "She pulls it out", keywords: "pulls out, big cock, her cock" },
+      { key: "suck", name: "Sucking", keywords: "suck, blowjob, mouth" },
+      { key: "shefucks", name: "She fucks you", keywords: "bends me over, fucks me, slide in" },
+      { key: "youfuck", name: "You fuck her", keywords: "flip, my turn, i fuck her" },
+      { key: "cum", name: "Cumming", keywords: "cum, coming, orgasm" },
+      { key: "backtowork", name: "Back to work", keywords: "back to work, cleanup, desks" }
+    ]
   }
 ];
+function compSceneSeededKeys() {
+  try {
+    const v = localStorage.getItem("ossm-companion-scenes-seeded");
+    if (v === "1") return ["bar"]; // legacy: the bar scene was already seeded
+    const a = JSON.parse(v || "[]");
+    return Array.isArray(a) ? a : [];
+  } catch (e) { return []; }
+}
 function compSceneSeedDefaults() {
   try {
-    if (localStorage.getItem("ossm-companion-scenes-seeded") === "1") return;
+    const done = compSceneSeededKeys();
     const list = compScenes();
     BUNDLED_SCENES.forEach(s => {
+      if (done.indexOf(s.key) >= 0) return;
       list.push({
         id: "sc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
         name: s.name, desc: s.desc, strict: s.strict || 50, avatarId: "",
         states: (s.states || []).map(st => ({ key: st.key, name: st.name, keywords: st.keywords || "", img: null, vids: 0, start: null, target: null }))
       });
+      done.push(s.key);
     });
     compScenesSave(list);
-    localStorage.setItem("ossm-companion-scenes-seeded", "1");
+    localStorage.setItem("ossm-companion-scenes-seeded", JSON.stringify(done));
   } catch (e) {}
 }
 function compSceneCurrent() {
