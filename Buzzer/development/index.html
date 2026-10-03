@@ -7115,6 +7115,9 @@ function aiPickVoice(lang) {
   return best;
 }
 function aiSpeak(text) {
+  // While the microphone/listening is active the OS ducks or blocks playback —
+  // skip speaking now; the reply is read once listening stops.
+  if (compListening || compLive || compLiveRec || aiLiveRec) return;
   const p = aiTtsProvider();
   if (p === "elevenlabs" && aiElevenLabsConfigured()) {
     aiSpeakElevenLabs(text);
@@ -11841,8 +11844,10 @@ function compVoice() {
   if (aiWhisperEnabled() && aiCanWhisper()) {
     if (compListening) return;
     compListening = true;
+    compMicPauseVideo();
     aiRecordMic(text => {
       compListening = null;
+      compMicResumeVideo();
       if (text) { const i = $("compInput"); if (i) i.value = text; compSend(); }
       else compAddMsg("system", "Couldn't hear that (or Whisper is unreachable).");
     });
@@ -11856,11 +11861,12 @@ function compVoice() {
   rec.interimResults = false;
   rec.maxAlternatives = 1;
   compListening = rec;
+  compMicPauseVideo();
   rec.onresult = (e) => {
     const t = (e.results && e.results[0] && e.results[0][0]) ? e.results[0][0].transcript : "";
     if (t && t.trim()) { const i = $("compInput"); if (i) i.value = t.trim(); compSend(); }
   };
-  rec.onend = () => { compListening = null; };
+  rec.onend = () => { compListening = null; compMicResumeVideo(); };
   try { rec.start(); } catch (e) { compAddMsg("system", "Couldn't start the microphone."); }
 }
 
@@ -11870,6 +11876,7 @@ function compLiveStop() {
   if (b) b.classList.remove("on");
   if (bt) bt.classList.remove("on");
   if (compLiveRec) { try { compLiveRec.stop(); } catch (e) {} compLiveRec = null; }
+  compMicResumeVideo();
 }
 function compLiveToggle() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -11879,8 +11886,20 @@ function compLiveToggle() {
   const b = $("compLive"); const bt = $("compLiveTop");
   if (b) b.classList.add("on");
   if (bt) bt.classList.add("on");
-  compAddMsg("system", "Listening — talk to me.");
+  compMicPauseVideo();
+  compAddMsg("system", "Listening — video and talk-back pause while the mic is on.");
   compLiveStart();
+}
+let compMicPausedVideo = false;
+function compMicPauseVideo() {
+  const v = $("funVideo");
+  if (v && !v.paused && !compMicPausedVideo) { try { v.pause(); compMicPausedVideo = true; } catch (e) {} }
+}
+function compMicResumeVideo() {
+  if (!compMicPausedVideo) return;
+  compMicPausedVideo = false;
+  const v = $("funVideo");
+  if (v && v.paused && funState.playing) { try { v.play(); } catch (e) {} }
 }
 function compLiveStart() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
