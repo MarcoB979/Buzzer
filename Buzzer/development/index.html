@@ -661,7 +661,7 @@
   .companion-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .comp-main { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
   .comp-main > * { flex-shrink: 0; }
-  .comp-side { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .comp-side { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; position: relative; }
   .companion-avatar { position: relative; width: min(100%, 360px); height: auto; aspect-ratio: 1 / 1; flex: 0 0 auto; }
   .companion-avatar .companion-img { width: 100%; height: 100%; display: block; position: relative; }
   .companion-img { overflow: hidden; border-radius: 50%; background: #0b1220; transition: transform .11s ease; transform-origin: 50% 42%; }
@@ -677,6 +677,13 @@
   .comp-avatar-name { width: 100%; text-align: center; font-size: .95rem; font-weight: bold; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .comp-talk-btn { width: 100%; padding: 14px 12px; font-size: 1.1rem; font-weight: 700; border-radius: 14px; }
   .comp-talk-btn.recording { background: #7f1d1d; }
+  /* Scene overlay + builder */
+  #compSceneOverlay { position: absolute; inset: 0; z-index: 40; pointer-events: none; display: flex; align-items: center; justify-content: center; }
+  #compSceneOverlay .scene-card { position: relative; width: min(78%, 340px); aspect-ratio: 1 / 1; background: #0b1220; border: 1px solid rgba(255,255,255,.22); border-radius: 18px; box-shadow: 0 0 42px rgba(0,0,0,.6), 0 0 0 8px rgba(255,255,255,.05); overflow: hidden; opacity: 0; transform: scale(.95); transition: opacity .4s ease, transform .4s ease; }
+  #compSceneOverlay.on .scene-card { opacity: 1; transform: scale(1); }
+  #compSceneOverlay .scene-card canvas, #compSceneOverlay .scene-card img, #compSceneOverlay .scene-card video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+  .comp-scene-name { width: 100%; text-align: center; font-size: .8rem; color: #7dd3fc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .scene-thumb { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: #1e293b; flex: 0 0 auto; }
   .companion-avatar .companion-img.live { overflow: hidden; border-radius: 50%; background: #0b1220; }
   .companion-avatar canvas.live { width: 100%; height: 100%; display: block; }
   .companion-avatar video.comp-talk-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 2; background: #0b1220; }
@@ -941,7 +948,9 @@
             <button class="ble-btn small" id="compNext" type="button" title="Next avatar">▶</button>
             <button class="ble-btn small" id="compBuilderBtn" type="button" title="Open the Avatar builder">🧑 Builder</button>
             <button class="ble-btn small" id="compFreedomBtn" type="button" title="Companion initiative — tap to change">🛡 Strict</button>
+            <button class="ble-btn small" id="compSceneBtn" type="button" title="Open the Scene builder">🎬 Scene</button>
           </div>
+          <div class="comp-scene-name" id="compSceneName"></div>
           <div class="comp-social" id="compSocial" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
           <div class="comp-sliders" id="compSliders"></div>
           <div class="comp-addons" id="compAddons" style="display:none;"></div>
@@ -958,6 +967,7 @@
           </div>
         </div>
         <div class="comp-side">
+          <div id="compSceneOverlay"></div>
           <div class="ai-history companion-history" id="compHistory"></div>
           <div class="ai-row">
             <input type="text" id="compInput" placeholder="Talk to me… share what you like" enterkeyhint="send" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
@@ -1109,6 +1119,32 @@
       </div>
     </div>
 
+    <div class="photo-modal" id="sceneSetup" style="display:none;">
+      <div class="photo-modal-card" style="max-width:600px;max-height:92vh;overflow:auto;">
+        <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
+          <span>🎬 Scene builder</span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="ble-btn small" id="sceneSaveBtn" type="button">💾 Save</button>
+            <button class="ble-btn small" id="sceneExportBtn" type="button" title="Export this scene to share it">⬇ Export</button>
+            <button class="ble-btn small" id="sceneImportBtn" type="button" title="Import a scene">⬆ Import</button>
+            <input type="file" id="sceneImportInput" accept=".zip,application/zip" style="display:none;">
+            <button class="ble-btn small" id="sceneSetupClose" type="button">✕</button>
+          </div>
+        </div>
+        <div class="avatar-builder-head">
+          <input type="text" id="sceneNameInput" placeholder="Scene name">
+          <button class="ble-btn small" id="sceneNewBtn" type="button" title="New scene">＋</button>
+          <button class="ble-btn small" id="sceneDelBtn" type="button" title="Delete this scene">🗑</button>
+        </div>
+        <div class="avatar-list" id="sceneList"></div>
+        <div class="photo-modal-body" style="font-size:.8rem;">
+          <label style="display:block;margin-bottom:4px;">Scenario — the prompt text. Write <b>[scene1]</b> (or a state name) anywhere to show that overlay, or let me choose when it fits.</label>
+          <textarea id="sceneDesc" rows="6" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="Describe the scene — who, where, what happens…"></textarea>
+        </div>
+        <div id="sceneStateRows"></div>
+        <button class="ble-btn small" id="sceneAddState" type="button" style="margin-top:6px;">＋ Add scene state</button>
+      </div>
+    </div>
     <div class="photo-modal" id="stashPicker" style="display:none;">
       <div class="photo-modal-card" style="max-width:620px;">
         <div class="photo-modal-title" style="display:flex;justify-content:space-between;align-items:center;">
@@ -9448,6 +9484,7 @@ function companionRender() {
   const box = $("companionAvatar");
   const nameEl = $("compAvatarName");
   if (nameEl) nameEl.textContent = companionState.avatarName || "";
+  compSceneSyncName();
   if (!box) return;
   const state = compActiveState();
   if (compIsBodyState(state)) {
@@ -10086,6 +10123,433 @@ function compBodyAddState() {
     companionSave();
     buildBodySetupRows();
   });
+}
+// ---------- Scenes (scenario overlays floating over the conversation) ----------
+function compScenes() {
+  try { const a = JSON.parse(localStorage.getItem("ossm-companion-scenes") || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function compScenesSave(list) { try { localStorage.setItem("ossm-companion-scenes", JSON.stringify(list)); } catch (e) {} }
+function compSceneCurrent() {
+  const id = companionState.sceneId || "";
+  return compScenes().find(s => s.id === id) || null;
+}
+function compSceneVideoKey(mediaId, stateIdx, i) { return (mediaId || "") + "-scene-" + stateIdx + "-" + i; }
+function compSceneVideoEntries() {
+  const sc = compSceneCurrent();
+  const out = [];
+  if (!sc) return out;
+  (sc.states || []).forEach((st, si) => { for (let i = 0; i < (st.vids || 0); i++) out.push({ kind: "scene", state: si, i: i, key: compSceneVideoKey(sc.id, si, i) }); });
+  return out;
+}
+function compSceneFindState(sc, key) {
+  if (!sc) return null;
+  const k = String(key || "").trim().toLowerCase();
+  if (!k) return null;
+  const states = sc.states || [];
+  const m = k.match(/^scene(\d+)$/);
+  if (m) { const idx = parseInt(m[1], 10) - 1; if (states[idx]) return states[idx]; }
+  return states.find(s => String(s.key || "").toLowerCase() === k || String(s.name || "").toLowerCase() === k) || null;
+}
+// Find + strip a [scene:key] / [scene1] marker from a reply.
+function compSceneFromText(text) {
+  const t = String(text || "");
+  const m = t.match(/\[scene\s*:?\s*([a-z0-9][a-z0-9 _-]*)\]/i);
+  if (m) return { key: m[1].trim(), clean: (t.slice(0, m.index) + " " + t.slice(m.index + m[0].length)).replace(/\s{2,}/g, " ").trim() };
+  return { key: null, clean: t };
+}
+function compSceneSyncName() {
+  const el = $("compSceneName");
+  if (!el) return;
+  const sc = compSceneCurrent();
+  el.textContent = sc ? ("🎬 " + (sc.name || "Scene")) : "";
+}
+function compSceneContext() {
+  const sc = compSceneCurrent();
+  if (!sc) return "";
+  let out = "\n\nACTIVE SCENE (scenario you're role-playing): " + (sc.name || "");
+  if (sc.desc) out += " — " + sc.desc;
+  const states = (sc.states || []);
+  if (states.length) {
+    out += "\nSCENE STATES: you may show one as a floating overlay by writing \"[scene:<key>]\" in your reply when the moment fits (or \"[scene1]\" for the first). Available: " + states.map(s => '"' + (s.name || s.key) + '"' + (s.keywords ? " (trigger: " + s.keywords + ")" : "")).join(", ") + ". Only trigger one when it genuinely fits the story.";
+  }
+  return out;
+}
+function compSceneNew() {
+  const sc = { id: "sc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "", desc: "", states: [] };
+  compScenesSave(compScenes().concat([sc]));
+  companionState.sceneId = sc.id; companionState.sceneName = "";
+  companionSave();
+  const ni = $("sceneNameInput"); if (ni) ni.value = "";
+  const d = $("sceneDesc"); if (d) d.value = "";
+  compSceneBuildList(); compSceneBuildRows(); compSceneSyncName();
+}
+function compSceneSelect(id) {
+  const sc = compScenes().find(s => s.id === id);
+  if (!sc) return;
+  companionState.sceneId = sc.id; companionState.sceneName = sc.name || "";
+  companionSave();
+  const ni = $("sceneNameInput"); if (ni) ni.value = sc.name || "";
+  const d = $("sceneDesc"); if (d) d.value = sc.desc || "";
+  compSceneBuildList(); compSceneBuildRows(); compSceneSyncName();
+}
+function compSceneSave() {
+  const ni = $("sceneNameInput"); const d = $("sceneDesc");
+  const name = ni ? ni.value.trim() : "";
+  const desc = d ? d.value.trim() : "";
+  let sc = compSceneCurrent();
+  if (!sc) { compSceneNew(); sc = compSceneCurrent(); }
+  if (!sc) return;
+  sc.name = name || sc.name || "Scene";
+  sc.desc = desc;
+  const list = compScenes();
+  const i = list.findIndex(x => x.id === sc.id);
+  if (i >= 0) list[i] = sc; else list.push(sc);
+  compScenesSave(list);
+  companionState.sceneId = sc.id; companionState.sceneName = sc.name;
+  companionSave();
+  compSceneBuildList(); compSceneSyncName();
+  funLog("Scene \"" + sc.name + "\" saved.");
+}
+function compSceneDelete() {
+  const id = companionState.sceneId;
+  if (!id) return;
+  compScenesSave(compScenes().filter(s => s.id !== id));
+  companionState.sceneId = ""; companionState.sceneName = "";
+  companionSave();
+  const ni = $("sceneNameInput"); if (ni) ni.value = "";
+  const d = $("sceneDesc"); if (d) d.value = "";
+  compSceneBuildList(); compSceneBuildRows(); compSceneSyncName();
+}
+function compSceneBuildList() {
+  const host = $("sceneList");
+  if (!host) return;
+  host.innerHTML = "";
+  const list = compScenes();
+  const cur = companionState.sceneId || "";
+  if (!list.length) host.innerHTML = '<span style="font-size:.75rem;color:#94a3b8;">No scenes yet — create one and press 💾.</span>';
+  list.forEach(s => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "avatar-card" + (s.id === cur ? " active" : "");
+    b.innerHTML = '<span class="avatar-card-nothumb">🎬</span><span class="avatar-card-name">' + escapeHtml(s.name || "Scene") + '</span>';
+    b.onclick = () => compSceneSelect(s.id);
+    host.appendChild(b);
+  });
+}
+function compSceneBuildRows() {
+  const host = $("sceneStateRows");
+  if (!host) return;
+  host.innerHTML = "";
+  const sc = compSceneCurrent();
+  if (!sc) { host.innerHTML = '<div class="ai-set-hint" style="margin-top:6px;">Create a scene to add states.</div>'; return; }
+  (sc.states || []).forEach((st, si) => {
+    const row = document.createElement("div");
+    row.className = "avatar-state-row scene-state-row";
+    const thumb = st.img ? '<img class="scene-thumb" src="' + st.img + '" alt="">' : '<span class="avatar-state-thumb avatar-state-thumb-empty">🎬</span>';
+    const info = (st.target ? (Math.round(st.target.x * 100) + '%, ' + Math.round(st.target.y * 100) + '% · ' + ((st.target.zoom || 1.5)).toFixed(1) + '×') : 'no end point')
+      + (st.start ? ' · from ' + Math.round(st.start.x * 100) + '%,' + Math.round(st.start.y * 100) + '%' : '')
+      + ((st.vids || 0) > 0 ? ' · ' + st.vids + ' video' + (st.vids > 1 ? 's' : '') : '');
+    row.innerHTML = thumb
+      + '<span class="avatar-state-name">' + escapeHtml(st.name || st.key) + '</span>'
+      + '<span class="avatar-state-info">' + escapeHtml(info) + '</span>'
+      + '<button class="ble-btn small" data-sa="img" data-si="' + si + '" type="button" title="Add/change photo">📁</button>'
+      + '<button class="ble-btn small" data-sa="vid" data-si="' + si + '" type="button" title="Add videos">🎬</button>'
+      + '<button class="ble-btn small" data-sa="start" data-si="' + si + '" type="button" title="Set start point">⛳</button>'
+      + '<button class="ble-btn small" data-sa="target" data-si="' + si + '" type="button" title="Set end point">👁</button>'
+      + '<button class="ble-btn small" data-sa="clr" data-si="' + si + '" type="button" title="Clear photo/video">✕</button>'
+      + '<button class="ble-btn small" data-sa="del" data-si="' + si + '" type="button" title="Remove this state">🗑</button>'
+      + '<input class="avatar-state-kwin" data-sk="' + si + '" value="' + escapeHtml(st.keywords || "") + '" placeholder="trigger words (comma separated)">';
+    host.appendChild(row);
+  });
+  host.querySelectorAll("button[data-sa]").forEach(b => { b.onclick = () => compSceneStateAction(b.dataset.sa, parseInt(b.dataset.si, 10)); });
+  host.querySelectorAll("input[data-sk]").forEach(inp => {
+    inp.onchange = () => { const sc2 = compSceneCurrent(); const si = parseInt(inp.dataset.sk, 10); if (sc2 && sc2.states[si]) { sc2.states[si].keywords = inp.value.trim(); compScenesSave(compScenes()); } };
+  });
+}
+function compSceneAddState() {
+  const sc = compSceneCurrent();
+  if (!sc) { funLog("Select or create a scene first."); return; }
+  sc.states = sc.states || [];
+  const n = sc.states.length + 1;
+  sc.states.push({ key: "scene" + n, name: "scene" + n, keywords: "", img: null, vids: 0, start: null, target: null });
+  compScenesSave(compScenes());
+  compSceneBuildRows();
+}
+function compSceneStatePhoto(file, si) {
+  if (!file) return;
+  const sc = compSceneCurrent(); if (!sc || !sc.states[si]) return;
+  const apply = (dataUrl) => { sc.states[si].img = dataUrl; compScenesSave(compScenes()); compSceneBuildRows(); funLog("Photo set for scene state \"" + (sc.states[si].name || sc.states[si].key) + "\"."); };
+  compResizeImage(file, 1600, 0.85).then((dataUrl) => {
+    if (dataUrl) { apply(dataUrl); return; }
+    const rd = new FileReader(); rd.onload = () => apply(String(rd.result)); rd.readAsDataURL(file);
+  });
+}
+function compSceneStateVideos(files, si) {
+  const sc = compSceneCurrent(); if (!sc || !sc.states[si]) return;
+  const list = (files && files.length) ? Array.prototype.slice.call(files).filter(f => f && f.type && f.type.indexOf("video/") === 0) : [];
+  if (!list.length) return;
+  const st = sc.states[si];
+  const start = st.vids || 0;
+  list.forEach((f, k) => {
+    const i = start + k;
+    const key = compSceneVideoKey(sc.id, si, i);
+    compVideoDb().then((db) => { if (db) { try { const tx = db.transaction("media", "readwrite"); tx.objectStore("media").put(f, key); } catch (e) {} } });
+  });
+  st.vids = start + list.length;
+  compScenesSave(compScenes());
+  compSceneBuildRows();
+  funLog("Video added for scene state \"" + (st.name || st.key) + "\".");
+}
+function compSceneStateAction(a, si) {
+  if (a === "img") {
+    compEnsureConsent(() => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compSceneStatePhoto(f, si); }; inp.click(); });
+  } else if (a === "vid") {
+    compEnsureConsent(() => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "video/*"; inp.multiple = true; inp.onchange = () => { compSceneStateVideos(inp.files, si); }; inp.click(); });
+  } else if (a === "start") {
+    compSceneCalibrate(si, "start");
+  } else if (a === "target") {
+    compSceneCalibrate(si, "target");
+  } else if (a === "clr") {
+    const sc = compSceneCurrent(); if (!sc || !sc.states[si]) return;
+    sc.states[si].img = null; sc.states[si].vids = 0;
+    compScenesSave(compScenes());
+    compSceneBuildRows();
+  } else if (a === "del") {
+    const sc = compSceneCurrent(); if (!sc || !sc.states[si]) return;
+    sc.states.splice(si, 1);
+    compScenesSave(compScenes());
+    compSceneBuildRows();
+  }
+}
+function compSceneCalibrate(si, mode) {
+  const sc = compSceneCurrent();
+  if (!sc || !sc.states[si]) return;
+  const st = sc.states[si];
+  if (!st.img) { funLog("Add a photo to this scene state first."); return; }
+  const modal = $("bodyCalib");
+  if (!modal) return;
+  modal.style.display = "";
+  const stage = $("bodyCalibStage"), simg = $("bodyCalibImg");
+  const hint = $("bodyCalibHint"), apply = $("bodyCalibDone"), cancel = $("bodyCalibCancel");
+  const title = $("bodyCalibTitle"), clear = $("bodyCalibClear");
+  const zoomEl = $("bodyCalibZoom"), zoomVal = $("bodyCalibZoomVal");
+  simg.src = st.img;
+  let click = null; let dot = null;
+  const existing = (mode === "start") ? st.start : st.target;
+  if (title) title.textContent = (mode === "start") ? "Tap the start point" : "Tap the end point";
+  if (hint) hint.textContent = (mode === "start") ? "Where the camera starts (zoomed in) before panning" : "Where the camera ends";
+  if (existing && existing.x !== undefined) click = [existing.x, existing.y];
+  if (clear) clear.style.display = existing ? "" : "none";
+  const defZoom = (mode === "start") ? 3 : 1.5;
+  const curZoom = (existing && existing.zoom) || defZoom;
+  if (zoomEl) { zoomEl.value = String(Math.round(curZoom * 100)); if (zoomVal) zoomVal.textContent = curZoom.toFixed(1) + "×"; }
+  const addDot = (nx, ny) => { if (dot) dot.remove(); dot = document.createElement("div"); dot.className = "photo-calib-dot"; dot.style.left = (nx * 100) + "%"; dot.style.top = (ny * 100) + "%"; stage.appendChild(dot); };
+  if (click) addDot(click[0], click[1]);
+  stage.onclick = (e) => { const r = simg.getBoundingClientRect(); if (!r.width || !r.height) return; const nx = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); const ny = Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)); click = [nx, ny]; addDot(nx, ny); };
+  if (zoomEl) zoomEl.oninput = () => { if (zoomVal) zoomVal.textContent = (parseInt(zoomEl.value, 10) / 100).toFixed(1) + "×"; };
+  const cleanup = () => { modal.style.display = "none"; stage.onclick = null; if (zoomEl) zoomEl.oninput = null; apply.onclick = null; cancel.onclick = null; clear.onclick = null; if (dot) dot.remove(); };
+  const finish = (ok) => {
+    cleanup();
+    if (ok && click) {
+      const zoom = zoomEl ? (parseInt(zoomEl.value, 10) / 100) : defZoom;
+      if (mode === "start") st.start = { x: click[0], y: click[1], zoom: zoom };
+      else st.target = { x: click[0], y: click[1], zoom: zoom };
+      compScenesSave(compScenes());
+      compSceneBuildRows();
+    }
+  };
+  apply.onclick = () => finish(true);
+  cancel.onclick = () => finish(false);
+  clear.onclick = () => { if (mode === "start") st.start = null; else st.target = null; compScenesSave(compScenes()); compSceneBuildRows(); cleanup(); };
+}
+function compSceneOpenBuilder() {
+  const m = $("sceneSetup");
+  if (!m) return;
+  const sc = compSceneCurrent();
+  const ni = $("sceneNameInput"); if (ni) ni.value = sc ? (sc.name || "") : "";
+  const d = $("sceneDesc"); if (d) d.value = sc ? (sc.desc || "") : "";
+  compSceneBuildList(); compSceneBuildRows();
+  m.style.display = "";
+}
+// ---------- Scene overlay (floating square over the conversation) ----------
+const compSceneAnim = { active: false, raf: 0, img: null, cv: null, cx: 0.5, cy: 0.5, zoom: 1, start: null, target: null, phase: "idle", t0: 0, holdUntil: 0, video: null };
+function compSceneHide(immediate) {
+  if (compSceneAnim.raf) { cancelAnimationFrame(compSceneAnim.raf); compSceneAnim.raf = 0; }
+  compSceneAnim.active = false; compSceneAnim.img = null; compSceneAnim.cv = null; compSceneAnim.video = null; compSceneAnim.phase = "idle";
+  const overlay = $("compSceneOverlay");
+  if (!overlay) return;
+  if (immediate) { overlay.classList.remove("on"); overlay.innerHTML = ""; }
+  else {
+    overlay.classList.remove("on");
+    const ov = overlay;
+    setTimeout(() => { if (!ov.classList.contains("on")) ov.innerHTML = ""; }, 450);
+  }
+}
+function compSceneFrame(now) {
+  const cv = compSceneAnim.cv;
+  if (!cv || !compSceneAnim.img) return;
+  const ctx = cv.getContext("2d");
+  if (!ctx) return;
+  const w = cv.clientWidth || 300, h = cv.clientHeight || 300;
+  const dpr = window.devicePixelRatio || 1;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = "#0b1220"; ctx.fillRect(0, 0, w, h);
+  const img = compSceneAnim.img, iw = img.naturalWidth, ih = img.naturalHeight;
+  const ease = (t) => (t < 0.5) ? (2 * t * t) : (-1 + (4 - 2 * t) * t);
+  const PAN_MS = 2500, HOLD_MS = 5200;
+  const drawCrop = (cx, cy, zoom, alpha) => {
+    const side = Math.min(iw, ih) / Math.max(0.5, zoom);
+    const cxPx = cx * iw, cyPx = cy * ih;
+    const sx = Math.max(0, Math.min(iw - side, cxPx - side / 2));
+    const sy = Math.max(0, Math.min(ih - side, cyPx - side / 2));
+    if (alpha !== undefined && alpha < 1) ctx.globalAlpha = alpha;
+    ctx.drawImage(img, sx, sy, side, side, 0, 0, w, h);
+    if (alpha !== undefined && alpha < 1) ctx.globalAlpha = 1;
+  };
+  const applyCam = (t) => {
+    const s = compSceneAnim.start, tg = compSceneAnim.target, mz = 1;
+    compSceneAnim.cx = s.x + (tg.x - s.x) * ease(t);
+    compSceneAnim.cy = s.y + (tg.y - s.y) * ease(t);
+    if (t < 0.5) compSceneAnim.zoom = s.zoom + (mz - s.zoom) * ease(t * 2);
+    else compSceneAnim.zoom = mz + (tg.zoom - mz) * ease((t - 0.5) * 2);
+  };
+  if (compSceneAnim.phase === "pan") {
+    const t = Math.min(1, (now - compSceneAnim.t0) / PAN_MS);
+    applyCam(t);
+    if (t >= 1) { compSceneAnim.phase = "hold"; compSceneAnim.holdUntil = now + HOLD_MS; }
+  } else if (compSceneAnim.phase === "hold") {
+    if (now >= compSceneAnim.holdUntil) { compSceneAnim.phase = "return"; compSceneAnim.t0 = now; }
+  } else if (compSceneAnim.phase === "return") {
+    const t = Math.min(1, (now - compSceneAnim.t0) / PAN_MS);
+    applyCam(1 - t);
+    if (t >= 1) { compSceneHide(); return; }
+  }
+  drawCrop(compSceneAnim.cx, compSceneAnim.cy, compSceneAnim.zoom);
+}
+function compSceneShow(key) {
+  const sc = compSceneCurrent();
+  if (!sc) { funLog("No active scene — open the Scene builder."); return; }
+  let idx = -1, st = null;
+  const k = String(key || "").trim().toLowerCase();
+  const m = k.match(/^scene(\d+)$/) || k.match(/^(\d+)$/);
+  if (m) { idx = parseInt(m[1], 10) - 1; st = (sc.states || [])[idx]; }
+  if (!st) {
+    idx = (sc.states || []).findIndex(s => String(s.key || "").toLowerCase() === k || String(s.name || "").toLowerCase() === k);
+    st = idx >= 0 ? sc.states[idx] : null;
+  }
+  if (!st) { funLog("No scene state \"" + key + "\"."); return; }
+  if (!st.img && !((st.vids || 0) > 0)) { funLog("Scene state \"" + (st.name || st.key) + "\" has no photo/video yet."); return; }
+  compSceneHide(true);
+  const overlay = $("compSceneOverlay");
+  if (!overlay) return;
+  if ((st.vids || 0) > 0) { compSceneShowVideo(st, idx); return; }
+  overlay.innerHTML = '<div class="scene-card"><canvas></canvas></div>';
+  overlay.classList.add("on");
+  const cv = overlay.querySelector("canvas");
+  const img = new Image();
+  img.onload = () => {
+    compSceneAnim.img = img; compSceneAnim.cv = cv; compSceneAnim.active = true;
+    compSceneAnim.start = st.start ? { x: st.start.x, y: st.start.y, zoom: st.start.zoom || 3 } : { x: st.target ? st.target.x : 0.5, y: st.target ? st.target.y : 0.5, zoom: 3 };
+    compSceneAnim.target = { x: st.target ? st.target.x : 0.5, y: st.target ? st.target.y : 0.5, zoom: (st.target && st.target.zoom) || 1.5 };
+    compSceneAnim.phase = "pan"; compSceneAnim.t0 = performance.now();
+    const loop = () => { if (!compSceneAnim.active) { compSceneAnim.raf = 0; return; } compSceneFrame(performance.now()); compSceneAnim.raf = requestAnimationFrame(loop); };
+    compSceneAnim.raf = requestAnimationFrame(loop);
+  };
+  img.src = st.img;
+}
+function compSceneShowVideo(st, idx) {
+  const sc = compSceneCurrent();
+  const overlay = $("compSceneOverlay");
+  if (!overlay || !sc) return;
+  overlay.innerHTML = '<div class="scene-card"><video muted playsinline></video></div>';
+  overlay.classList.add("on");
+  const v = overlay.querySelector("video");
+  compSceneAnim.video = v;
+  const i = Math.floor(Math.random() * Math.max(1, st.vids || 0));
+  const key = compSceneVideoKey(sc.id, idx, i);
+  compVideoDb().then((db) => {
+    if (!db) { compSceneHide(); return; }
+    try {
+      const tx = db.transaction("media", "readonly");
+      const rq = tx.objectStore("media").get(key);
+      rq.onsuccess = () => {
+        const blob = rq.result;
+        try { db.close(); } catch (e) {}
+        if (blob) {
+          const u = URL.createObjectURL(blob);
+          v.src = u; v.loop = false;
+          v.onended = () => { try { URL.revokeObjectURL(u); } catch (e) {} compSceneHide(); };
+          setTimeout(() => { if (!v.ended) compSceneHide(); }, 30000);
+          try { v.play(); } catch (e) { compSceneHide(); }
+        } else compSceneHide();
+      };
+      rq.onerror = () => { try { db.close(); } catch (e) {} compSceneHide(); };
+    } catch (e) { compSceneHide(); }
+  });
+}
+// ---------- Scene import/export ----------
+async function exportScene() {
+  const sc = compSceneCurrent();
+  if (!sc) { funLog("Select a scene first."); return; }
+  const hasMedia = (sc.states || []).some(st => st.img || (st.vids || 0) > 0);
+  if (hasMedia && !confirm("This scene includes photos/videos. Only export it if you own the material and are comfortable sharing it. Continue?")) return;
+  try {
+    const JSZip = await loadJSZip();
+    const zip = new JSZip();
+    const mediaMeta = {};
+    const entries = compSceneVideoEntries();
+    const db = await backupDbOpen();
+    if (db) {
+      for (const e of entries) {
+        const blob = await new Promise((res) => { const tx = db.transaction("media", "readonly"); const rq = tx.objectStore("media").get(e.key); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => res(null); });
+        if (blob && blob instanceof Blob) { mediaMeta[e.key] = { kind: "scene", state: e.state, i: e.i, type: blob.type || "application/octet-stream" }; zip.file("media/" + e.key, blob); }
+      }
+      try { db.close(); } catch (e) {}
+    }
+    zip.file("scene.json", JSON.stringify(sc));
+    zip.file("manifest.json", JSON.stringify({ app: "buzzer-scene", format: 1, name: sc.name, media: mediaMeta }));
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+    const fname = ((sc.name || "scene").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "scene");
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "buzzer-scene-" + fname + ".zip"; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    funLog("Scene \"" + (sc.name || "scene") + "\" exported.");
+  } catch (e) { alert("Export failed: " + (e && e.message ? e.message : e)); }
+}
+async function importScene(file) {
+  if (!file) return;
+  try {
+    const JSZip = await loadJSZip();
+    const zip = await JSZip.loadAsync(file);
+    const scFile = zip.file("scene.json");
+    if (!scFile) throw new Error("not a Buzzer scene file");
+    const sc = JSON.parse(await scFile.async("string"));
+    if (!sc || typeof sc !== "object" || !Array.isArray(sc.states)) throw new Error("bad scene data");
+    const newId = "sc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    sc.id = newId;
+    let mediaMeta = {};
+    const mf = zip.file("manifest.json");
+    if (mf) { try { const m = JSON.parse(await mf.async("string")); if (m && m.media) mediaMeta = m.media; } catch (e) {} }
+    if (Object.keys(mediaMeta).length) {
+      const db = await backupDbOpen();
+      if (db) {
+        for (const origKey of Object.keys(mediaMeta)) {
+          const meta = mediaMeta[origKey] || {};
+          const f = zip.file("media/" + origKey);
+          if (!f) continue;
+          let arrBuf; try { arrBuf = await f.async("arraybuffer"); } catch (e) { continue; }
+          const blob = new Blob([arrBuf], { type: meta.type || "application/octet-stream" });
+          const newKey = compSceneVideoKey(newId, meta.state || 0, meta.i || 0);
+          await new Promise((res) => { try { const tx = db.transaction("media", "readwrite"); tx.objectStore("media").put(blob, newKey); tx.oncomplete = () => res(); tx.onerror = () => res(); } catch (e) { res(); } });
+        }
+        try { db.close(); } catch (e) {}
+      }
+    }
+    compScenesSave(compScenes().concat([sc]));
+    companionState.sceneId = newId; companionState.sceneName = sc.name || "";
+    companionSave();
+    compSceneOpenBuilder(); compSceneSyncName();
+    funLog("Scene \"" + (sc.name || "scene") + "\" imported.");
+  } catch (e) { alert("Import failed: " + (e && e.message ? e.message : e)); }
 }
 // ---------- Avatar builder (saved avatars + drawn vs real) ----------
 let compPendingConsent = null;
@@ -11739,7 +12203,7 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + aiSuggestionsReminder() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + aiSuggestionsReminder() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -11751,7 +12215,9 @@ async function compSend() {
       compMessages.pop();
     }
     if (res.reply) {
-      const clean = aiStripEmotionTags(res.reply);
+      const scTrig = compSceneFromText(res.reply);
+      if (scTrig.key) compSceneShow(scTrig.key);
+      const clean = aiStripEmotionTags(scTrig.clean);
       compAddMsg("assistant", escapeHtml(clean));
       if (aiSpeakEnabled()) aiSpeak(clean);
       companionLiveExpress(res.reply);
@@ -12129,6 +12595,15 @@ function compLiveStart() {
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const talkBig = $("compTalkBig"); if (talkBig) talkBig.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
+  const sceneBtn = $("compSceneBtn"); if (sceneBtn) sceneBtn.onclick = compSceneOpenBuilder;
+  const sSave = $("sceneSaveBtn"); if (sSave) sSave.onclick = compSceneSave;
+  const sNew = $("sceneNewBtn"); if (sNew) sNew.onclick = compSceneNew;
+  const sDel = $("sceneDelBtn"); if (sDel) sDel.onclick = compSceneDelete;
+  const sAdd = $("sceneAddState"); if (sAdd) sAdd.onclick = compSceneAddState;
+  const sClose = $("sceneSetupClose"); if (sClose) sClose.onclick = () => { compSceneSave(); const m = $("sceneSetup"); if (m) m.style.display = "none"; };
+  const sExport = $("sceneExportBtn"); if (sExport) sExport.onclick = exportScene;
+  const sImport = $("sceneImportBtn"); const sImportInput = $("sceneImportInput");
+  if (sImport && sImportInput) { sImport.onclick = () => sImportInput.click(); sImportInput.onchange = () => { const f = sImportInput.files && sImportInput.files[0]; sImportInput.value = ""; importScene(f); }; }
   const micTop = $("compMicTop"); if (micTop) micTop.onclick = compVoice;
   const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
   const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
