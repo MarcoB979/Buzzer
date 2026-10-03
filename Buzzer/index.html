@@ -1134,12 +1134,21 @@
         <div class="avatar-builder-head">
           <input type="text" id="sceneNameInput" placeholder="Scene name">
           <button class="ble-btn small" id="sceneNewBtn" type="button" title="New scene">＋</button>
+          <button class="ble-btn small" id="sceneThumbBtn" type="button" title="Set scene thumbnail">📷</button>
           <button class="ble-btn small" id="sceneDelBtn" type="button" title="Delete this scene">🗑</button>
+        </div>
+        <div class="avatar-builder-head">
+          <select id="sceneAvatarSel" style="flex:1;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px 6px;font-size:.78rem;" title="Connect an avatar to this scene — it switches when the scene starts"></select>
         </div>
         <div class="avatar-list" id="sceneList"></div>
         <div class="photo-modal-body" style="font-size:.8rem;">
           <label style="display:block;margin-bottom:4px;">Scenario — the prompt text. Write <b>[scene1]</b> (or a state name) anywhere to show that overlay, or let me choose when it fits.</label>
           <textarea id="sceneDesc" rows="6" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="Describe the scene — who, where, what happens…"></textarea>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+            <button class="ble-btn small" id="sceneHelperTimer" type="button" title="Add a timed-event instruction">⏱ Timer</button>
+            <button class="ble-btn small" id="sceneHelperToy" type="button" title="Add a toy instruction">🧸 Toy</button>
+            <button class="ble-btn small" id="sceneHelperScene" type="button" title="Add a scene-state instruction">🎬 Scene</button>
+          </div>
         </div>
         <div class="slider-group" style="margin:2px 0 8px;">
           <div class="slider-row compact">
@@ -1150,6 +1159,12 @@
         </div>
         <div id="sceneStateRows"></div>
         <button class="ble-btn small" id="sceneAddState" type="button" style="margin-top:6px;">＋ Add scene state</button>
+      </div>
+    </div>
+    <div class="photo-modal" id="sceneHelperModal" style="display:none;">
+      <div class="photo-modal-card" style="max-width:420px;">
+        <div class="photo-modal-title" id="sceneHelperTitle">Helper</div>
+        <div id="sceneHelperBody"></div>
       </div>
     </div>
     <div class="photo-modal" id="stashPicker" style="display:none;">
@@ -10196,6 +10211,7 @@ function compSceneContext() {
   else out += "\nSCENARIO STRICTNESS: BALANCED — keep the scenario as the backbone, hit its main beats in order, but let the timing and details breathe naturally.";
   out += "\nSCENARIO CONSISTENCY (always): stay true to the scenario's premise, cast, roles and orientation — never introduce a new character, change a role, or contradict the setup unless the user explicitly asks. If the user refuses, hesitates or walks away, follow that naturally (the story can slow down, change or end) rather than forcing it.";
   out += "\nSCENARIO TIMING: to show a scene on a schedule (e.g. every 3-5 minutes, or 30-40 seconds apart), use the timer envelope with a line that contains \"[scene:<key>]\", e.g. {\"timer\":{\"min\":180,\"max\":300,\"lines\":[\"[scene:spank] you get spanked now\"],\"repeat\":3}}.";
+  out += "\nSCENARIO MARKERS: \"[timer: every X seconds]\" (or \"[timer: every X-Y seconds]\") means schedule timed events at that cadence via the timer envelope. \"[toy:<device> start <key>=<value> …]\" means drive that addon (fist/eject/coyote) via the addon envelope, and \"[toy:<device> stop]\" stops it.";
   return out;
 }
 function compSceneNew() {
@@ -10212,6 +10228,7 @@ function compSceneSelect(id) {
   if (!sc) return;
   companionState.sceneId = sc.id; companionState.sceneName = sc.name || "";
   companionSave();
+  if (sc.avatarId) { const av = compAvatars().find(a => a.id === sc.avatarId); if (av) compAvatarApply(av); }
   const ni = $("sceneNameInput"); if (ni) ni.value = sc.name || "";
   const d = $("sceneDesc"); if (d) d.value = sc.desc || "";
   compSceneStrictSync();
@@ -10255,7 +10272,7 @@ function compSceneBuildList() {
   list.forEach(s => {
     const b = document.createElement("button");
     b.type = "button"; b.className = "avatar-card" + (s.id === cur ? " active" : "");
-    b.innerHTML = '<span class="avatar-card-nothumb">🎬</span><span class="avatar-card-name">' + escapeHtml(s.name || "Scene") + '</span>';
+    b.innerHTML = (s.thumb ? '<img src="' + s.thumb + '" alt="">' : '<span class="avatar-card-nothumb">🎬</span>') + '<span class="avatar-card-name">' + escapeHtml(s.name || "Scene") + '</span>';
     b.onclick = () => compSceneSelect(s.id);
     host.appendChild(b);
   });
@@ -10394,6 +10411,84 @@ function compSceneStrictSync() {
   sl.value = String(v);
   if (sv) sv.textContent = String(v);
 }
+function compInsertAtCursor(ta, text) {
+  if (!ta) return;
+  const s = (typeof ta.selectionStart === "number") ? ta.selectionStart : ta.value.length;
+  const e = (typeof ta.selectionEnd === "number") ? ta.selectionEnd : ta.value.length;
+  ta.value = ta.value.slice(0, s) + text + ta.value.slice(e);
+  const pos = s + text.length;
+  try { ta.focus(); ta.setSelectionRange(pos, pos); } catch (err) {}
+}
+function sceneHelperOpen(title, buildFn) {
+  const m = $("sceneHelperModal"), t = $("sceneHelperTitle"), b = $("sceneHelperBody");
+  if (!m || !b) return;
+  if (t) t.textContent = title;
+  b.innerHTML = "";
+  buildFn(b);
+  m.style.display = "";
+}
+function sceneHelperClose() { const m = $("sceneHelperModal"); if (m) m.style.display = "none"; }
+function sceneHelperTimer(b) {
+  b.innerHTML = '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Start</span></div><div class="slider-track"><input type="number" id="thStart" min="1" value="30" step="1" style="width:70px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"></div></div></div>'
+    + '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">End (blank = every)</span></div><div class="slider-track"><input type="number" id="thEnd" min="1" value="" placeholder="optional" style="width:70px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"></div></div></div>'
+    + '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Unit</span></div><div class="slider-track"><select id="thUnit" style="background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"><option value="s">seconds</option><option value="m">minutes</option></select></div></div></div>'
+    + '<div class="photo-modal-actions"><button class="ble-btn small" id="thOk" type="button">Add</button><button class="ble-btn small" id="thCancel" type="button">Cancel</button></div>';
+  $("thOk").onclick = () => {
+    const s = parseInt($("thStart").value, 10) || 0;
+    const e = $("thEnd").value ? (parseInt($("thEnd").value, 10) || 0) : null;
+    const u = $("thUnit").value === "m" ? "minutes" : "seconds";
+    if (s <= 0) return;
+    const txt = e ? ("[timer: every " + s + "-" + e + " " + u + "]") : ("[timer: every " + s + " " + u + "]");
+    compInsertAtCursor($("sceneDesc"), txt + " ");
+    sceneHelperClose();
+  };
+  $("thCancel").onclick = sceneHelperClose;
+}
+function sceneHelperToy(b) {
+  const toys = ADDON_DEFS.filter(d => d.id === "fist" || d.id === "eject" || d.id === "coyote");
+  const toyVals = {};
+  b.innerHTML = '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Toy</span></div><div class="slider-track"><select id="thToy" style="background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;">' + toys.map(t => '<option value="' + t.id + '">' + t.name + '</option>').join("") + '</select></div></div></div>'
+    + '<div id="thSliders"></div>'
+    + '<div class="photo-modal-actions"><button class="ble-btn small" id="thStart" type="button">▶ Start + add</button><button class="ble-btn small" id="thStop" type="button">⏹ Stop + add</button><button class="ble-btn small" id="thCancel" type="button">Cancel</button></div>';
+  let sel = toys[0] ? toys[0].id : "";
+  const renderSliders = () => {
+    const def = ADDON_DEFS.find(t => t.id === sel);
+    const host = $("thSliders");
+    host.innerHTML = "";
+    (def ? def.sliders : []).forEach(s => { toyVals[s.key] = s.min; host.appendChild(sliderEl(s.label, s.min, s.max, s.min, "#38bdf8", v => { toyVals[s.key] = v; })); });
+  };
+  renderSliders();
+  $("thToy").onchange = () => { sel = $("thToy").value; renderSliders(); };
+  const build = (action) => {
+    const parts = ["toy:" + sel, action];
+    Object.keys(toyVals).forEach(k => { parts.push(k + "=" + toyVals[k]); });
+    compInsertAtCursor($("sceneDesc"), "[" + parts.join(" ") + "] ");
+    sceneHelperClose();
+  };
+  $("thStart").onclick = () => build("start");
+  $("thStop").onclick = () => build("stop");
+  $("thCancel").onclick = sceneHelperClose;
+}
+function sceneHelperScene(b) {
+  const sc = compSceneCurrent();
+  const states = sc ? (sc.states || []) : [];
+  if (!states.length) { b.innerHTML = '<div class="ai-set-hint">No scene states yet — add some first.</div>'; return; }
+  let html = '<div style="display:flex;flex-direction:column;gap:6px;">';
+  states.forEach(st => { html += '<button class="ble-btn small" data-sh="' + escapeHtml(st.key || st.name) + '" type="button">' + escapeHtml(st.name || st.key) + '</button>'; });
+  html += '</div>';
+  b.innerHTML = html;
+  b.querySelectorAll("button[data-sh]").forEach(btn => { btn.onclick = () => { compInsertAtCursor($("sceneDesc"), "[scene:" + btn.dataset.sh + "] "); sceneHelperClose(); }; });
+}
+function compSceneBuildAvatarSel() {
+  const sel = $("sceneAvatarSel");
+  if (!sel) return;
+  const sc = compSceneCurrent();
+  const cur = sc ? (sc.avatarId || "") : "";
+  let html = '<option value="">No avatar (keep current)</option>';
+  compAvatars().forEach(a => { html += '<option value="' + escapeHtml(a.id) + '"' + (a.id === cur ? " selected" : "") + '>' + escapeHtml(a.name || "Avatar") + '</option>'; });
+  sel.innerHTML = html;
+  sel.onchange = () => { const sc2 = compSceneCurrent(); if (sc2) { sc2.avatarId = sel.value || ""; compScenesSave(compScenes()); } };
+}
 function compSceneOpenBuilder() {
   const m = $("sceneSetup");
   if (!m) return;
@@ -10401,6 +10496,7 @@ function compSceneOpenBuilder() {
   const ni = $("sceneNameInput"); if (ni) ni.value = sc ? (sc.name || "") : "";
   const d = $("sceneDesc"); if (d) d.value = sc ? (sc.desc || "") : "";
   compSceneStrictSync();
+  compSceneBuildAvatarSel();
   compSceneBuildList(); compSceneBuildRows();
   m.style.display = "";
 }
@@ -10581,6 +10677,7 @@ async function importScene(file) {
     compScenesSave(compScenes().concat([sc]));
     companionState.sceneId = newId; companionState.sceneName = sc.name || "";
     companionSave();
+    if (sc.avatarId) { const av = compAvatars().find(a => a.id === sc.avatarId); if (av) compAvatarApply(av); }
     compSceneOpenBuilder(); compSceneSyncName();
     funLog("Scene \"" + (sc.name || "scene") + "\" imported.");
   } catch (e) { alert("Import failed: " + (e && e.message ? e.message : e)); }
@@ -12643,6 +12740,17 @@ function compLiveStart() {
   if (sImport && sImportInput) { sImport.onclick = () => sImportInput.click(); sImportInput.onchange = () => { const f = sImportInput.files && sImportInput.files[0]; sImportInput.value = ""; importScene(f); }; }
   const sStrict = $("sceneStrict"); const sStrictVal = $("sceneStrictVal");
   if (sStrict) { sStrict.addEventListener("input", () => { if (sStrictVal) sStrictVal.textContent = sStrict.value; }); sStrict.addEventListener("change", () => { const sc = compSceneCurrent(); if (sc) { sc.strict = parseInt(sStrict.value, 10); compScenesSave(compScenes()); } }); }
+  const sThumb = $("sceneThumbBtn");
+  if (sThumb) sThumb.onclick = () => {
+    const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = () => { const f = inp.files && inp.files[0]; if (!f) return;
+      compResizeImage(f, 400, 0.8).then((dataUrl) => { if (!dataUrl) return; const sc = compSceneCurrent(); if (!sc) return; sc.thumb = dataUrl; compScenesSave(compScenes()); compSceneBuildList(); });
+    };
+    inp.click();
+  };
+  const sTimer = $("sceneHelperTimer"); if (sTimer) sTimer.onclick = () => sceneHelperOpen("⏱ Timer", sceneHelperTimer);
+  const sToy = $("sceneHelperToy"); if (sToy) sToy.onclick = () => sceneHelperOpen("🧸 Toy", sceneHelperToy);
+  const sSc = $("sceneHelperScene"); if (sSc) sSc.onclick = () => sceneHelperOpen("🎬 Scene state", sceneHelperScene);
   const micTop = $("compMicTop"); if (micTop) micTop.onclick = compVoice;
   const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
   const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
