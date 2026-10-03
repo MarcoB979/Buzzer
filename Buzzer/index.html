@@ -6446,6 +6446,14 @@ function aiExtractJson(text) {
   }
   return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null };
 }
+// Keep the AI conversation history JSON-formatted so the model doesn't drift
+// into plain text (which drops all structured fields like "suggestions").
+function aiRawForHistory(raw, reply) {
+  const s = String(raw || "").trim();
+  if (!s) return s;
+  if (s.startsWith("{")) return s; // already a JSON envelope
+  return JSON.stringify({ reply: reply || s });
+}
 
 // ---------- mode context, safety caps, standard-mode apply ----------
 function aiSafetyCaps() {
@@ -10430,7 +10438,7 @@ function compNewSession(confirmFirst) {
   const lang = aiStoredLang();
   const greetings = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
   const greet = greetings[Math.floor(Math.random() * greetings.length)];
-  compMessages.push({ role: "assistant", content: greet, ts: Date.now() });
+  compMessages.push({ role: "assistant", content: JSON.stringify({ reply: greet }), ts: Date.now() });
   compAddMsg("assistant", escapeHtml(greet));
   if (aiSpeakEnabled()) aiSpeak(greet);
   aiDebugPersistSoon();
@@ -11632,7 +11640,7 @@ async function compSend() {
     if (th) th.remove();
     if (aiLastShow) companionApplyShow(aiLastShow);
     if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
-      if (res.raw) { compMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
+      if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
     }
@@ -11666,7 +11674,7 @@ async function compSend() {
       const res2 = await aiCall(msgs2);
       if (res2) {
         compMessages.push({ role: "system", content: note, ts: Date.now() });
-        if (res2.raw) compMessages.push({ role: "assistant", content: res2.raw, ts: Date.now() });
+        if (res2.raw) compMessages.push({ role: "assistant", content: aiRawForHistory(res2.raw, res2.reply), ts: Date.now() });
         aiDebugPersistSoon();
         if (res2.reply) {
           const clean = aiStripEmotionTags(res2.reply);
@@ -12128,7 +12136,7 @@ async function aiSend(opts) {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon) {
-      if (res.raw) { aiMessages.push({ role: "assistant", content: res.raw, ts: Date.now() }); aiDebugPersistSoon(); }
+      if (res.raw) { aiMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
     }
