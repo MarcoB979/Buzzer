@@ -7963,13 +7963,15 @@ function aiAddMsg(role, html) {
   sessionBroadcastAi(role, html);
   return d;
 }
-function sessionBroadcastAi(role, html) {
+function sessionBroadcastAi(role, html, name) {
   if (sess.role !== "host" || !sess.guests.length) return;
   if (role !== "assistant" && role !== "user") return;
   let text = "";
   try { const t = document.createElement("div"); t.innerHTML = html; text = (t.textContent || "").trim(); } catch (e) { text = String(html).replace(/<[^>]*>/g, "").trim(); }
   if (!text) return;
-  sessionBroadcast({ t: "ai", role, text, comp: !!compModeActive });
+  const m = { t: "ai", role, text, comp: !!compModeActive };
+  if (name) m.name = name;
+  sessionBroadcast(m);
 }
 // Show a system note AND push it into the active conversation so the AI is
 // told about an app-side decision (e.g. a blocked action) and stops narrating
@@ -12229,7 +12231,7 @@ let compSetupGreeted = false;
 let compLimitsGreeted = false;
 let compPendingLimits = null;
 
-function compAddMsg(role, html) {
+function compAddMsgLocal(role, html) {
   const h = $("compHistory");
   if (!h) return null;
   const d = document.createElement("div");
@@ -12237,6 +12239,11 @@ function compAddMsg(role, html) {
   d.innerHTML = html;
   h.appendChild(d);
   h.scrollTop = h.scrollHeight;
+  return d;
+}
+function compAddMsg(role, html) {
+  const d = compAddMsgLocal(role, html);
+  sessionBroadcastAi(role, html);
   return d;
 }
 function compPersonaText() {
@@ -12378,7 +12385,7 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + aiSuggestionsReminder() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + aiSuggestionsReminder() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -12508,6 +12515,97 @@ async function compSend() {
   compDirtyTalkSchedule();
 }
 
+// ---------- Shared room (session guests talk to the companion) ----------
+function compRoomContext() {
+  if (sess.role !== "host" || !sess.guests || !sess.guests.length) return "";
+  const parts = [];
+  for (const g of sess.guests) {
+    if (!g || !g.name) continue;
+    let s = g.name;
+    if (g.about && String(g.about).trim()) s += " — " + String(g.about).trim().slice(0, 500);
+    parts.push(s);
+  }
+  if (!parts.length) return "";
+  return "\n\nPEOPLE IN THE ROOM (real people on their own devices, chatting with you through the host — in addition to the user):\n- " + parts.join("\n- ")
+    + "\n\nTheir chat messages arrive as user messages prefixed with their name (e.g. \"John: hi\"). Address them by name, keep them in the dynamic, and treat their messages as coming from that person, NOT the user. NEVER store facts about guests in \"memory\" — \"memory\" is ONLY about the user. When a guest leaves you are told — stop addressing them.";
+}
+
+async function compRoomSend() {
+  if (compBusy) return false;
+  compDirtyTalkStop();
+  compTimerStop();
+  compBusy = true;
+  const th = compAddMsg("assistant", '<span class="ai-thinking">Thinking…</span>');
+  try {
+    const cur = aiCurrentState();
+    const memOn = aiMemoryActive();
+    const mem = aiMemory();
+    const memLine = (memOn && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const msgs = [
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + aiSuggestionsReminder() },
+      ...compMessages
+    ];
+    const res = await aiCall(msgs);
+    if (th) th.remove();
+    if (res.reply || res.params || res.memory || res.about || res.face || res.avatar || res.video || res.addon || res.timer || res.lang) {
+      if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
+    } else {
+      compMessages.pop();
+    }
+    if (res.reply) {
+      const markerClean = compSceneProcessMarkers(res.reply);
+      if (!compSceneAnim.active) { const kw = compSceneFromKeywords(markerClean); if (kw) compSceneShow(kw); }
+      const clean = aiStripEmotionTags(markerClean);
+      compAddMsg("assistant", escapeHtml(clean));
+      if (aiSpeakEnabled()) aiSpeak(clean);
+      companionLiveExpress(res.reply);
+    } else if (res.error) {
+      compAddMsg("assistant", escapeHtml(res.error));
+    }
+    if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
+    if (res.memory && memOn && aiIsKeyedProvider()) { aiSetMemory(res.memory); aiLog("stored a preference (memory)"); }
+    if (res.about && typeof res.about === "string" && res.about.trim()) { companionState.about = res.about.trim(); companionSave(); syncAboutFold(); }
+    if (res.face) companionApplyFace(res.face);
+    if (res.avatar) { companionApplyAvatar(res.avatar); compSetupDone(); }
+    if (res.video) aiApplyVideo(res.video);
+    if (res.addon) aiApplyAddon(res.addon);
+    if (res.timer) compApplyTimer(res.timer);
+    if (res.params) { aiApplySet(res.params); buildCompSliders(); }
+    if (res.reply) compCheckAiInitiated(res.reply);
+    if (compCumWords(aiStripEmotionTags(res.reply || "")) || aiLastShow === "cum") compHandleCum("reply");
+  } catch (e) {
+    if (th) th.remove();
+    compAddMsg("assistant", "Hmm, I lost the connection — try again?");
+  }
+  refocusChat();
+  compBusy = false;
+  compRenderSuggestions();
+  compDirtyTalkSchedule();
+  return true;
+}
+
+async function compGuestTurn(name, text) {
+  if (sess.role !== "host" || !compModeActive || !companionEnabled()) return;
+  const who = String(name || "Guest").slice(0, 24);
+  const display = who + ": " + String(text || "").slice(0, 500);
+  compAddMsgLocal("user", escapeHtml(display));
+  if (sess.role === "host") sessionBroadcast({ t: "ai", role: "user", name: who, text: String(text || "").slice(0, 500), comp: true });
+  compMessages.push({ role: "user", content: display, ts: Date.now() });
+  aiDebugPersistSoon();
+  if (compBusy) return; // an AI turn is already running — this joins the history
+  await compRoomSend();
+}
+
+function compGuestJoined(name, about) {
+  if (sess.role !== "host") return;
+  const who = String(name || "Guest").slice(0, 24);
+  const info = (about && String(about).trim()) ? (" (" + String(about).trim().slice(0, 500) + ")") : "";
+  compAddMsgLocal("system", escapeHtml(who + " joined the room" + (info ? " — profile shared" : "")));
+  compMessages.push({ role: "system", content: "GUEST JOINED: " + who + info + ". In character, greet them warmly and pull them into what's happening — use their name. Their messages arrive as user messages prefixed with their name. NEVER store facts about guests in \"memory\" — \"memory\" is only about the user.", ts: Date.now() });
+  aiDebugPersistSoon();
+  if (compModeActive && companionEnabled() && !compBusy) compRoomSend();
+}
+
 // ---------- Spontaneous dirty talk (companion, during active play) ----------
 let compDirtyTimer = null;
 let compDirtyBusy = false;
@@ -12546,7 +12644,7 @@ async function compDirtyTalkFire() {
     const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compPersonaText() + compAboutText() + compExprContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compPersonaText() + compAboutText() + compExprContext() + compRoomContext() },
       { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Normally only set \"reply\". BUT if your line says you're about to do something — go deeper, go harder, go faster, or hold it deep — then also include the matching \"set\" (a small, safe step within the confirmed limits) so it actually happens. Never send \"run\" or \"limits\" here." }
     ];
     const res = await aiCall(msgs);
@@ -14892,7 +14990,7 @@ function addonButtplugIntentText() {
 
 // ---------- Sessions (PeerJS: host/join, mutual webcam, roles, chat) ----------
 let sess = {
-  role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch",
+  role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch", shareProfile: true,
   guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {},
   camFacing: "user", camDeviceId: null,
   play: { status: null, role: null, otherName: "", otherUserId: "", railMine: 0, railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1, myHasCal: false, otherHasCal: false, usedStored: false }
@@ -14918,6 +15016,17 @@ function sessionSend(obj) { try { if (sess.hostConn && sess.hostConn.open) sess.
 function sessionSendPrefs() {
   if (sess.role !== "guest") return;
   sessionSend({ t: "prefs", mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo });
+}
+function sessionMyProfile() {
+  let about = "";
+  try { about = (companionState.about || "").trim(); } catch (e) {}
+  const share = sess.shareProfile !== false;
+  return { name: (sess.myName || "Guest").trim(), about: share ? about.slice(0, 800) : "", share: share };
+}
+function sessionSendHello() {
+  if (sess.role !== "guest") return;
+  const p = sessionMyProfile();
+  sessionSend({ t: "hello", name: p.name, about: p.about, share: p.share, mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo });
 }
 
 // ---------- Mutual play (calibrated shared stroke) ----------
@@ -15458,7 +15567,7 @@ function sessionOnGuestConn(conn) {
   conn.on("open", () => {
     const id = conn.peer;
     sess.guests = sess.guests.filter(x => x.id !== id);
-    sess.guests.push({ id, conn, name: "Guest", role: "watch", mirror: false, watch: false });
+    sess.guests.push({ id, conn, name: "Guest", role: "watch", mirror: false, watch: false, about: "", share: true });
     try { conn.send({ t: "welcome", role: "watch" }); } catch (e) {}
     sessionBroadcastPeers();
     sessionAppendChat("", "Guest joined", true);
@@ -15468,7 +15577,12 @@ function sessionOnGuestConn(conn) {
   conn.on("data", d => sessionOnGuestData(conn, d));
   conn.on("close", () => {
     const g = sessionGuestById(conn.peer);
-    if (g) { sess.guests = sess.guests.filter(x => x.id !== g.id); sessionAppendChat("", g.name + " left", true); delete sess.remoteStreams[g.id]; }
+    if (g) {
+      sess.guests = sess.guests.filter(x => x.id !== g.id);
+      sessionAppendChat("", g.name + " left", true);
+      delete sess.remoteStreams[g.id];
+      if (compModeActive) { compMessages.push({ role: "system", content: "GUEST LEFT: " + g.name + " has left the room. Do not address or refer to them as present anymore.", ts: Date.now() }); aiDebugPersistSoon(); }
+    }
     sessionBroadcastPeers();
     sessionRender();
   });
@@ -15483,8 +15597,12 @@ function sessionOnGuestData(conn, d) {
     if (typeof d.name === "string" && d.name.trim()) g.name = d.name.trim().slice(0, 24);
     if (typeof d.mirror === "boolean") g.mirror = d.mirror;
     if (typeof d.watch === "boolean") g.watch = d.watch;
+    if (typeof d.about === "string") g.about = d.about.slice(0, 800);
+    else if (g.about === undefined) g.about = "";
+    g.share = d.share !== false;
     sessionBroadcastPeers();
     sessionRender();
+    compGuestJoined(g.name, (g.share && g.about) ? g.about : "");
   } else if (d.t === "prefs") {
     if (typeof d.mirror === "boolean") g.mirror = d.mirror;
     if (typeof d.watch === "boolean") g.watch = d.watch;
@@ -15493,6 +15611,7 @@ function sessionOnGuestData(conn, d) {
     const text = String(d.text || "").slice(0, 500);
     sessionAppendChat(g.name, text);
     for (const o of sess.guests) { if (o.id !== g.id && o.conn && o.conn.open) { try { o.conn.send({ t: "chat", name: g.name, text }); } catch (e) {} } }
+    if (compModeActive) compGuestTurn(g.name, text);
   } else if (d.t === "cmd") {
     if (g.role !== "control") { sessionAppendChat("", "(control not allowed for " + g.name + ")", true); return; }
     sessionApplyRemoteCmd(d, g.name);
@@ -15530,7 +15649,7 @@ async function sessionJoin(code) {
     const conn = peer.connect(code, { reliable: true });
     sess.hostConn = conn;
     conn.on("open", () => {
-      try { conn.send({ t: "hello", name: sess.myName, mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo }); } catch (e) {}
+      try { sessionSendHello(); } catch (e) {}
       sessionEnsureCalls();
       sessionRender();
     });
@@ -15555,9 +15674,10 @@ function sessionOnHostData(d) {
   else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorUi(d); sessionMirrorState(d); sessionFollowVideo(d.video); sessionSyncCompanion(d); }
   else if (d.t === "ai") {
     const aiText = String(d.text || "");
-    sessionAppendChat(d.role === "user" ? "Host" : "Companion", aiText);
+    const aiWho = (typeof d.name === "string" && d.name) ? d.name : (d.role === "user" ? "Host" : "Companion");
+    sessionAppendChat(aiWho, aiText);
     if (d.comp) sessionSyncCompanion({ compMode: true });
-    if (compModeActive) compAddMsg(d.role === "user" ? "user" : "assistant", (d.role === "user" ? "<b>Host:</b> " : "") + escapeHtml(aiText));
+    if (compModeActive) compAddMsg(d.role === "user" ? "user" : "assistant", (d.role === "user" ? "<b>" + escapeHtml(aiWho) + ":</b> " : "") + escapeHtml(aiText));
   }
   else if (d.t === "apply") {
     if (d.kind === "estop") {
@@ -15825,6 +15945,12 @@ function sessionRender() {
     hint.className = "ai-set-hint";
     hint.textContent = "Share a live session: one person hosts, others join with the code. The host decides who may control. Both can enable their webcam.";
     wrap.appendChild(hint);
+
+    const shareLabel = document.createElement("label");
+    shareLabel.className = "inline-toggle";
+    shareLabel.style.cssText = "font-size:.75rem;gap:8px;margin:2px 0;";
+    shareLabel.innerHTML = '<span>👤 Share my profile (name + About) with the room AI <span style="opacity:.6">(as a guest)</span></span><span class="switch"><input type="checkbox" id="sessionShareProfile"><span class="slider"></span></span>';
+    wrap.appendChild(shareLabel);
   } else {
     const codeRow = document.createElement("div");
     codeRow.className = "ai-set-hint";
@@ -15969,6 +16095,8 @@ function sessionRender() {
   body.appendChild(wrap);
   const wt = $("sessionWatchToggle");
   if (wt) { wt.checked = !!sess.watchVideo; wt.addEventListener("change", () => { sess.watchVideo = wt.checked; sessionSendPrefs(); }); }
+  const sp = $("sessionShareProfile");
+  if (sp) { sp.checked = sess.shareProfile !== false; sp.addEventListener("change", () => { sess.shareProfile = sp.checked; }); }
   const sh = $("funShareBtn");
   if (sh) sh.style.display = (sess.role === "host") ? "" : "none";
   sessionUpdateStatus();
