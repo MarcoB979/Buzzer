@@ -9512,15 +9512,7 @@ function companionApplyShow(v) {
 function companionOpenAvatarSetup() {
   const m = $("avatarSetup");
   if (!m) return;
-  const p = $("avatarPersona");
-  if (p) p.value = companionState.persona || "";
-  const ab = $("avatarAbout");
-  if (ab) ab.value = companionState.about || "";
-  syncAboutFold();
-  buildAvatarSwitcher();
-  syncKindUI();
-  buildAvatarSetupRows();
-  buildBodySetupRows();
+  compAvatarRefreshBuilder();
   m.style.display = "";
 }
 function buildAvatarSetupRows() {
@@ -9935,28 +9927,36 @@ function compBodyRowAction(b, s) {
 }
 function compBodyUpload(file) {
   if (!file) return;
-  const rd = new FileReader();
-  rd.onload = () => {
-    companionState.body.img = String(rd.result);
+  const apply = (dataUrl) => {
+    companionState.body.img = dataUrl;
     companionSave();
     companionRender();
     buildBodySetupRows();
     funLog("Full-body photo set — now tap each body state to set its focus point.");
   };
-  rd.readAsDataURL(file);
+  compResizeImage(file, 1600, 0.85).then((dataUrl) => {
+    if (dataUrl) { apply(dataUrl); return; }
+    const rd = new FileReader();
+    rd.onload = () => apply(String(rd.result));
+    rd.readAsDataURL(file);
+  });
 }
 function compBodyStatePhoto(file, state) {
   if (!file) return;
-  const rd = new FileReader();
-  rd.onload = () => {
+  const apply = (dataUrl) => {
     const p = companionState.body.points[state] = companionState.body.points[state] || { x: 0.5, y: 0.5, zoom: 1.5 };
-    p.img = String(rd.result);
+    p.img = dataUrl;
     companionSave();
     companionRender();
     buildBodySetupRows();
     funLog("Photo set for \"" + compBodyLabel(state) + "\".");
   };
-  rd.readAsDataURL(file);
+  compResizeImage(file, 1600, 0.85).then((dataUrl) => {
+    if (dataUrl) { apply(dataUrl); return; }
+    const rd = new FileReader();
+    rd.onload = () => apply(String(rd.result));
+    rd.readAsDataURL(file);
+  });
 }
 function compBodyStateVideos(files, state) {
   const list = (files && files.length) ? Array.prototype.slice.call(files).filter((f) => f && f.type && f.type.indexOf("video/") === 0) : [];
@@ -10135,21 +10135,33 @@ function compAvatarApply(snap) {
   companionRender();
   syncCompVideoAvatar();
 }
-function compAvatarSaveCurrent() {
-  // Read the name/persona straight from the inputs so a freshly typed
-  // persona is saved even if the user didn't blur the field first. Only do
-  // this when the builder is actually open — otherwise the inputs are
-  // stale/empty and would wipe a saved name or persona.
+// Read the name/persona/about straight from the builder inputs so freshly
+// typed text is included even without blurring (and before exporting).
+function compAvatarSyncInputs() {
   const setup = $("avatarSetup");
-  if (setup && setup.style.display !== "none") {
-    const ni = $("avatarNameInput");
-    if (ni) companionState.avatarName = ni.value.trim();
-    const pa = $("avatarPersona");
-    if (pa) companionState.persona = pa.value.trim();
-    const ab = $("avatarAbout");
-    if (ab) companionState.about = ab.value.trim();
-    syncAboutFold();
-  }
+  if (!setup || setup.style.display === "none") return;
+  const ni = $("avatarNameInput");
+  if (ni) companionState.avatarName = ni.value.trim();
+  const pa = $("avatarPersona");
+  if (pa) companionState.persona = pa.value.trim();
+  const ab = $("avatarAbout");
+  if (ab) companionState.about = ab.value.trim();
+  syncAboutFold();
+}
+// Refresh every builder field/row so the UI immediately shows the current avatar
+// (used after importing so the change is visible right away).
+function compAvatarRefreshBuilder() {
+  const ni = $("avatarNameInput"); if (ni) ni.value = companionState.avatarName || "";
+  const p = $("avatarPersona"); if (p) p.value = companionState.persona || "";
+  const ab = $("avatarAbout"); if (ab) ab.value = companionState.about || "";
+  syncAboutFold();
+  buildAvatarSwitcher();
+  syncKindUI();
+  buildAvatarSetupRows();
+  buildBodySetupRows();
+}
+function compAvatarSaveCurrent() {
+  compAvatarSyncInputs();
   const snap = compAvatarSnapshot();
   const name = (companionState.avatarName || "").trim();
   if (name) snap.name = name;
@@ -10852,17 +10864,50 @@ function companionLiveStop() {
   if (companionLive.raf) { cancelAnimationFrame(companionLive.raf); companionLive.raf = 0; }
   companionLive.active = false;
 }
+function compResizeImage(file, maxDim, quality) {
+  // Downscale a photo to a JPEG data URL so localStorage doesn't overflow
+  // (full-size photos would make the avatar silently fail to save).
+  maxDim = maxDim || 1280;
+  quality = (quality === undefined) ? 0.85 : quality;
+  return new Promise((res) => {
+    try {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const w = img.naturalWidth || img.width || maxDim;
+          const h = img.naturalHeight || img.height || maxDim;
+          const scale = Math.min(1, maxDim / Math.max(w, h));
+          const cw = Math.max(1, Math.round(w * scale));
+          const ch = Math.max(1, Math.round(h * scale));
+          const c = document.createElement("canvas");
+          c.width = cw; c.height = ch;
+          c.getContext("2d").drawImage(img, 0, 0, cw, ch);
+          let out = null;
+          try { out = c.toDataURL("image/jpeg", quality); } catch (e) {}
+          res(out);
+        } catch (e) { res(null); }
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); res(null); };
+      img.src = url;
+    } catch (e) { res(null); }
+  });
+}
 function companionConsentAndLoad(file, state) {
   if (!file) return;
-  const rd = new FileReader();
-  rd.onload = () => {
-    const dataUrl = String(rd.result);
+  const apply = (dataUrl) => {
     const img = new Image();
     img.onload = () => companionLiveAskConsent(img, dataUrl, state);
     img.onerror = () => funLog("Couldn't read that image — try another.");
     img.src = dataUrl;
   };
-  rd.readAsDataURL(file);
+  compResizeImage(file, 1400, 0.85).then((dataUrl) => {
+    if (dataUrl) { apply(dataUrl); return; }
+    const rd = new FileReader();
+    rd.onload = () => apply(String(rd.result));
+    rd.readAsDataURL(file);
+  });
 }
 function companionLiveAskConsent(img, dataUrl, state) {
   // Consent is given once in the Avatar builder (covers all material).
@@ -11987,7 +12032,7 @@ function compLiveStart() {
     companionRender();
   };
   const asClose = $("avatarSetupClose");
-  if (asClose) asClose.onclick = () => { const m = $("avatarSetup"); if (m) m.style.display = "none"; };
+  if (asClose) asClose.onclick = () => { compAvatarSyncInputs(); companionSave(); const m = $("avatarSetup"); if (m) m.style.display = "none"; };
   const asAdd = $("avatarAddExpr");
   if (asAdd) asAdd.onclick = compAvatarAddExpr;
   const abAdd = $("avatarAddBody");
@@ -12641,6 +12686,7 @@ async function importBackup(file) {
 // ---------- Avatar-only export/import (share avatars between users) ----------
 async function exportAvatar() {
   try {
+    compAvatarSyncInputs();
     const snap = compAvatarSnapshot();
     const hasMedia = snap.customImage || (snap.body && snap.body.img) || Object.keys(snap.expr || {}).some(k => snap.expr[k] && (snap.expr[k].img || (snap.expr[k].vids || 0) > 0)) || (snap.customVideos || 0) > 0;
     if (hasMedia && !confirm("This avatar includes photos/videos. Only export it if you own the material and are comfortable sharing it with someone else. Continue?")) return;
@@ -12722,6 +12768,7 @@ async function importAvatar(file) {
     list.push(snap);
     compAvatarsSave(list);
     compAvatarApply(snap);
+    compAvatarRefreshBuilder();
     funLog("Avatar \"" + (snap.name || "avatar") + "\" imported.");
   } catch (e) {
     alert("Import failed: " + (e && e.message ? e.message : e));
