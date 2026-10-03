@@ -6978,24 +6978,33 @@ function aiPauseMachine() {
 }
 function aiHomeMachine() {
   if (!connected || !stdCmd) { aiAddMsg("system", "Not connected — connect the OSSM first."); return; }
-  if (machineMoving()) { aiAddMsg("system", "The OSSM is moving — stop it first, then I'll home it."); return; }
-  aiAddMsg("system", "Homing — the rail will retract to home and measure.");
-  aiSpeak("Homing.");
-  modeWatchPausedUntil = Date.now() + 45000; // let homing finish before the watchdog steps in
-  stdStateName = "";
-  requestMode("go:streaming"); // streaming always homes, regardless of the "Home between modes" setting
-  const start = Date.now();
-  const timer = setInterval(() => {
-    const s = stdStateName || "";
-    if (/^streaming/.test(s)) {
-      clearInterval(timer);
-      aiAddMsg("system", "Homing complete — returning to Standard mode.");
-      requestMode("go:strokeEngine");
-    } else if (Date.now() - start > 30000) {
-      clearInterval(timer);
-      aiAddMsg("system", "Homing didn't finish in time — check the OSSM.");
-    }
-  }, 250);
+  const doHome = () => {
+    aiAddMsg("system", "Homing — the rail will retract to home and measure.");
+    aiSpeak("Homing.");
+    modeWatchPausedUntil = Date.now() + 45000; // let homing finish before the watchdog steps in
+    stdStateName = "";
+    requestMode("go:streaming"); // streaming always homes, regardless of the "Home between modes" setting
+    const start = Date.now();
+    const timer = setInterval(() => {
+      const s = stdStateName || "";
+      if (/^streaming/.test(s)) {
+        clearInterval(timer);
+        aiAddMsg("system", "Homing complete — returning to play mode.");
+        if (appMode === "ap") { aiPosReturnAp = true; aiPosRestoreMode(); aiPosSyncAp(); }
+        else requestMode("go:strokeEngine");
+      } else if (Date.now() - start > 30000) {
+        clearInterval(timer);
+        aiAddMsg("system", "Homing didn't finish in time — check the OSSM.");
+      }
+    }, 250);
+  };
+  if (machineMoving()) {
+    aiAddMsg("system", "Stopping first, then homing…");
+    emergencyStop();
+    setTimeout(doHome, 700);
+    return;
+  }
+  doHome();
 }
 function aiLocalStd(text) {
   const t = (text || "").toLowerCase();
@@ -7026,11 +7035,16 @@ function aiIsStop(text) {
   const raw = (text || "").toLowerCase();
   const t = raw.replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
   if (!t) return false;
-  if (t.split(" ").length > 12) return false;
+  if (t.split(" ").length > 3) return false; // only short utterances are stop commands — "stop" inside a longer sentence is just chat
   // Negation — "don't stop", "never stop", "keep going" etc. mean the opposite.
   if (/\b(don'?t|do not|never|not|no|cannot|can'?t|keep|continue|go on|more|harder|faster)\b[\w ]{0,14}\b(stop|halt|end|freeze|stoppen)\b/.test(raw)) return false;
   return /\b(stop|halt|abort|freeze|stoppen|arrête|arrêt|anhalten|parar|detente|noodstop|emergency stop)\b/.test(t)
     || /\b(that'?s enough|i'?m done|i'?ve had enough|enough now)\b/.test(raw);
+}
+function aiIsHomeCommand(text) {
+  const t = (text || "").toLowerCase().replace(/[^a-z\u00c0-\u017f ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.split(" ").length > 5) return false;
+  return /\b(home|homing|recalibrate|re-calibrate|calibrate|kalibreer|herijk|opnieuw ijken|find home|go home|naar nul)\b/.test(t);
 }
 let aiVoicesCache = [];
 function aiTtsVoiceName() {
@@ -11446,6 +11460,12 @@ async function compSend() {
     aiSpeak("Stopped.");
     return;
   }
+  if (!aiPos.active && aiIsHomeCommand(text)) {
+    if (inp) inp.value = "";
+    compAddMsg("user", escapeHtml(text));
+    aiHomeMachine();
+    return;
+  }
   if (!aiPos.active) {
     const swSet = aiParseSafeWordSet(text);
     if (swSet) {
@@ -11919,6 +11939,12 @@ async function aiSend(opts) {
       aiAddMsg("assistant", "Stopped — you're safe.");
     }
     aiSpeak("Stopped.");
+    return;
+  }
+  if (!aiPos.active && aiIsHomeCommand(text)) {
+    if (inp) inp.value = "";
+    aiAddMsg("user", escapeHtml(text));
+    aiHomeMachine();
     return;
   }
   if (!aiPos.active) {
