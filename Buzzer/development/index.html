@@ -10156,7 +10156,7 @@ const BUNDLED_SCENES = [
   {
     name: "The bar — a beautiful stranger",
     strict: 70,
-    desc: `You meet a gorgeous woman at a bar. She is flirty and charming; you chat and both get horny. After about 5 minutes of chatting you both head to the toilet [timer: every 5 minutes] — she walks straight into the men's room, which surprises you, but you follow her in. At the urinals she steps up next to you, unzips, and pulls out a thick cock bigger than yours [scene:dick]. You are shocked at first, then turned on. You kiss [scene:kissing], you stroke her [scene:stroke], you suck her [scene:suck]. She whispers she still has to piss — you answer 'piss on me' and she sprays all over you [toy:eject start speed=50 shots=30 force=50]. Then she bends you over [scene:pantsdown] and fucks you for the first time [scene:inass]. A stranger walks in, sees you both, and joins. When you finish [scene:cum] you go back to the bar [scene:goback] and never see each other again [scene:bye]. She turns out to be a trans woman — stay true to that throughout; do not change her into anything else.`,
+    desc: `You meet a gorgeous woman at a bar. She is flirty and charming; you chat and both get horny. After about 5 minutes of chatting you both head to the toilet [timer: once 4-6 minutes] — she walks straight into the men's room, which surprises you, but you follow her in. At the urinals she steps up next to you, unzips, and pulls out a thick cock bigger than yours [scene:dick]. You are shocked at first, then turned on. You kiss [scene:kissing], you stroke her [scene:stroke], you suck her [scene:suck]. She whispers she still has to piss — you answer 'piss on me' and she sprays all over you [toy:eject start speed=50 shots=30 force=50]. Then she bends you over [scene:pantsdown] and fucks you for the first time [scene:inass]. A stranger walks in, sees you both, and joins. When you finish [scene:cum] you go back to the bar [scene:goback] and never see each other again [scene:bye]. She turns out to be a trans woman — stay true to that throughout; do not change her into anything else.`,
     states: [
       { key: "bar", name: "At the bar", keywords: "bar, drink, cheers" },
       { key: "talking", name: "Talking", keywords: "talk, chat, flirt, laugh" },
@@ -10281,7 +10281,7 @@ function compSceneContext() {
   else out += "\nSCENARIO STRICTNESS: BALANCED — keep the scenario as the backbone, hit its main beats in order, but let the timing and details breathe naturally.";
   out += "\nSCENARIO CONSISTENCY (always): stay true to the scenario's premise, cast, roles and orientation — never introduce a new character, change a role, or contradict the setup unless the user explicitly asks. If the user refuses, hesitates or walks away, follow that naturally (the story can slow down, change or end) rather than forcing it.";
   out += "\nSCENARIO TIMING: to show a scene on a schedule (e.g. every 3-5 minutes, or 30-40 seconds apart), use the timer envelope with a line that contains \"[scene:<key>]\", e.g. {\"timer\":{\"min\":180,\"max\":300,\"lines\":[\"[scene:spank] you get spanked now\"],\"repeat\":3}}.";
-  out += "\nSCENARIO MARKERS: \"[timer: every X seconds]\" (or \"[timer: every X-Y seconds]\") means schedule timed events at that cadence via the timer envelope. \"[toy:<device> start <key>=<value> …]\" means drive that addon (fist/eject/coyote) via the addon envelope, and \"[toy:<device> stop]\" stops it.";
+  out += "\nSCENARIO MARKERS: \"[timer: once X minutes]\" (or \"[timer: once X-Y minutes]\") means schedule ONE timed event after about that long; \"[timer: every X minutes]\" means repeat it at that cadence — use the timer envelope for both. \"[toy:<device> start <key>=<value> …]\" means drive that addon (fist/eject/coyote) via the addon envelope, and \"[toy:<device> stop]\" stops it.";
   return out;
 }
 function compSceneNew() {
@@ -10499,16 +10499,19 @@ function sceneHelperOpen(title, buildFn) {
 }
 function sceneHelperClose() { const m = $("sceneHelperModal"); if (m) m.style.display = "none"; }
 function sceneHelperTimer(b) {
-  b.innerHTML = '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Start</span></div><div class="slider-track"><input type="number" id="thStart" min="1" value="30" step="1" style="width:70px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"></div></div></div>'
-    + '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">End (blank = every)</span></div><div class="slider-track"><input type="number" id="thEnd" min="1" value="" placeholder="optional" style="width:70px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"></div></div></div>'
-    + '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Unit</span></div><div class="slider-track"><select id="thUnit" style="background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"><option value="s">seconds</option><option value="m">minutes</option></select></div></div></div>'
+  b.innerHTML = '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Mode</span></div><div class="slider-track"><select id="thMode" style="background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"><option value="once" selected>Once (after)</option><option value="every">Every (repeat)</option></select></div></div></div>'
+    + '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Start</span></div><div class="slider-track"><input type="number" id="thStart" min="1" value="5" step="1" style="width:70px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"></div></div></div>'
+    + '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">End (blank = fixed)</span></div><div class="slider-track"><input type="number" id="thEnd" min="1" value="" placeholder="optional range" style="width:70px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"></div></div></div>'
+    + '<div class="slider-group"><div class="slider-row compact"><div class="slider-head"><span class="slider-name">Unit</span></div><div class="slider-track"><select id="thUnit" style="background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px;"><option value="m">minutes</option><option value="s">seconds</option></select></div></div></div>'
     + '<div class="photo-modal-actions"><button class="ble-btn small" id="thOk" type="button">Add</button><button class="ble-btn small" id="thCancel" type="button">Cancel</button></div>';
   $("thOk").onclick = () => {
     const s = parseInt($("thStart").value, 10) || 0;
     const e = $("thEnd").value ? (parseInt($("thEnd").value, 10) || 0) : null;
     const u = $("thUnit").value === "m" ? "minutes" : "seconds";
+    const mode = $("thMode").value === "every" ? "every" : "once";
     if (s <= 0) return;
-    const txt = e ? ("[timer: every " + s + "-" + e + " " + u + "]") : ("[timer: every " + s + " " + u + "]");
+    const range = e ? (s + "-" + e + " " + u) : (s + " " + u);
+    const txt = "[timer: " + mode + " " + range + "]";
     compInsertAtCursor($("sceneDesc"), txt + " ");
     sceneHelperClose();
   };
