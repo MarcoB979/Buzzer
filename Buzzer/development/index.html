@@ -13092,7 +13092,13 @@ async function addonAcquireDevice(a) {
       }
     }
   }
-  const device = await navigator.bluetooth.requestDevice({ filters: [{ services: [a.service] }], optionalServices: [a.service] });
+  // Filter by service OR by advertised name prefix (some devices — e.g. the
+  // Coyote — don't advertise their service UUID in the scan, so a service-only
+  // filter shows an empty picker). The name prefix makes them discoverable.
+  const filters = [{ services: [a.service] }];
+  if (a.deviceName) filters.push({ namePrefix: a.deviceName });
+  const optional = [a.service, a.batteryService].filter(x => x);
+  const device = await navigator.bluetooth.requestDevice({ filters, optionalServices: optional });
   const server = await device.gatt.connect();
   return { device, server };
 }
