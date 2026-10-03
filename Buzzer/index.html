@@ -8009,10 +8009,23 @@ function refocusChat() {
 // the global keyboard bindings (which drive the AP/stroke sliders).
 document.addEventListener("pointerup", () => setTimeout(refocusChat, 0));
 
+let aiProviderKeyMigrated = false;
+function aiMigrateProviderKeys() {
+  try {
+    const legacy = (localStorage.getItem("ossm-ai-key") || "").trim();
+    if (!legacy) return;
+    const provider = localStorage.getItem("ossm-ai-provider") || "deepseek";
+    if (provider !== "deepseek" && provider !== "openai" && provider !== "gemini") return;
+    const perKey = "ossm-ai-key-" + provider;
+    if (!(localStorage.getItem(perKey) || "").trim()) localStorage.setItem(perKey, legacy);
+    localStorage.removeItem("ossm-ai-key");
+  } catch (e) {}
+}
 function aiProviderSettings() {
+  if (!aiProviderKeyMigrated) { aiProviderKeyMigrated = true; aiMigrateProviderKeys(); }
   let provider = "free", key = "", baseUrl = "", model = "";
   try { provider = localStorage.getItem("ossm-ai-provider") || "free"; } catch (e) {}
-  try { key = (localStorage.getItem("ossm-ai-key") || "").trim(); } catch (e) {}
+  try { key = (localStorage.getItem("ossm-ai-key-" + provider) || localStorage.getItem("ossm-ai-key") || "").trim(); } catch (e) {}
   try { baseUrl = (localStorage.getItem("ossm-ai-base-url-" + provider) || "").trim(); } catch (e) {}
   try { model = (localStorage.getItem("ossm-ai-model-" + provider) || "").trim(); } catch (e) {}
   if (provider === "openai") {
@@ -10737,8 +10750,7 @@ async function exportScene() {
     zip.file("manifest.json", JSON.stringify({ app: "buzzer-scene", format: 1, name: sc.name, media: mediaMeta }));
     const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
     const fname = ((sc.name || "scene").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "scene");
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "buzzer-scene-" + fname + ".zip"; document.body.appendChild(a); a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    saveBlobAs(blob, "buzzer-scene-" + fname + ".zip");
     funLog("Scene \"" + (sc.name || "scene") + "\" exported.");
   } catch (e) { alert("Export failed: " + (e && e.message ? e.message : e)); }
 }
@@ -13253,12 +13265,7 @@ function exportDeveloperInfo() {
   }
 
   const blob = new Blob([L.join("\n")], { type: "text/plain;charset=utf-8" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "buzzer-dev-info-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".txt";
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  saveBlobAs(blob, "buzzer-dev-info-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".txt");
 }
 
 // ---------- Settings-only export/import (obfuscated, no media/memory/avatars) ----------
@@ -13296,6 +13303,27 @@ function settingsDecode(text) {
   for (let i = 0; i < bytes.length; i++) out[i] = bytes[i] ^ SETTINGS_SALT.charCodeAt(i % SETTINGS_SALT.length);
   return JSON.parse(new TextDecoder().decode(out));
 }
+async function saveBlobAs(blob, suggestedName) {
+  // Chrome/Edge: show a real "Save as" dialog; otherwise download to the default folder.
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName });
+      const w = await handle.createWritable();
+      await w.write(blob);
+      await w.close();
+      return;
+    } catch (e) {
+      if (e && e.name === "AbortError") return; // user cancelled — don't fall back
+      // otherwise (e.g. no user activation after an async export) → normal download
+    }
+  }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = suggestedName;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
 function exportSettings() {
   const data = {};
   for (let i = 0; i < localStorage.length; i++) {
@@ -13305,13 +13333,9 @@ function exportSettings() {
   }
   const payload = settingsEncode(data);
   const blob = new Blob([payload], { type: "application/octet-stream" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
   const now = new Date();
-  a.download = "buzzer-settings-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".buz";
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  const fname = "buzzer-settings-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".buz";
+  saveBlobAs(blob, fname);
   funLog("Settings exported.");
 }
 function importSettings(file) {
@@ -13328,7 +13352,8 @@ function importSettings(file) {
       }
       const has = (k) => typeof data[k] === "string" && data[k].trim() !== "";
       const yn = (v) => (v ? "yes" : "no");
-      alert("Settings imported (" + n + " keys) — AI key: " + yn(has("ossm-ai-key")) + ", ElevenLabs key: " + yn(has("ossm-elevenlabs-key")) + ", ElevenLabs voice: " + yn(has("ossm-elevenlabs-voice-id")) + ", Stash: " + yn(has("ossm-stash-url")) + ". The app will reload.");
+      const aiKeyFound = has("ossm-ai-key") || has("ossm-ai-key-deepseek") || has("ossm-ai-key-openai") || has("ossm-ai-key-gemini");
+      alert("Settings imported (" + n + " keys) — AI key: " + yn(aiKeyFound) + ", ElevenLabs key: " + yn(has("ossm-elevenlabs-key")) + ", ElevenLabs voice: " + yn(has("ossm-elevenlabs-voice-id")) + ", Stash: " + yn(has("ossm-stash-url")) + ". The app will reload.");
       setTimeout(() => { try { location.reload(); } catch (e) {} }, 400);
     } catch (e) {
       alert("Import failed: " + (e && e.message ? e.message : e));
@@ -13414,12 +13439,7 @@ async function exportBackup() {
     zip.file("manifest.json", JSON.stringify({ app: "buzzer", format: 2, exportedAt: new Date().toISOString(), media: mediaMeta }));
     const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
     const now = new Date();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "buzzer-backup-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".zip";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    saveBlobAs(blob, "buzzer-backup-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".zip");
     funLog("Backup exported.");
   } catch (e) {
     alert("Export failed: " + (e && e.message ? e.message : e));
@@ -13498,12 +13518,7 @@ async function exportAvatar() {
     zip.file("manifest.json", JSON.stringify({ app: "buzzer-avatar", format: 1, name: snap.name, media: mediaMeta }));
     const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
     const fname = ((snap.name || "avatar").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "avatar");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "buzzer-avatar-" + fname + ".zip";
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    saveBlobAs(blob, "buzzer-avatar-" + fname + ".zip");
     funLog("Avatar \"" + (snap.name || "avatar") + "\" exported.");
   } catch (e) {
     alert("Export failed: " + (e && e.message ? e.message : e));
@@ -13882,7 +13897,7 @@ function aiDebugRestore() {
       else aiAddMsg("system", aiFreeBlockedMessage());
     }
   });
-  if (keyInp) keyInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-key", keyInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
+  if (keyInp) keyInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-key-" + aiProviderSettings().provider, keyInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
   if (baseInp) baseInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-base-url-" + aiProviderSettings().provider, baseInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
   if (modelInp) modelInp.addEventListener("change", () => { try { localStorage.setItem("ossm-ai-model-" + aiProviderSettings().provider, modelInp.value.trim()); } catch (e) {} syncAiSettingsUI(); });
   const whis = $("aiWhisper");
