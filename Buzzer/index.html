@@ -892,6 +892,7 @@
     <div class="companion-view" id="companionView" style="display:none;">
       <div class="companion-head">
         <span class="companion-title">💞 AI Companion</span>
+        <button class="ble-btn small danger" id="compStop" type="button" title="Emergency stop" style="font-weight:700;padding:5px 12px;font-size:.8rem;">⛔ STOP</button>
         <div class="companion-head-actions">
           <button class="ble-btn small" id="compConnect" type="button" title="Connect the OSSM">🔌 Connect</button>
           <button class="ble-btn small" id="compLocalBtn" type="button" title="Show me your videos (pick a folder)">📂</button>
@@ -10421,6 +10422,13 @@ function compNewSession(confirmFirst) {
   if (aiSpeakEnabled()) aiSpeak(greet);
   aiDebugPersistSoon();
 }
+function compEmergencyStop() {
+  if (aiPos.active || aiPos.moving) aiPosReset();
+  aiStopLive();
+  emergencyStop();
+  compAddMsg("assistant", "Emergency stop — you're safe.");
+  if (aiSpeakEnabled()) aiSpeak("Emergency stop.");
+}
 // The companion always uses the split layout (avatar + controls on the left,
 // chat history on the right). Focused mode is intentionally removed to keep a
 // single predictable layout with more room.
@@ -11894,6 +11902,7 @@ function compLiveStart() {
   const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
   const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
   const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
+  const stopBtn = $("compStop"); if (stopBtn) stopBtn.onclick = compEmergencyStop;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
   setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompRailPos(); syncCompVideoAvatar(); }, 180);
   document.addEventListener("pointermove", (e) => {
