@@ -1468,6 +1468,10 @@
         <button class="ble-btn small" id="backupImportBtn" type="button">⬆ Import backup</button>
         <input type="file" id="backupImportInput" accept=".zip,.json,application/zip,application/json" style="display:none;">
         <div class="ai-set-hint">One .zip file with everything on this device: settings, API keys, what the AI has learned, your avatars and their photos/videos. Import it on this or another device to restore it all. Keep it private — it contains your personal data.</div>
+        <button class="ble-btn small" id="settingsExportBtn" type="button">⬇ Export settings</button>
+        <button class="ble-btn small" id="settingsImportBtn" type="button">⬆ Import settings</button>
+        <input type="file" id="settingsImportInput" accept=".buz,application/octet-stream" style="display:none;">
+        <div class="ai-set-hint">Settings only — controller/keyboard mapping, Stash URL &amp; key, online favorites, AI &amp; TTS providers with their API keys, and other options. No avatars, scenes, memory or chat. The file is obfuscated so the keys can't be read by just opening it.</div>
       </div>
     </details>
   </div>
@@ -13257,6 +13261,80 @@ function exportDeveloperInfo() {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 
+// ---------- Settings-only export/import (obfuscated, no media/memory/avatars) ----------
+const SETTINGS_SALT = "Buzzer-OSSM-settings-salt-v1";
+const SETTINGS_PREFIX = "BUZSET1:";
+const SETTINGS_EXPORT_EXCLUDE = [
+  "ossm-dev-debug",
+  "ossm-ai-memory",
+  "ossm-companion",
+  "ossm-companion-avatars",
+  "ossm-companion-scenes",
+  "ossm-companion-scenes-seeded",
+  "ossm-coyote-user-waves",
+  "ossm-companion-profiles",
+  "ossm-companion-profile-current",
+  "ossm-companion-custom-prompt"
+];
+function settingsEncode(obj) {
+  const json = JSON.stringify(obj);
+  const bytes = new TextEncoder().encode(json);
+  const out = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) out[i] = bytes[i] ^ SETTINGS_SALT.charCodeAt(i % SETTINGS_SALT.length);
+  let bin = "";
+  for (let i = 0; i < out.length; i++) bin += String.fromCharCode(out[i]);
+  return SETTINGS_PREFIX + btoa(bin);
+}
+function settingsDecode(text) {
+  const t = String(text || "").trim();
+  if (t.indexOf(SETTINGS_PREFIX) !== 0) throw new Error("not a Buzzer settings file");
+  const b64 = t.slice(SETTINGS_PREFIX.length);
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const out = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) out[i] = bytes[i] ^ SETTINGS_SALT.charCodeAt(i % SETTINGS_SALT.length);
+  return JSON.parse(new TextDecoder().decode(out));
+}
+function exportSettings() {
+  const data = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || k.indexOf("ossm-") !== 0 || SETTINGS_EXPORT_EXCLUDE.indexOf(k) >= 0) continue;
+    try { data[k] = localStorage.getItem(k); } catch (e) {}
+  }
+  const payload = settingsEncode(data);
+  const blob = new Blob([payload], { type: "application/octet-stream" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const now = new Date();
+  a.download = "buzzer-settings-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".buz";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+  funLog("Settings exported.");
+}
+function importSettings(file) {
+  if (!file) return;
+  const rd = new FileReader();
+  rd.onload = () => {
+    try {
+      const data = settingsDecode(String(rd.result || ""));
+      if (!data || typeof data !== "object") throw new Error("bad settings data");
+      let n = 0;
+      for (const k of Object.keys(data)) {
+        if (k.indexOf("ossm-") !== 0) continue;
+        try { localStorage.setItem(k, data[k]); n++; } catch (e) {}
+      }
+      alert("Settings imported (" + n + " keys) — the app will reload.");
+      setTimeout(() => { try { location.reload(); } catch (e) {} }, 400);
+    } catch (e) {
+      alert("Import failed: " + (e && e.message ? e.message : e));
+    }
+  };
+  rd.onerror = () => alert("Import failed: could not read the file");
+  rd.readAsText(file);
+}
 // ---------- Backup & restore (export/import everything on this device) ----------
 let jszipPromise = null;
 function loadJSZip() {
@@ -13639,6 +13717,12 @@ function aiDebugRestore() {
   if (bkImport && bkImportInput) {
     bkImport.onclick = () => bkImportInput.click();
     bkImportInput.onchange = () => { const f = bkImportInput.files && bkImportInput.files[0]; bkImportInput.value = ""; importBackup(f); };
+  }
+  const sExport = $("settingsExportBtn"); if (sExport) sExport.onclick = exportSettings;
+  const sImport = $("settingsImportBtn"); const sImportInput = $("settingsImportInput");
+  if (sImport && sImportInput) {
+    sImport.onclick = () => sImportInput.click();
+    sImportInput.onchange = () => { const f = sImportInput.files && sImportInput.files[0]; sImportInput.value = ""; importSettings(f); };
   }
   if (forgetBtn) {
     forgetBtn.onclick = () => {
