@@ -6452,7 +6452,7 @@ function aiExtractJson(text) {
   // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
   aiLastShow = null;
   aiLastSuggestions = null;
-  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, show: null, target: null, devices: null, guest: null });
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, show: null, target: null, devices: null, guest: null, actor: null, lines: null });
   if (!text) return empty();
   const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
@@ -6522,6 +6522,15 @@ function aiExtractJson(text) {
       guest = { action: act, target: (typeof j.guest.target === "string" && j.guest.target.trim()) ? j.guest.target.trim() : "" };
     }
   }
+  const actor = (typeof j.actor === "string" && j.actor.trim()) ? j.actor.trim() : null;
+  let lines = null;
+  if (Array.isArray(j.lines)) {
+    const arr = j.lines
+      .filter(l => l && typeof l === "object" && !Array.isArray(l) && typeof l.reply === "string" && l.reply.trim())
+      .map(l => ({ actor: (typeof l.actor === "string" && l.actor.trim()) ? l.actor.trim() : "", reply: l.reply.trim() }))
+      .slice(0, 6);
+    if (arr.length) lines = arr;
+  }
   const memory = (typeof j.memory === "string" && j.memory.trim()) ? j.memory.trim().slice(0, 2000) : null;
   let pos = null;
   if (Array.isArray(j.pos)) {
@@ -6572,10 +6581,10 @@ function aiExtractJson(text) {
   else if (j.safeWord && typeof j.safeWord === "object" && !Array.isArray(j.safeWord) && typeof j.safeWord.word === "string" && j.safeWord.word.trim()) {
     safeWord = { action: "safeWord", word: j.safeWord.word.trim() };
   }
-  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer || about || safeWord || aiLastShow || Object.prototype.hasOwnProperty.call(j, "devices") || Object.prototype.hasOwnProperty.call(j, "target") || Object.prototype.hasOwnProperty.call(j, "guest")) {
-    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, about, safeWord, lang, target, devices, guest };
+  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer || about || safeWord || aiLastShow || Object.prototype.hasOwnProperty.call(j, "devices") || Object.prototype.hasOwnProperty.call(j, "target") || Object.prototype.hasOwnProperty.call(j, "guest") || Object.prototype.hasOwnProperty.call(j, "lines") || Object.prototype.hasOwnProperty.call(j, "actor")) {
+    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, about, safeWord, lang, target, devices, guest, actor, lines };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, target: null, devices: null, guest: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, target: null, devices: null, guest: null, actor: null, lines: null };
 }
 // When the model omits "suggestions", build a small natural set ourselves so the
 // chips never fall back to the generic pair, and so the stored history always
@@ -9591,6 +9600,7 @@ function companionRender() {
   if (nameEl) nameEl.textContent = companionState.avatarName || "";
   compSceneSyncName();
   if (!box) return;
+  if (compCastActive()) { compCastRenderView(box); return; }
   const state = compActiveState();
   if (compIsBodyState(state)) {
     companionLiveStop();
@@ -10399,7 +10409,7 @@ function compSceneContext() {
   return out;
 }
 function compSceneNew() {
-  const sc = { id: "sc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "", desc: "", states: [] };
+  const sc = { id: "sc" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name: "", desc: "", states: [], cast: [] };
   compScenesSave(compScenes().concat([sc]));
   companionState.sceneId = sc.id; companionState.sceneName = "";
   companionSave();
@@ -10413,6 +10423,7 @@ function compSceneSelect(id) {
   companionState.sceneId = sc.id; companionState.sceneName = sc.name || "";
   companionSave();
   if (sc.avatarId) { const av = compAvatars().find(a => a.id === sc.avatarId); if (av) compAvatarApply(av); }
+  if (Array.isArray(sc.cast)) { companionState.cast = JSON.parse(JSON.stringify(sc.cast)); companionSave(); }
   const ni = $("sceneNameInput"); if (ni) ni.value = sc.name || "";
   const d = $("sceneDesc"); if (d) d.value = sc.desc || "";
   compSceneStrictSync();
@@ -10427,6 +10438,7 @@ function compSceneSave() {
   if (!sc) return;
   sc.name = name || sc.name || "Scene";
   sc.desc = desc;
+  sc.cast = JSON.parse(JSON.stringify(companionState.cast || []));
   const list = compScenes();
   const i = list.findIndex(x => x.id === sc.id);
   if (i >= 0) list[i] = sc; else list.push(sc);
@@ -11037,6 +11049,79 @@ function compCastAdd() {
   companionSave();
   compCastRender();
   funLog("Added \"" + (snap.name || "character") + "\" to the cast.");
+}
+
+// ---------- Cast view (split screen), per-character lines + cast context ----------
+function compCast() { return Array.isArray(companionState.cast) ? companionState.cast : []; }
+function compCastActive() { return compCast().length >= 2; }
+function compCastSnapshot(id) { const a = compAvatars().find(x => x.id === id); return a || null; }
+function compCastVoice(actor) {
+  const m = compCast().find(x => (x.name || "").toLowerCase() === String(actor || "").toLowerCase());
+  return m && m.voice ? m.voice : null;
+}
+function compCastFace(m) {
+  const a = compCastSnapshot(m && m.avatarId);
+  if (a && a.customImage) return a.customImage;
+  if (a && a.body && a.body.img) return a.body.img;
+  const p = COMPANION_PRESETS[(((a && a.preset) || 0) % COMPANION_PRESETS.length + COMPANION_PRESETS.length) % COMPANION_PRESETS.length];
+  const hair = String(p.hair || "#f6d365").replace("#", "");
+  const skin = String(p.skin || "#ffd9b3").replace("#", "");
+  return "https://api.dicebear.com/9.x/" + (p.style || "lorelei") + "/svg?seed=" + encodeURIComponent(p.seed || "Noah") + "&hairColor=" + encodeURIComponent(hair) + "&skinColor=" + encodeURIComponent(skin) + "&glassesProbability=0&hairAccessoriesProbability=0";
+}
+let compCastSpeaker = null;
+function compCastRenderView(box) {
+  if (!box) return;
+  box.innerHTML = '<div class="comp-cast-row" style="display:flex;gap:12px;align-items:center;justify-content:center;width:100%;"></div>';
+  const row = box.querySelector(".comp-cast-row");
+  compCast().forEach(m => {
+    const slot = document.createElement("div");
+    slot.className = "comp-cast-slot";
+    slot.setAttribute("data-name", m.name || "");
+    slot.style.cssText = "flex:0 0 44%;max-width:44%;display:flex;flex-direction:column;align-items:center;gap:4px;border:2px solid rgba(255,255,255,.15);border-radius:18px;padding:6px;transition:border-color .2s,box-shadow .2s;background:#0b1220;";
+    const img = document.createElement("img");
+    img.src = compCastFace(m);
+    img.alt = m.name || "";
+    img.style.cssText = "width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:12px;background:#0b1220;";
+    const nm = document.createElement("div");
+    nm.textContent = m.name || "";
+    nm.style.cssText = "font-size:.78rem;color:#e2e8f0;margin-top:2px;";
+    slot.appendChild(img); slot.appendChild(nm); row.appendChild(slot);
+  });
+  compCastHighlight(compCastSpeaker);
+}
+function compCastHighlight(name) {
+  compCastSpeaker = name || null;
+  const row = document.querySelector(".comp-cast-row");
+  if (!row) return;
+  row.querySelectorAll(".comp-cast-slot").forEach(slot => {
+    const nm = slot.getAttribute("data-name") || "";
+    const on = !!name && nm.toLowerCase() === String(name).toLowerCase();
+    slot.style.borderColor = on ? "#38bdf8" : "rgba(255,255,255,.15)";
+    slot.style.boxShadow = on ? "0 0 18px rgba(56,189,248,.6)" : "none";
+  });
+}
+function compCastMemberSnapshot(i) {
+  const m = compCast()[i];
+  return m ? compCastSnapshot(m.avatarId) : null;
+}
+function compLineHtml(actor, text) {
+  return (actor ? "<b>" + escapeHtml(actor) + ":</b> " : "") + escapeHtml(text);
+}
+function compApplyLine(actor, rawReply) {
+  if (!rawReply) return;
+  const markerClean = compSceneProcessMarkers(rawReply);
+  if (!compSceneAnim.active) { const kw = compSceneFromKeywords(markerClean); if (kw) compSceneShow(kw); }
+  const clean = aiStripEmotionTags(markerClean);
+  if (!clean) return;
+  if (compCastActive()) compCastHighlight(actor);
+  aiAddMsg("assistant", compLineHtml(actor, clean));
+  if (aiSpeakEnabled()) aiSpeak(clean, compCastVoice(actor));
+  companionLiveExpress(rawReply);
+}
+function compCastContext() {
+  const cast = compCast();
+  if (cast.length < 2) return "";
+  return "\n\nYOUR CAST (you are playing " + cast.length + " characters at once): " + cast.map((c, i) => (c.name || "Character " + (i + 1)) + " — toy: " + (c.toy || "host")).join("; ") + ". Speak as whichever character fits, and label their line with \"actor\":\"<name>\" — or use \"lines\":[{\"actor\":\"<name>\",\"reply\":\"...\"}] to have two characters speak in one turn. Attribute a machine action to a character with \"actor\" on its entry, and route it with \"target\" (the host's toy is \"me\", a guest by name). Each character has their own voice — the app speaks their lines in it automatically.";
 }
 function compAvatarSaveCurrent() {
   compAvatarSyncInputs();
@@ -12535,26 +12620,23 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + aiSuggestionsReminder() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + compCastContext() + aiSuggestionsReminder() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (aiLastShow) companionApplyShow(aiLastShow);
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon || res.devices || res.target || res.guest) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon || res.devices || res.target || res.guest || res.lines || res.actor) {
       if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
     }
-    if (res.reply) {
-      const markerClean = compSceneProcessMarkers(res.reply);
-      if (!compSceneAnim.active) { const kw = compSceneFromKeywords(markerClean); if (kw) compSceneShow(kw); }
-      const clean = aiStripEmotionTags(markerClean);
-      compAddMsg("assistant", escapeHtml(clean));
-      if (aiSpeakEnabled()) aiSpeak(clean);
-      companionLiveExpress(res.reply);
+    if (res.lines && res.lines.length) {
+      for (const ln of res.lines) compApplyLine(ln.actor, ln.reply);
+    } else if (res.reply) {
+      compApplyLine(res.actor, res.reply);
     } else if (res.error) {
-      compAddMsg("assistant", escapeHtml(res.error));
+      aiAddMsg("assistant", escapeHtml(res.error));
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && (memOn || inSetup) && aiIsKeyedProvider()) {
@@ -12687,25 +12769,22 @@ async function compRoomSend() {
     const mem = aiMemory();
     const memLine = (memOn && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + aiSuggestionsReminder() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + compCastContext() + aiSuggestionsReminder() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.memory || res.about || res.face || res.avatar || res.video || res.addon || res.timer || res.lang || res.devices || res.target || res.guest) {
+    if (res.reply || res.params || res.memory || res.about || res.face || res.avatar || res.video || res.addon || res.timer || res.lang || res.devices || res.target || res.guest || res.lines || res.actor) {
       if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
     }
-    if (res.reply) {
-      const markerClean = compSceneProcessMarkers(res.reply);
-      if (!compSceneAnim.active) { const kw = compSceneFromKeywords(markerClean); if (kw) compSceneShow(kw); }
-      const clean = aiStripEmotionTags(markerClean);
-      compAddMsg("assistant", escapeHtml(clean));
-      if (aiSpeakEnabled()) aiSpeak(clean);
-      companionLiveExpress(res.reply);
+    if (res.lines && res.lines.length) {
+      for (const ln of res.lines) compApplyLine(ln.actor, ln.reply);
+    } else if (res.reply) {
+      compApplyLine(res.actor, res.reply);
     } else if (res.error) {
-      compAddMsg("assistant", escapeHtml(res.error));
+      aiAddMsg("assistant", escapeHtml(res.error));
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && memOn && aiIsKeyedProvider()) { aiSetMemory(res.memory); aiLog("stored a preference (memory)"); }
@@ -12789,7 +12868,7 @@ async function compDirtyTalkFire() {
     const memLine = (aiMemoryActive() && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const avoid = compDirtyRecent.length ? ("\n\nDirty lines you already said recently — do NOT repeat them: " + compDirtyRecent.join(" | ")) : "";
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compPersonaText() + compAboutText() + compExprContext() + compRoomContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + avoid + compPersonaText() + compAboutText() + compExprContext() + compRoomContext() + compCastContext() },
       { role: "user", content: "[SPONTANEOUS DIRTY TALK] The machine is moving. Say ONE fresh, spontaneous dirty-talk line to turn them on — a moan, a question, a taunt, or praise. Be creative and varied; never repeat a recent line. " + lengthNote + " Normally only set \"reply\". BUT if your line says you're about to do something — go deeper, go harder, go faster, or hold it deep — then also include the matching \"set\" (a small, safe step within the confirmed limits) so it actually happens. Never send \"run\" or \"limits\" here." }
     ];
     const res = await aiCall(msgs);
@@ -13180,16 +13259,15 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon || res.devices || res.target || res.guest) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon || res.devices || res.target || res.guest || res.lines || res.actor) {
       if (res.raw) { aiMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
     }
-    if (res.reply) {
-      const clean = aiStripEmotionTags(res.reply);
-      aiAddMsg("assistant", escapeHtml(clean));
-      if (aiSpeakEnabled()) aiSpeak(clean);
-      companionLiveExpress(res.reply);
+    if (res.lines && res.lines.length) {
+      for (const ln of res.lines) compApplyLine(ln.actor, ln.reply);
+    } else if (res.reply) {
+      compApplyLine(res.actor, res.reply);
     }
     if (res.lang) { try { localStorage.setItem("ossm-ai-lang", res.lang); } catch (e) {} }
     if (res.memory && aiMemoryActive()) { aiSetMemory(res.memory); aiLog("stored a preference (memory)"); }
@@ -15193,17 +15271,24 @@ function sessionSendGuestBreakout(id, enter) {
   const g = sessionGuestById(id);
   if (!g) return;
   g.state = enter ? "breakout" : "watch";
-  if (g.conn && g.conn.open) { try { g.conn.send({ t: "breakout", enter: !!enter }); } catch (e) {} }
+  if (g.conn && g.conn.open) {
+    try {
+      const msg = { t: "breakout", enter: !!enter };
+      if (enter) { const av2 = compCastMemberSnapshot(1); if (av2) msg.avatar = av2; }
+      g.conn.send(msg);
+    } catch (e) {}
+  }
   sessionAppendChat("", g.name + (enter ? " sent to get ready (BRB)" : " set back to watching"), true);
   sessionBroadcastPeers();
   sessionRender();
 }
-function sessionBreakoutEnter() {
+function sessionBreakoutEnter(avatar) {
   if (sess.role !== "guest") return;
   sess.myState = "breakout";
   sessionBreakoutStateSave();
   sessionSend({ t: "gueststate", state: "breakout" });
   if (compModeActive) { try { companionClose(); } catch (e) {} }
+  if (avatar && typeof avatar === "object") { try { compAvatarApply(avatar); } catch (e) {} }
   compMessages = [];
   compSetupGreeted = true; // don't run the generic first-time greeting
   try { companionOpen(false); } catch (e) {}
@@ -15902,7 +15987,7 @@ function sessionOnHostData(d) {
     }
   }
   else if (d.t === "breakout") {
-    if (d.enter) sessionBreakoutEnter(); else sessionBreakoutFinish("watch");
+    if (d.enter) sessionBreakoutEnter(d.avatar); else sessionBreakoutFinish("watch");
   }
   else if (d.t === "kick") { monitor("Session: host removed you", "warn"); sessionLeave(); }
 }
