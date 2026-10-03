@@ -721,6 +721,19 @@
     35% { filter: brightness(1.4); box-shadow: 0 0 18px 6px rgba(255,255,255,.65); }
     100% { filter: brightness(1); box-shadow: 0 0 0 0 rgba(255,255,255,0); }
   }
+  /* Coyote e-stim: foldable sections, wave list and lightning flash on the play button */
+  .coyote-fold > summary { cursor: pointer; font-size: .85rem; font-weight: bold; padding: 4px 0; color: #e2e8f0; }
+  .coyote-fold[open] > summary { margin-bottom: 2px; }
+  .coyote-wave-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; padding: 2px; }
+  .coyote-wave-row { display: flex; gap: 4px; align-items: stretch; }
+  .coyote-wave-row .coyote-wave-sel { flex: 1; min-width: 0; text-align: left; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .coyote-wave-row.active .coyote-wave-sel { border-color: #38bdf8; color: #7dd3fc; }
+  .coyote-flash { animation: coyoteFlash .9s ease-out; }
+  @keyframes coyoteFlash {
+    0% { filter: brightness(2.2); box-shadow: 0 0 0 3px rgba(251,191,36,.95); }
+    40% { filter: brightness(1.5); box-shadow: 0 0 22px 8px rgba(251,191,36,.75); }
+    100% { filter: brightness(1); box-shadow: 0 0 0 0 rgba(251,191,36,0); }
+  }
   #compConnect.on { background: #166534; }
   #compConnect.pulse { animation: compPulse .8s ease 3; }
   @keyframes compPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 0 0 6px rgba(56,189,248,.55); } }
@@ -13485,6 +13498,9 @@ function compAddonsRender() {
 
 // ---------- Coyote (DG-Labs e-stim, V3 protocol) ----------
 const COYOTE_DEFAULTS = { a_power:0, b_power:0, a_freq:40, b_freq:40, a_wave:50, b_wave:50, limit:50 };
+// Bundled waves ship with the app; users can add more via "Load .pulse wave".
+// Each entry: { name: "Wave name", content: "<full Dungeonlab .pulse text>" }.
+const COYOTE_BUNDLED_PRESETS = [];
 function coyoteDef() { return ADDON_DEFS.find(x => x.id === "coyote"); }
 function coyoteState() { return ADDON_STATE["coyote"] || (ADDON_STATE["coyote"] = {}); }
 function coyoteActive() { const st = coyoteState(); return addonEnabled("coyote") && !!(st && (st.connected || st.on)); }
@@ -13727,21 +13743,54 @@ function coyoteSlider(key, v) {
   // stream is running, the 100 ms loop keeps applying every slider value.
   if (!st.on && (key === "a_power" || key === "b_power") && v > 0) coyoteStart();
 }
+function coyoteUserWaves() {
+  try { const a = JSON.parse(localStorage.getItem("ossm-coyote-user-waves") || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function coyoteUserWavesSave(list) { try { localStorage.setItem("ossm-coyote-user-waves", JSON.stringify(list)); } catch (e) {} }
+function coyoteUserWaveAdd(name, content) {
+  const list = coyoteUserWaves().filter(w => w && w.name && w.name !== name);
+  list.unshift({ name, content });
+  if (list.length > 50) list.length = 50;
+  coyoteUserWavesSave(list);
+}
+function coyoteUserWaveRemove(name) {
+  coyoteUserWavesSave(coyoteUserWaves().filter(w => w && w.name !== name));
+}
+function coyoteSelectWave(name, content) {
+  const st = coyoteState();
+  try {
+    const p = coyoteParsePulse(content);
+    st.preset = { name, frames: p.frames, idx: 0 };
+  } catch (e) {
+    monitor("Coyote wave: " + (e && e.message ? e.message : e), "err");
+    return;
+  }
+  st.presetPlaying = false;
+  st.waveName = name;
+  st.flashPlay = true;
+  coyoteRender();
+}
 function coyoteLoadPresetFile(file) {
+  if (!file) return;
   const reader = new FileReader();
   reader.onload = () => {
+    const content = String(reader.result || "");
+    const name = String(file.name || "preset").replace(/\.pulse$/i, "").trim() || "preset";
+    const st = coyoteState();
     try {
-      const p = coyoteParsePulse(String(reader.result || ""));
-      const st = coyoteState();
-      st.preset = { name: String(file.name || "preset").replace(/\.pulse$/i, ""), frames: p.frames, idx: 0 };
+      const p = coyoteParsePulse(content);
+      st.preset = { name, frames: p.frames, idx: 0 };
       st.presetPlaying = false;
-      monitor("Coyote preset loaded: " + file.name + " (" + Math.round(p.durationMs / 1000) + "s)");
+      st.waveName = name;
+      st.flashPlay = true;
+      coyoteUserWaveAdd(name, content);
+      monitor("Coyote wave loaded: " + name + " (" + Math.round(p.durationMs / 1000) + "s)");
       coyoteRender();
     } catch (e) {
-      monitor("Coyote preset: " + (e && e.message ? e.message : e), "err");
+      monitor("Coyote wave: " + (e && e.message ? e.message : e), "err");
     }
   };
-  reader.onerror = () => monitor("Coyote preset: could not read file", "err");
+  reader.onerror = () => monitor("Coyote wave: could not read file", "err");
   reader.readAsText(file);
 }
 function coyotePlayPreset() {
@@ -13768,7 +13817,7 @@ function coyoteBuildSection() {
   const status = document.createElement("div");
   status.className = "ai-set-hint";
   const bat = (typeof st.battery === "number") ? (" · battery " + st.battery + "%") : "";
-  status.textContent = st.connected ? (st.on ? (st.presetPlaying ? "● Running preset" + bat : "● Running" + bat) : "● Connected — ready" + bat) : "Not connected";
+  status.textContent = st.connected ? (st.on ? (st.presetPlaying ? "● Running wave" + bat : "● Running" + bat) : "● Connected — ready" + bat) : "Not connected";
   wrap.appendChild(status);
   const btnRow = document.createElement("div");
   btnRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;";
@@ -13778,14 +13827,56 @@ function coyoteBuildSection() {
   const kill = mk("⛔ Kill"); kill.classList.add("danger"); kill.onclick = () => coyoteKill();
   btnRow.appendChild(conn); btnRow.appendChild(onoff); btnRow.appendChild(kill);
   wrap.appendChild(btnRow);
-  for (const s of coyoteDef().sliders) {
-    const cur = coyoteSliderVal(s.key, COYOTE_DEFAULTS[s.key] !== undefined ? COYOTE_DEFAULTS[s.key] : s.min);
-    wrap.appendChild(sliderEl(s.label, s.min, s.max, cur, "#38bdf8", (v) => coyoteSlider(s.key, v)));
+
+  // Waves (foldable): bundled + user waves as a list, plus load and play/stop.
+  const wd = document.createElement("details");
+  wd.className = "coyote-fold";
+  wd.open = (st.foldWaves !== false);
+  wd.addEventListener("toggle", () => { st.foldWaves = wd.open; });
+  const ws = document.createElement("summary");
+  ws.textContent = "🎵 Waves" + (st.waveName ? " — " + st.waveName : "");
+  wd.appendChild(ws);
+  const wb = document.createElement("div");
+  wb.style.cssText = "display:flex;flex-direction:column;gap:4px;margin-top:6px;";
+  const list = document.createElement("div");
+  list.className = "coyote-wave-list";
+  const rows = [];
+  (COYOTE_BUNDLED_PRESETS || []).forEach(w => rows.push({ name: w.name, content: w.content, user: false }));
+  coyoteUserWaves().forEach(w => rows.push({ name: w.name, content: w.content, user: true }));
+  if (!rows.length) {
+    const hint = document.createElement("div");
+    hint.className = "ai-set-hint";
+    hint.textContent = "No waves yet — load a .pulse file below.";
+    list.appendChild(hint);
   }
-  // Preset (DG-Labs .pulse waveform) — plays on channel A; intensity still comes from the A slider.
+  rows.forEach(w => {
+    const row = document.createElement("div");
+    row.className = "coyote-wave-row" + (st.waveName === w.name ? " active" : "");
+    const sel = document.createElement("button");
+    sel.type = "button";
+    sel.className = "ble-btn small coyote-wave-sel";
+    sel.textContent = "⚡ " + w.name;
+    sel.onclick = () => coyoteSelectWave(w.name, w.content);
+    row.appendChild(sel);
+    if (w.user) {
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "ble-btn small danger";
+      del.textContent = "✕";
+      del.title = "Remove this wave";
+      del.onclick = () => {
+        coyoteUserWaveRemove(w.name);
+        if (st.waveName === w.name) { st.waveName = ""; st.presetPlaying = false; if (st.preset) st.preset.idx = 0; }
+        coyoteRender();
+      };
+      row.appendChild(del);
+    }
+    list.appendChild(row);
+  });
+  wb.appendChild(list);
   const presetRow = document.createElement("div");
-  presetRow.style.cssText = "display:flex;gap:6px;margin:2px 0 6px;flex-wrap:wrap;align-items:center;";
-  const loadBtn = mk("📄 Load .pulse preset");
+  presetRow.style.cssText = "display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;align-items:center;";
+  const loadBtn = mk("📄 Load .pulse wave");
   const fileIn = document.createElement("input");
   fileIn.type = "file"; fileIn.accept = ".pulse,.txt,text/plain"; fileIn.style.display = "none";
   loadBtn.onclick = () => fileIn.click();
@@ -13796,11 +13887,32 @@ function coyoteBuildSection() {
     lbl.className = "ai-set-hint";
     lbl.textContent = "🎵 " + st.preset.name + " · " + Math.round(st.preset.frames.length / 10) + "s";
     presetRow.appendChild(lbl);
-    const play = mk(st.presetPlaying ? "⏹ Stop preset" : "▶ Play preset");
+    const play = mk(st.presetPlaying ? "⏹ Stop wave" : "▶ Play wave");
+    if (st.flashPlay) { play.classList.add("coyote-flash"); st.flashPlay = false; }
     play.onclick = () => (st.presetPlaying ? coyoteStopPreset() : coyotePlayPreset());
     presetRow.appendChild(play);
   }
-  wrap.appendChild(presetRow);
+  wb.appendChild(presetRow);
+  wd.appendChild(wb);
+  wrap.appendChild(wd);
+
+  // Sliders (foldable).
+  const sd = document.createElement("details");
+  sd.className = "coyote-fold";
+  sd.open = (st.foldSliders !== false);
+  sd.addEventListener("toggle", () => { st.foldSliders = sd.open; });
+  const ss = document.createElement("summary");
+  ss.textContent = "🎚 Sliders";
+  sd.appendChild(ss);
+  const sb = document.createElement("div");
+  sb.style.cssText = "margin-top:6px;";
+  for (const s of coyoteDef().sliders) {
+    const cur = coyoteSliderVal(s.key, COYOTE_DEFAULTS[s.key] !== undefined ? COYOTE_DEFAULTS[s.key] : s.min);
+    sb.appendChild(sliderEl(s.label, s.min, s.max, cur, "#38bdf8", (v) => coyoteSlider(s.key, v)));
+  }
+  sd.appendChild(sb);
+  wrap.appendChild(sd);
+
   const warn = document.createElement("div");
   warn.className = "ai-set-hint";
   warn.style.color = "#fbbf24";
