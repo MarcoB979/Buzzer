@@ -930,6 +930,13 @@
         </div>
         <input type="file" id="aiLocalFolder" webkitdirectory multiple style="display:none;">
       </div>
+      <div id="compBreakoutBar" style="display:none;width:100%;padding:6px 8px;background:#0b1220;border:1px solid #334155;border-radius:8px;margin-bottom:6px;box-sizing:border-box;">
+        <div style="font-size:.78rem;color:#94a3b8;margin-bottom:6px;">🛠 Getting ready in private (BRB) — the room can't see you right now.</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <button class="ble-btn small" type="button" onclick="sessionBreakoutFinish('ready')">✅ Ready — rejoin the room</button>
+          <button class="ble-btn small" type="button" onclick="sessionBreakoutFinish('watch')">👁 Just watch</button>
+        </div>
+      </div>
       <div class="companion-body" id="companionBody">
         <div class="comp-main">
           <div class="companion-avatar" id="companionAvatar"></div>
@@ -11111,6 +11118,7 @@ function companionOpen(mirrored) {
   }
   refreshStashLibrary();
   companionSave();
+  compBreakoutBarSync();
 }
 function companionClose() {
   companionLiveStop();
@@ -11126,6 +11134,7 @@ function companionClose() {
   syncModeDropdown();
   companionSave();
   compLiveStop();
+  compBreakoutBarSync();
 }
 function companionPref() {
   const mem = (aiMemory() || "").toLowerCase();
@@ -12522,6 +12531,9 @@ function compRoomContext() {
   for (const g of sess.guests) {
     if (!g || !g.name) continue;
     let s = g.name;
+    if (g.state === "breakout") s += " (in a breakout room getting ready — BRB, do NOT address them)";
+    else if (g.state === "ready") s += " (ready to play)";
+    else s += " (watching only)";
     if (g.about && String(g.about).trim()) s += " — " + String(g.about).trim().slice(0, 500);
     parts.push(s);
   }
@@ -14990,7 +15002,7 @@ function addonButtplugIntentText() {
 
 // ---------- Sessions (PeerJS: host/join, mutual webcam, roles, chat) ----------
 let sess = {
-  role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch", shareProfile: true,
+  role: null, peer: null, code: "", hostId: "", myName: "", myRole: "watch", shareProfile: true, myState: "watch",
   guests: [], messages: [], stream: null, camOn: false, micOn: false, remoteStreams: {},
   camFacing: "user", camDeviceId: null,
   play: { status: null, role: null, otherName: "", otherUserId: "", railMine: 0, railOther: 0, strokeMine: 0, strokeOther: 0, speedMine: 0, speedOther: 0, myReady: false, otherReady: false, autoFeelMm: 0, syncF: 1, myHasCal: false, otherHasCal: false, usedStored: false }
@@ -15027,6 +15039,72 @@ function sessionSendHello() {
   if (sess.role !== "guest") return;
   const p = sessionMyProfile();
   sessionSend({ t: "hello", name: p.name, about: p.about, share: p.share, mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo });
+}
+// ---------- Guest breakout ("get ready in private") flow ----------
+function sessionMyState() { return sess.myState || "watch"; }
+function sessionGuestReady() { return !!connected && aiLimitsConfirmed() && !!aiPosSafeWord(); }
+function sessionBreakoutStateSave() { try { sessionStorage.setItem("ossm-session-my-state", sessionMyState()); } catch (e) {} }
+function sessionBreakoutStateLoad() {
+  try {
+    const s = sessionStorage.getItem("ossm-session-my-state");
+    if (s === "ready" || s === "breakout") sess.myState = s;
+  } catch (e) {}
+}
+function sessionGuestStateNote(g, was, st) {
+  if (st === was) return;
+  if (st === "breakout") sessionAppendChat("", g.name + " is getting ready (BRB)", true);
+  else if (st === "ready") sessionAppendChat("", g.name + " is back and ready to play", true);
+  else sessionAppendChat("", g.name + " is back to watching", true);
+  if (!compModeActive) return;
+  const note = st === "breakout"
+    ? ("GUEST " + g.name + " went to a breakout room to get ready (connect, safe word, limits). They cannot see the room chat while there — do NOT address them until they come back.")
+    : (st === "ready"
+      ? ("GUEST " + g.name + " is back and ready to play. In character, warmly acknowledge their return and pull them into what's happening.")
+      : ("GUEST " + g.name + " is back but watching only — do not involve them in play."));
+  compMessages.push({ role: "system", content: note, ts: Date.now() });
+  aiDebugPersistSoon();
+  if (st === "ready" && !compBusy) compRoomSend();
+}
+function sessionSendGuestBreakout(id, enter) {
+  const g = sessionGuestById(id);
+  if (!g) return;
+  g.state = enter ? "breakout" : "watch";
+  if (g.conn && g.conn.open) { try { g.conn.send({ t: "breakout", enter: !!enter }); } catch (e) {} }
+  sessionAppendChat("", g.name + (enter ? " sent to get ready (BRB)" : " set back to watching"), true);
+  sessionBroadcastPeers();
+  sessionRender();
+}
+function sessionBreakoutEnter() {
+  if (sess.role !== "guest") return;
+  sess.myState = "breakout";
+  sessionBreakoutStateSave();
+  sessionSend({ t: "gueststate", state: "breakout" });
+  if (compModeActive) { try { companionClose(); } catch (e) {} }
+  compMessages = [];
+  compSetupGreeted = true; // don't run the generic first-time greeting
+  try { companionOpen(false); } catch (e) {}
+  compMessages.push({ role: "system", content: "BREAKOUT SETUP (private, just you and this guest): get them ready and safe to play on their own device, one step at a time: (1) make sure their OSSM is connected (if not, tell them to tap Connect), (2) choose a safe word, (3) set min depth, max depth and max speed — via the position flow or the three numbers with a confirmation. NEVER start the machine until limits are confirmed. When they are ready, ask if they want to rejoin the room; if they confirm, they'll be taken back automatically.", ts: Date.now() });
+  compAddMsg("assistant", "Okay — let's get you ready in private. Is your machine connected? If not, tap 🔌 Connect, then tell me a safe word.");
+  compBreakoutBarSync();
+  sessionRender();
+}
+function sessionBreakoutFinish(mode) {
+  if (sess.role !== "guest") return;
+  if (mode === "ready" && !sessionGuestReady()) {
+    if (compModeActive) compAddMsg("system", "You're not quite ready yet — connect your OSSM, set a safe word and confirm your limits first.");
+    return;
+  }
+  sess.myState = (mode === "ready") ? "ready" : "watch";
+  sessionBreakoutStateSave();
+  sessionSend({ t: "gueststate", state: sess.myState });
+  if (compModeActive) { try { companionClose(); } catch (e) {} }
+  compBreakoutBarSync();
+  sessionAppendChat("", (mode === "ready") ? "You're ready — rejoining the room." : "You're back to watching.", true);
+  sessionRender();
+}
+function compBreakoutBarSync() {
+  const b = $("compBreakoutBar");
+  if (b) b.style.display = (sess.role === "guest" && sess.myState === "breakout") ? "" : "none";
 }
 
 // ---------- Mutual play (calibrated shared stroke) ----------
@@ -15432,7 +15510,7 @@ async function sessionShareVideo() {
   }
 }
 function sessionBroadcastPeers() {
-  const list = sess.guests.map(g => ({ id: g.id, name: g.name, role: g.role }));
+  const list = sess.guests.map(g => ({ id: g.id, name: g.name, role: g.role, state: g.state || "watch" }));
   sessionBroadcast({ t: "peers", list });
 }
 function sessionAppendChat(who, text, sys) {
@@ -15567,7 +15645,7 @@ function sessionOnGuestConn(conn) {
   conn.on("open", () => {
     const id = conn.peer;
     sess.guests = sess.guests.filter(x => x.id !== id);
-    sess.guests.push({ id, conn, name: "Guest", role: "watch", mirror: false, watch: false, about: "", share: true });
+    sess.guests.push({ id, conn, name: "Guest", role: "watch", mirror: false, watch: false, about: "", share: true, state: "watch" });
     try { conn.send({ t: "welcome", role: "watch" }); } catch (e) {}
     sessionBroadcastPeers();
     sessionAppendChat("", "Guest joined", true);
@@ -15612,6 +15690,13 @@ function sessionOnGuestData(conn, d) {
     sessionAppendChat(g.name, text);
     for (const o of sess.guests) { if (o.id !== g.id && o.conn && o.conn.open) { try { o.conn.send({ t: "chat", name: g.name, text }); } catch (e) {} } }
     if (compModeActive) compGuestTurn(g.name, text);
+  } else if (d.t === "gueststate") {
+    const st = (d.state === "ready" || d.state === "breakout" || d.state === "watch") ? d.state : "watch";
+    const was = g.state || "watch";
+    g.state = st;
+    sessionBroadcastPeers();
+    sessionRender();
+    sessionGuestStateNote(g, was, st);
   } else if (d.t === "cmd") {
     if (g.role !== "control") { sessionAppendChat("", "(control not allowed for " + g.name + ")", true); return; }
     sessionApplyRemoteCmd(d, g.name);
@@ -15643,6 +15728,7 @@ async function sessionJoin(code) {
   sess.hostId = code;
   sess.myName = ($("sessionName") && $("sessionName").value.trim()) || sess.myName || "Guest";
   try { localStorage.setItem("ossm-session-name", sess.myName); } catch (e) {}
+  sessionBreakoutStateLoad();
   const peer = new Peer({ config: { iceServers: sessionICE() } });
   sess.peer = peer;
   peer.on("open", () => {
@@ -15652,6 +15738,8 @@ async function sessionJoin(code) {
       try { sessionSendHello(); } catch (e) {}
       sessionEnsureCalls();
       sessionRender();
+      if (sessionMyState() === "breakout") sessionBreakoutEnter();
+      else if (sessionMyState() === "ready") sessionSend({ t: "gueststate", state: "ready" });
     });
     conn.on("data", d => sessionOnHostData(d));
     conn.on("close", () => { monitor("Session: disconnected from host", "warn"); sessionLeave(); });
@@ -15668,7 +15756,7 @@ function sessionOnHostData(d) {
   if (!d || typeof d !== "object") return;
   if (d.t === "play") { playOnMsg(d, "Host"); return; }
   if (d.t === "welcome") { sess.myRole = d.role || "watch"; sessionRender(); }
-  else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, conn: null })).filter(x => x.id !== (sess.peer && sess.peer.id)); sessionRender(); sessionEnsureCalls(); }
+  else if (d.t === "peers") { sess.guests = (d.list || []).map(x => ({ id: x.id, name: x.name, role: x.role, state: x.state || "watch", conn: null })).filter(x => x.id !== (sess.peer && sess.peer.id)); sessionRender(); sessionEnsureCalls(); }
   else if (d.t === "chat") { sessionAppendChat(d.name || "host", String(d.text || "")); }
   else if (d.t === "role") { sess.myRole = d.role || "watch"; sessionRender(); }
   else if (d.t === "state") { sess.hostState = d; sessionUpdateStatus(); sessionMirrorUi(d); sessionMirrorState(d); sessionFollowVideo(d.video); sessionSyncCompanion(d); }
@@ -15676,6 +15764,7 @@ function sessionOnHostData(d) {
     const aiText = String(d.text || "");
     const aiWho = (typeof d.name === "string" && d.name) ? d.name : (d.role === "user" ? "Host" : "Companion");
     sessionAppendChat(aiWho, aiText);
+    if (sess.myState === "breakout") return; // record history, but keep the private breakout session separate
     if (d.comp) sessionSyncCompanion({ compMode: true });
     if (compModeActive) compAddMsg(d.role === "user" ? "user" : "assistant", (d.role === "user" ? "<b>" + escapeHtml(aiWho) + ":</b> " : "") + escapeHtml(aiText));
   }
@@ -15684,6 +15773,9 @@ function sessionOnHostData(d) {
       if (sess.mirrorDevice && connected) { monitor("Session: host estop — stopping my device", "warn"); emergencyStop(); }
       else sessionAppendChat("", "Host triggered emergency stop", true);
     }
+  }
+  else if (d.t === "breakout") {
+    if (d.enter) sessionBreakoutEnter(); else sessionBreakoutFinish("watch");
   }
   else if (d.t === "kick") { monitor("Session: host removed you", "warn"); sessionLeave(); }
 }
@@ -15694,7 +15786,8 @@ async function sessionLeave() {
   try { if (sess.stream) sess.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   sess.stream = null; sess.camOn = false; sess.micOn = false;
   sess.remoteStreams = {}; sess.guests = []; sess.hostConn = null;
-  sess.role = null; sess.code = ""; sess.myRole = "watch"; sess.hostState = null;
+  sess.role = null; sess.code = ""; sess.myRole = "watch"; sess.myState = "watch"; sess.hostState = null;
+  try { sessionStorage.removeItem("ossm-session-my-state"); } catch (e) {}
   if (sess.compSynced) { sess.compSynced = false; if (compModeActive) { try { companionClose(); } catch (e) {} } }
   sess.mirrorDevice = false;
   playReset();
@@ -15773,6 +15866,7 @@ function sessionUpdateStatus() {
 }
 function sessionSyncCompanion(s) {
   if (sess.role !== "guest") return;
+  if (sess.myState === "breakout") return; // private breakout session — don't mirror the room
   if (s.compMode) {
     if (!sess.compSynced) {
       sess.compSynced = true;
@@ -15984,6 +16078,23 @@ function sessionRender() {
       watchLabel.style.cssText = "font-size:.75rem;gap:8px;margin:2px 0;";
       watchLabel.innerHTML = '<span>▶ Follow host video</span><span class="switch"><input type="checkbox" id="sessionWatchToggle"><span class="slider"></span></span>';
       wrap.appendChild(watchLabel);
+
+      const stateRow = document.createElement("div");
+      stateRow.style.cssText = "display:flex;gap:6px;margin:4px 0;flex-wrap:wrap;align-items:center;";
+      const stateTxt = document.createElement("span");
+      stateTxt.className = "ai-set-hint";
+      stateTxt.style.cssText = "margin:0;";
+      stateTxt.textContent = sess.myState === "breakout" ? "🛠 Getting ready (BRB)" : (sess.myState === "ready" ? "✅ Ready — the room AI may drive your toy" : "👁 Watching only");
+      stateRow.appendChild(stateTxt);
+      if (sess.myState === "watch") {
+        const brk = mk("🛠 Get ready to join in"); brk.onclick = () => sessionBreakoutEnter(); stateRow.appendChild(brk);
+      } else if (sess.myState === "breakout") {
+        const ok = mk("✅ Ready — rejoin"); ok.onclick = () => sessionBreakoutFinish("ready"); stateRow.appendChild(ok);
+        const w = mk("👁 Just watch"); w.onclick = () => sessionBreakoutFinish("watch"); stateRow.appendChild(w);
+      } else {
+        const w = mk("👁 Just watch"); w.onclick = () => sessionBreakoutFinish("watch"); stateRow.appendChild(w);
+      }
+      wrap.appendChild(stateRow);
     }
 
     const plist = document.createElement("div");
@@ -16003,14 +16114,17 @@ function sessionRender() {
           const row = document.createElement("div");
           row.style.cssText = "display:flex;gap:6px;align-items:center;margin:2px 0;flex-wrap:wrap;";
           const nm = document.createElement("span");
-          nm.textContent = g.name + (g.role === "control" ? " 🎮" : " 👁");
+          const stateIcon = (g.state === "breakout") ? "🛠" : (g.state === "ready") ? "✅" : "👁";
+          nm.textContent = g.name + " " + stateIcon + (g.role === "control" ? " 🎮" : "");
           row.appendChild(nm);
           row.appendChild(mkFlag("🎛", !!g.mirror, "Mirror host to their device"));
           row.appendChild(mkFlag("▶", !!g.watch, "Follow host video"));
           const toggle = mk(g.role === "control" ? "Watch only" : "Allow control");
           toggle.onclick = () => sessionSetRole(g.id, g.role === "control" ? "watch" : "control");
+          const brk = mk(g.state === "breakout" ? "Pull back" : "Send to get ready");
+          brk.onclick = () => sessionSendGuestBreakout(g.id, g.state !== "breakout");
           const kick = mk("Kick"); kick.classList.add("danger"); kick.onclick = () => sessionKick(g.id);
-          row.appendChild(toggle); row.appendChild(kick);
+          row.appendChild(toggle); row.appendChild(brk); row.appendChild(kick);
           plist.appendChild(row);
         }
       }
@@ -16061,6 +16175,7 @@ function sessionRender() {
     const sendChat = () => {
       const text = chatInput.value.trim().slice(0, 500);
       if (!text) return;
+      if (sess.role === "guest" && sess.myState === "breakout") { sessionAppendChat("", "You're in the breakout room — finish getting ready (or tap Just watch) to rejoin the chat.", true); return; }
       chatInput.value = "";
       sessionAppendChat(sess.myName || "Me", text);
       if (sess.role === "host") sessionBroadcast({ t: "chat", name: sess.myName || "Host", text });
