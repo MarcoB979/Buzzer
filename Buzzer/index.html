@@ -13326,7 +13326,9 @@ function importSettings(file) {
         if (k.indexOf("ossm-") !== 0) continue;
         try { localStorage.setItem(k, data[k]); n++; } catch (e) {}
       }
-      alert("Settings imported (" + n + " keys) — the app will reload.");
+      const has = (k) => typeof data[k] === "string" && data[k].trim() !== "";
+      const yn = (v) => (v ? "yes" : "no");
+      alert("Settings imported (" + n + " keys) — AI key: " + yn(has("ossm-ai-key")) + ", ElevenLabs key: " + yn(has("ossm-elevenlabs-key")) + ", ElevenLabs voice: " + yn(has("ossm-elevenlabs-voice-id")) + ", Stash: " + yn(has("ossm-stash-url")) + ". The app will reload.");
       setTimeout(() => { try { location.reload(); } catch (e) {} }, 400);
     } catch (e) {
       alert("Import failed: " + (e && e.message ? e.message : e));
