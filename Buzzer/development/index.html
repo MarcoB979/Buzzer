@@ -10409,6 +10409,10 @@ function compNewSession(confirmFirst) {
   const inp = $("compInput");
   if (inp) { inp.value = ""; try { inp.focus(); } catch (e) {} }
   aiPosClearSafeWord(); // safe word is per session — asked when positioning starts
+  aiPosReset();         // fully reset the positioning state (safe word, points, phase)
+  aiStopLive();
+  if (window.speechSynthesis) { try { speechSynthesis.cancel(); } catch (e) {} }
+  compMessages.push({ role: "system", content: "NEW SESSION STARTED — treat this as a completely fresh start. Forget the previous session's scenario, foreplay, safe word, positions and any in-progress activity; do NOT continue where you left off. You may still use the user's stable facts from memory (their name, role, pronouns and standing preferences).", ts: Date.now() });
   const lang = aiStoredLang();
   const greetings = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
   const greet = greetings[Math.floor(Math.random() * greetings.length)];
