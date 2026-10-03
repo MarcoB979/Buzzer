@@ -6425,7 +6425,7 @@ function aiExtractJson(text) {
   // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
   aiLastShow = null;
   aiLastSuggestions = null;
-  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, show: null });
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, show: null, target: null, devices: null });
   if (!text) return empty();
   const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
@@ -6470,6 +6470,24 @@ function aiExtractJson(text) {
   };
   const lang = (typeof j.lang === "string" && /^[a-z]{2}$/i.test(j.lang)) ? j.lang.toLowerCase() : null;
   const run = (typeof j.run === "string" && /^(start|pause|home)$/i.test(j.run)) ? j.run.trim().toLowerCase() : null;
+  const target = (typeof j.target === "string" && j.target.trim()) ? j.target.trim().toLowerCase() : null;
+  let devices = null;
+  if (Array.isArray(j.devices)) {
+    const arr = [];
+    for (const d of j.devices) {
+      if (!d || typeof d !== "object" || Array.isArray(d)) continue;
+      const dt = (typeof d.target === "string" && d.target.trim()) ? d.target.trim().toLowerCase() : "me";
+      const dRun = (typeof d.run === "string" && /^(start|pause|home)$/i.test(d.run)) ? d.run.trim().toLowerCase() : null;
+      let dPos = null;
+      if (Array.isArray(d.pos)) { dPos = d.pos.filter(p => p && typeof p === "object" && !Array.isArray(p) && typeof p.action === "string"); if (!dPos.length) dPos = null; }
+      else if (d.pos && typeof d.pos === "object" && !Array.isArray(d.pos) && typeof d.pos.action === "string") dPos = d.pos;
+      let dAdd = null;
+      if (Array.isArray(d.addon)) { dAdd = d.addon.filter(x => x && typeof x === "object" && !Array.isArray(x) && typeof x.device === "string"); if (!dAdd.length) dAdd = null; }
+      else if (d.addon && typeof d.addon === "object" && typeof d.addon.device === "string") dAdd = d.addon;
+      arr.push({ target: dt, params: aiNormalizeParams(d.set), run: dRun, pos: dPos, addon: dAdd });
+    }
+    if (arr.length) devices = arr;
+  }
   const memory = (typeof j.memory === "string" && j.memory.trim()) ? j.memory.trim().slice(0, 2000) : null;
   let pos = null;
   if (Array.isArray(j.pos)) {
@@ -6520,10 +6538,10 @@ function aiExtractJson(text) {
   else if (j.safeWord && typeof j.safeWord === "object" && !Array.isArray(j.safeWord) && typeof j.safeWord.word === "string" && j.safeWord.word.trim()) {
     safeWord = { action: "safeWord", word: j.safeWord.word.trim() };
   }
-  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer || about || safeWord || aiLastShow) {
-    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, about, safeWord, lang };
+  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer || about || safeWord || aiLastShow || Object.prototype.hasOwnProperty.call(j, "devices") || Object.prototype.hasOwnProperty.call(j, "target")) {
+    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, about, safeWord, lang, target, devices };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, target: null, devices: null };
 }
 // When the model omits "suggestions", build a small natural set ourselves so the
 // chips never fall back to the generic pair, and so the stored history always
@@ -12400,7 +12418,7 @@ async function compSend() {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (aiLastShow) companionApplyShow(aiLastShow);
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon || res.devices || res.target) {
       if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
@@ -12489,16 +12507,7 @@ async function compSend() {
     }
     // Apply "set" AFTER "limits" so a combined "raise the limit + raise the
     // speed" reply uses the NEW cap (important in full-submission mode).
-    if (res.params) { aiApplySet(res.params); buildCompSliders(); }
-    if (res.run && aiCanRunActive()) {
-      if (res.run === "start") {
-        if (aiLimitsConfirmed()) { if (aiStartMachine()) aiLog("started the machine"); }
-        else { compAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); aiLog("wanted to start — blocked (no limits)"); }
-      }
-      else if (res.run === "pause") { aiPauseMachine(); aiLog("paused the machine"); }
-      else if (res.run === "home") { aiHomeMachine(); aiLog("homed the machine"); }
-    }
-    if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
+    aiRouteMachine(res);
     if (res.safeWord) {
       const sw = typeof res.safeWord === "string" ? { action: "safeWord", word: res.safeWord } : res.safeWord;
       if (sw && typeof sw === "object") aiPosApplyEnvelope(sw, aiCanRunActive());
@@ -12507,7 +12516,6 @@ async function compSend() {
       aiApplyUi(res.ui);
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
     }
-    if (res.addon) aiApplyAddon(res.addon);
     if (res.timer) compApplyTimer(res.timer);
     // If the AI's reply announced it's about to fuck (in prose, no structured
     // field), make it real instead of leaving it as a story.
@@ -12539,7 +12547,8 @@ function compRoomContext() {
   }
   if (!parts.length) return "";
   return "\n\nPEOPLE IN THE ROOM (real people on their own devices, chatting with you through the host — in addition to the user):\n- " + parts.join("\n- ")
-    + "\n\nTheir chat messages arrive as user messages prefixed with their name (e.g. \"John: hi\"). Address them by name, keep them in the dynamic, and treat their messages as coming from that person, NOT the user. NEVER store facts about guests in \"memory\" — \"memory\" is ONLY about the user. When a guest leaves you are told — stop addressing them.";
+    + "\n\nTheir chat messages arrive as user messages prefixed with their name (e.g. \"John: hi\"). Address them by name, keep them in the dynamic, and treat their messages as coming from that person, NOT the user. NEVER store facts about guests in \"memory\" — \"memory\" is ONLY about the user. When a guest leaves you are told — stop addressing them."
+    + "\n\nCONTROLLING GUESTS' TOYS: use \"target\":\"<guest name>\" (or \"all\" / \"me\") so \"set\"/\"run\"/\"addon\"/\"pos\" act on that person's device instead of the host's (\"me\" is the default). To drive two people differently in the same reply, use \"devices\":[{\"target\":\"me\",\"set\":{...}},{\"target\":\"john\",\"set\":{...}}]. Only target guests listed as (ready to play). NEVER change a guest's limits or safe word remotely — those are theirs alone.";
 }
 
 async function compRoomSend() {
@@ -12559,7 +12568,7 @@ async function compRoomSend() {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.memory || res.about || res.face || res.avatar || res.video || res.addon || res.timer || res.lang) {
+    if (res.reply || res.params || res.memory || res.about || res.face || res.avatar || res.video || res.addon || res.timer || res.lang || res.devices || res.target) {
       if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
@@ -12580,9 +12589,8 @@ async function compRoomSend() {
     if (res.face) companionApplyFace(res.face);
     if (res.avatar) { companionApplyAvatar(res.avatar); compSetupDone(); }
     if (res.video) aiApplyVideo(res.video);
-    if (res.addon) aiApplyAddon(res.addon);
     if (res.timer) compApplyTimer(res.timer);
-    if (res.params) { aiApplySet(res.params); buildCompSliders(); }
+    aiRouteMachine(res);
     if (res.reply) compCheckAiInitiated(res.reply);
     if (compCumWords(aiStripEmotionTags(res.reply || "")) || aiLastShow === "cum") compHandleCum("reply");
   } catch (e) {
@@ -13047,7 +13055,7 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon || res.devices || res.target) {
       if (res.raw) { aiMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
@@ -13096,16 +13104,7 @@ async function aiSend(opts) {
     } else if (aiPendingLimits) {
       aiPendingLimits = null;
     }
-    if (res.params) aiApplySet(res.params);
-    if (res.run && aiCanRunActive()) {
-      if (res.run === "start") {
-        if (aiLimitsConfirmed()) { if (aiStartMachine()) aiLog("started the machine"); }
-        else { aiAddMsg("system", "Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together."); aiLog("wanted to start — blocked (no limits)"); }
-      }
-      else if (res.run === "pause") { aiPauseMachine(); aiLog("paused the machine"); }
-      else if (res.run === "home") { aiHomeMachine(); aiLog("homed the machine"); }
-    }
-    if (res.pos) aiPosApplyEnvelope(res.pos, aiCanRunActive());
+    aiRouteMachine(res);
     if (res.safeWord) {
       const sw = typeof res.safeWord === "string" ? { action: "safeWord", word: res.safeWord } : res.safeWord;
       if (sw && typeof sw === "object") aiPosApplyEnvelope(sw, aiCanRunActive());
@@ -13114,7 +13113,6 @@ async function aiSend(opts) {
       aiApplyUi(res.ui);
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
     }
-    if (res.addon) aiApplyAddon(res.addon);
     if (res.face) companionApplyFace(res.face);
     if (res.video) aiApplyVideo(res.video);
     if (res.search) {
@@ -15768,6 +15766,9 @@ function sessionOnHostData(d) {
     if (d.comp) sessionSyncCompanion({ compMode: true });
     if (compModeActive) compAddMsg(d.role === "user" ? "user" : "assistant", (d.role === "user" ? "<b>" + escapeHtml(aiWho) + ":</b> " : "") + escapeHtml(aiText));
   }
+  else if (d.t === "aimove") {
+    if (sess.myState === "ready") aiApplyLocalMove(d.params || null, d.run || null, d.pos || null, d.addon || null);
+  }
   else if (d.t === "apply") {
     if (d.kind === "estop") {
       if (sess.mirrorDevice && connected) { monitor("Session: host estop — stopping my device", "warn"); emergencyStop(); }
@@ -16554,6 +16555,71 @@ function addonContext() {
   if (addonFistActive()) out += addonFistSafetyText();
   if (coyoteActive()) out += addonCoyoteSafetyText();
   return out;
+}
+
+// ---------- Per-target machine routing (host AI drives guests' toys too) ----------
+function sessionGuestByName(target) {
+  if (!target) return null;
+  const t = String(target).trim().toLowerCase();
+  if (!t) return null;
+  let partial = null;
+  for (const g of sess.guests) {
+    const n = (g.name || "").trim().toLowerCase();
+    if (!n) continue;
+    if (n === t) return g;
+    if (!partial && (n.indexOf(t) >= 0 || t.indexOf(n) >= 0)) partial = g;
+  }
+  return partial;
+}
+function aiApplyLocalMove(params, run, pos, addon) {
+  if (params) { aiApplySet(params); buildCompSliders(); }
+  if (run && aiCanRunActive()) {
+    if (run === "start") {
+      if (aiLimitsConfirmed()) { if (aiStartMachine()) aiLog("started the machine"); }
+      else { aiAddMsg("system", escapeHtml("Safety limits aren't set yet — tell me your max/min depth and max speed, or let's find them together.")); aiLog("wanted to start — blocked (no limits)"); }
+    }
+    else if (run === "pause") { aiPauseMachine(); aiLog("paused the machine"); }
+    else if (run === "home") { aiHomeMachine(); aiLog("homed the machine"); }
+  }
+  if (pos) aiPosApplyEnvelope(pos, aiCanRunActive());
+  if (addon) aiApplyAddon(addon);
+}
+function aiBroadcastAimove(target, params, run, pos, addon) {
+  if (sess.role !== "host") return;
+  const msg = { t: "aimove", params: params || null, run: run || null, pos: pos || null, addon: addon || null };
+  for (const g of sess.guests) {
+    if (g.state !== "ready" || !g.conn || !g.conn.open) continue;
+    if (target) {
+      const t = String(target).trim().toLowerCase();
+      const n = (g.name || "").trim().toLowerCase();
+      if (t !== n && n.indexOf(t) < 0 && t.indexOf(n) < 0) continue;
+    }
+    try { g.conn.send(msg); aiLog("routed to " + g.name); } catch (e) {}
+  }
+}
+function aiRouteOne(target, params, run, pos, addon) {
+  const t = String(target || "me").trim().toLowerCase();
+  if (!t || t === "me" || t === "host" || t === "you") { aiApplyLocalMove(params, run, pos, addon); return; }
+  if (t === "all" || t === "everyone" || t === "room") { aiApplyLocalMove(params, run, pos, addon); aiBroadcastAimove(null, params, run, pos, addon); return; }
+  const g = sessionGuestByName(t);
+  if (g && g.state === "ready" && g.conn && g.conn.open) {
+    try { g.conn.send({ t: "aimove", params: params || null, run: run || null, pos: pos || null, addon: addon || null }); aiLog("routed to " + g.name); } catch (e) {}
+  } else {
+    aiLog("target " + target + " not ready — move skipped");
+    aiInjectSystem(null, "You tried to control \"" + target + "\" but they are not ready to play (or not in the room). Do NOT narrate it as if it happened — you may invite them to get ready first.");
+  }
+}
+function aiRouteMachine(res) {
+  if (!res) return;
+  if (Array.isArray(res.devices) && res.devices.length) {
+    for (const d of res.devices) {
+      if (!d || typeof d !== "object") continue;
+      aiRouteOne(d.target || "me", d.params || null, d.run || null, d.pos || null, d.addon || null);
+    }
+    return;
+  }
+  const target = (typeof res.target === "string" && res.target.trim()) ? res.target.trim() : "me";
+  aiRouteOne(target, res.params, res.run, res.pos, res.addon);
 }
 
 function aiApplyAddon(p) {
