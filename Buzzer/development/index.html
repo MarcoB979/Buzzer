@@ -1109,6 +1109,33 @@
           <label style="display:block;margin-bottom:4px;">Who is this avatar? (persona — the AI uses this to stay in character and decide what to show)</label>
           <textarea id="avatarPersona" rows="4" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="e.g. a dominant daddy who likes to control sissy boys…"></textarea>
         </div>
+        <div class="photo-modal-body" style="font-size:.8rem;">
+          <div style="font-weight:bold;margin-bottom:4px;">🗣 Voice (this character)</div>
+          <select id="avatarVoiceProvider" onchange="compVoiceUiSave();compVoiceUiSync()" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
+            <option value="system">Device voice (system)</option>
+            <option value="elevenlabs">ElevenLabs</option>
+          </select>
+          <div id="avatarVoiceElevenRow" style="display:none;">
+            <label style="display:block;margin-bottom:4px;">ElevenLabs Voice ID</label>
+            <input type="text" id="avatarVoiceId" oninput="compVoiceUiSave()" placeholder="21m00Tcm4TlvDq8ikWAM" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
+          </div>
+          <div id="avatarVoiceSystemRow">
+            <label style="display:block;margin-bottom:4px;">Device voice name</label>
+            <input type="text" id="avatarVoiceName" oninput="compVoiceUiSave()" placeholder="e.g. Google UK English Female" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
+            <label style="display:block;margin-bottom:4px;">Language (2-letter)</label>
+            <input type="text" id="avatarVoiceLang" oninput="compVoiceUiSave()" placeholder="en / nl / de / fr" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <label style="font-size:.78rem;">Speed <input type="number" id="avatarVoiceRate" oninput="compVoiceUiSave()" min="0.5" max="2" step="0.1" value="1" style="width:64px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:4px;"></label>
+            <label style="font-size:.78rem;">Pitch <input type="number" id="avatarVoicePitch" oninput="compVoiceUiSave()" min="0.5" max="2" step="0.1" value="1" style="width:64px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:4px;"></label>
+          </div>
+        </div>
+        <div class="photo-modal-body" style="font-size:.8rem;">
+          <div style="font-weight:bold;margin-bottom:4px;">👥 Cast (multi-person)</div>
+          <div id="avatarCastRows"></div>
+          <button class="ble-btn small" id="avatarCastAdd" type="button" onclick="compCastAdd()" style="margin-top:6px;">＋ Add current avatar to cast</button>
+          <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">Each cast member is a character with their own look and voice. Their "toy" is who/what they drive: <b>host</b> (your machine), a guest's name (e.g. john), or an addon (coyoteA / coyoteB).</div>
+        </div>
         <div id="avatarPhotoSections">
           <div id="avatarStateRows"></div>
           <button class="ble-btn small" id="avatarAddExpr" type="button" style="margin-bottom:10px;">＋ Add expression</button>
@@ -7247,10 +7274,11 @@ function aiTtsSettings() {
   };
   return { rate: read("ossm-ai-tts-rate", 1), pitch: read("ossm-ai-tts-pitch", 1) };
 }
-function aiPickVoice(lang) {
+function aiPickVoice(lang, voice) {
   let vs = aiVoicesCache;
   if (!vs.length && window.speechSynthesis) { try { vs = speechSynthesis.getVoices(); } catch (e) {} }
   if (!vs.length) return null;
+  if (voice && voice.voiceName) { const hit = vs.find(v => v.name === voice.voiceName); if (hit) return hit; }
   const saved = aiTtsVoiceName();
   if (saved) { const hit = vs.find(v => v.name === saved); if (hit) return hit; }
   const base = (lang || "en").toLowerCase();
@@ -7268,15 +7296,19 @@ function aiPickVoice(lang) {
   }
   return best;
 }
-function aiSpeak(text) {
+function aiSpeak(text, voice) {
   // Skip only during a brief one-shot recording or the standard AI's continuous
   // listening. The companion's hands-free listening uses half-duplex instead, so
   // we can answer back — it pauses itself while we speak (no echo loop).
   if (compListening || aiLiveRec) return;
   if (compLive && compLiveRec) { try { compLiveRec.stop(); } catch (e) {} compLiveRec = null; }
-  const p = aiTtsProvider();
-  if (p === "elevenlabs" && aiElevenLabsConfigured()) {
-    aiSpeakElevenLabs(text);
+  const v = (voice && typeof voice === "object") ? voice : null;
+  const p = (v && v.provider) ? v.provider : aiTtsProvider();
+  if (p === "elevenlabs") {
+    const key = aiElevenLabsSettings().key;
+    const voiceId = (v && v.voiceId) || aiElevenLabsSettings().voiceId;
+    if (key && voiceId) { aiSpeakElevenLabs(text, key, voiceId); return; }
+    aiSpeakBrowser(text, v);
   } else if (p === "fish" && aiFishConfigured()) {
     aiSpeakFish(text);
   } else if (p === "voicerss" && aiVoiceRssConfigured()) {
@@ -7284,7 +7316,7 @@ function aiSpeak(text) {
   } else if (p === "google") {
     aiSpeakGoogle(text);
   } else {
-    aiSpeakBrowser(text);
+    aiSpeakBrowser(text, v);
   }
 }
 function aiSpeechLang() {
@@ -7304,21 +7336,22 @@ function aiSpeechLang() {
   try { const l = (localStorage.getItem("ossm-ai-lang") || "").toLowerCase(); if (l) return l.split(/[-_]/)[0]; } catch (e) {}
   try { return ((navigator.language || "en").toLowerCase().split(/[-_]/)[0]); } catch (e) { return "en"; }
 }
-function aiTtsLangCode() {
-  const l = aiSpeechLang();
+function aiTtsLangCodeFor(l) {
   const map = { en: "en-US", nl: "nl-NL", de: "de-DE", fr: "fr-FR" };
   return map[l] || l || "en-US";
 }
-function aiSpeakBrowser(text) {
+function aiTtsLangCode() { return aiTtsLangCodeFor(aiSpeechLang()); }
+function aiSpeakBrowser(text, voice) {
   try {
     if (!window.speechSynthesis) return;
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = aiTtsLangCode();
-    const v = aiPickVoice(u.lang);
+    const lang = (voice && voice.lang) ? String(voice.lang).toLowerCase().split(/[-_]/)[0] : aiSpeechLang();
+    u.lang = aiTtsLangCodeFor(lang);
+    const v = aiPickVoice(lang, voice);
     if (v) u.voice = v;
     const tts = aiTtsSettings();
-    u.rate = tts.rate;
-    u.pitch = tts.pitch;
+    u.rate = (voice && isFinite(Number(voice.rate))) ? Math.min(2, Math.max(0.5, Number(voice.rate))) : tts.rate;
+    u.pitch = (voice && isFinite(Number(voice.pitch))) ? Math.min(2, Math.max(0.5, Number(voice.pitch))) : tts.pitch;
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   } catch (e) {}
@@ -7364,14 +7397,13 @@ function aiElevenLabsWarn(msg) {
   aiElevenLabsWarned = true;
   try { aiAddMsg("system", "🔇 ElevenLabs voice failed — " + msg + " Using the device voice instead."); } catch (e) {}
 }
-async function aiSpeakElevenLabs(text) {
-  const s = aiElevenLabsSettings();
-  if (!s.key || !s.voiceId) return;
+async function aiSpeakElevenLabs(text, key, voiceId) {
+  if (!key || !voiceId) return;
   aiStopAudio();
   try {
-    const resp = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(s.voiceId), {
+    const resp = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + encodeURIComponent(voiceId), {
       method: "POST",
-      headers: { "xi-api-key": s.key, "Content-Type": "application/json", "Accept": "audio/mpeg" },
+      headers: { "xi-api-key": key, "Content-Type": "application/json", "Accept": "audio/mpeg" },
       body: JSON.stringify({
         text: text,
         model_id: "eleven_flash_v2_5",
@@ -9489,6 +9521,17 @@ if (!companionState.expr || typeof companionState.expr !== "object" || Array.isA
 }
 if (typeof companionState.persona !== "string") companionState.persona = "";
 if (typeof companionState.about !== "string") companionState.about = "";
+if (!companionState.voice || typeof companionState.voice !== "object" || Array.isArray(companionState.voice)) {
+  companionState.voice = { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 };
+} else {
+  companionState.voice.provider = companionState.voice.provider || "system";
+  companionState.voice.voiceId = companionState.voice.voiceId || "";
+  companionState.voice.voiceName = companionState.voice.voiceName || "";
+  companionState.voice.lang = companionState.voice.lang || "";
+  companionState.voice.rate = (isFinite(Number(companionState.voice.rate)) && Number(companionState.voice.rate) > 0) ? Math.min(2, Math.max(0.5, Number(companionState.voice.rate))) : 1;
+  companionState.voice.pitch = (isFinite(Number(companionState.voice.pitch)) && Number(companionState.voice.pitch) > 0) ? Math.min(2, Math.max(0.5, Number(companionState.voice.pitch))) : 1;
+}
+if (!Array.isArray(companionState.cast)) companionState.cast = [];
 if (!companionState.body || typeof companionState.body !== "object" || Array.isArray(companionState.body)) {
   companionState.body = { img: null, face: { x: 0.5, y: 0.18 }, points: {}, kwords: {}, stages: {} };
 } else {
@@ -10862,7 +10905,8 @@ function compAvatarSnapshot() {
     customImage: companionState.customImage, customVideos: companionState.customVideos,
     landmarks: companionState.landmarks, source: companionState.source,
     expr: companionState.expr, body: companionState.body,
-    mediaId: companionState.mediaId || ""
+    mediaId: companionState.mediaId || "",
+    voice: companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 }
   };
 }
 function compAvatarApply(snap) {
@@ -10885,6 +10929,10 @@ function compAvatarApply(snap) {
   companionState.body = snap.body || { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
   if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
+  if (snap.voice && typeof snap.voice === "object") {
+    const rn = (x, def) => { const n = Number(x); return (isFinite(n) && n > 0) ? Math.min(2, Math.max(0.5, n)) : def; };
+    companionState.voice = { provider: snap.voice.provider || "system", voiceId: snap.voice.voiceId || "", voiceName: snap.voice.voiceName || "", lang: snap.voice.lang || "", rate: rn(snap.voice.rate, 1), pitch: rn(snap.voice.pitch, 1) };
+  }
   compExpr.state = "normal"; compExpr.until = 0;
   // Clear cached video object URLs so the new avatar's videos load fresh.
   compVideoUrls.forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
@@ -10908,6 +10956,7 @@ function compAvatarSyncInputs() {
   if (pa) companionState.persona = pa.value.trim();
   const ab = $("avatarAbout");
   if (ab) companionState.about = ab.value.trim();
+  compVoiceUiSave();
   syncAboutFold();
 }
 // Refresh every builder field/row so the UI immediately shows the current avatar
@@ -10921,6 +10970,73 @@ function compAvatarRefreshBuilder() {
   syncKindUI();
   buildAvatarSetupRows();
   buildBodySetupRows();
+  compVoiceUiLoad();
+  compCastRender();
+}
+
+// ---------- Per-character voice + cast (multi-person avatar) ----------
+function compVoiceUiLoad() {
+  const v = companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 };
+  const prov = $("avatarVoiceProvider"); if (prov) prov.value = v.provider === "elevenlabs" ? "elevenlabs" : "system";
+  const vi = $("avatarVoiceId"); if (vi) vi.value = v.voiceId || "";
+  const vn = $("avatarVoiceName"); if (vn) vn.value = v.voiceName || "";
+  const vl = $("avatarVoiceLang"); if (vl) vl.value = v.lang || "";
+  const vr = $("avatarVoiceRate"); if (vr) vr.value = String(v.rate || 1);
+  const vp = $("avatarVoicePitch"); if (vp) vp.value = String(v.pitch || 1);
+  compVoiceUiSync();
+}
+function compVoiceUiSync() {
+  const prov = $("avatarVoiceProvider");
+  const provider = (prov && prov.value === "elevenlabs") ? "elevenlabs" : "system";
+  const er = $("avatarVoiceElevenRow"); if (er) er.style.display = provider === "elevenlabs" ? "" : "none";
+  const sr = $("avatarVoiceSystemRow"); if (sr) sr.style.display = provider === "system" ? "" : "none";
+}
+function compVoiceUiSave() {
+  const prov = $("avatarVoiceProvider");
+  if (!prov) return;
+  const provider = prov.value === "elevenlabs" ? "elevenlabs" : "system";
+  const rn = (x) => { const n = Number(x); return (isFinite(n) && n > 0) ? Math.min(2, Math.max(0.5, n)) : 1; };
+  companionState.voice = {
+    provider,
+    voiceId: ($("avatarVoiceId") ? $("avatarVoiceId").value : "").trim(),
+    voiceName: ($("avatarVoiceName") ? $("avatarVoiceName").value : "").trim(),
+    lang: ($("avatarVoiceLang") ? $("avatarVoiceLang").value : "").trim(),
+    rate: rn($("avatarVoiceRate") ? $("avatarVoiceRate").value : 1),
+    pitch: rn($("avatarVoicePitch") ? $("avatarVoicePitch").value : 1)
+  };
+  companionSave();
+}
+function compCastRender() {
+  const host = $("avatarCastRows");
+  if (!host) return;
+  host.innerHTML = "";
+  (companionState.cast || []).forEach((m, i) => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:6px;align-items:center;margin:4px 0;flex-wrap:wrap;";
+    const name = document.createElement("span");
+    name.textContent = (m.name || "Character " + (i + 1)) + " 🎭";
+    name.style.cssText = "flex:0 0 auto;font-size:.78rem;";
+    const toy = document.createElement("input");
+    toy.type = "text"; toy.value = m.toy || "host"; toy.placeholder = "toy: host / john / coyoteA";
+    toy.style.cssText = "flex:1;min-width:90px;";
+    toy.onchange = () => { const c = companionState.cast; if (c[i]) { c[i].toy = toy.value.trim() || "host"; companionSave(); } };
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.className = "ble-btn small danger"; rm.textContent = "✕";
+    rm.onclick = () => { companionState.cast.splice(i, 1); companionSave(); compCastRender(); };
+    row.appendChild(name); row.appendChild(toy); row.appendChild(rm);
+    host.appendChild(row);
+  });
+  if (!(companionState.cast || []).length) host.innerHTML = '<div style="font-size:.72rem;color:#94a3b8;">No extra characters yet — add the current avatar to build a 2+ person cast.</div>';
+}
+function compCastAdd() {
+  compAvatarSyncInputs();
+  compVoiceUiSave();
+  const snap = compAvatarSnapshot();
+  companionState.cast = companionState.cast || [];
+  companionState.cast.push({ id: snap.id, name: snap.name || "Character " + (companionState.cast.length + 1), avatarId: snap.id, toy: "host", voice: JSON.parse(JSON.stringify(companionState.voice || {})) });
+  companionSave();
+  compCastRender();
+  funLog("Added \"" + (snap.name || "character") + "\" to the cast.");
 }
 function compAvatarSaveCurrent() {
   compAvatarSyncInputs();
