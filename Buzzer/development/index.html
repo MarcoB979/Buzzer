@@ -6425,7 +6425,7 @@ function aiExtractJson(text) {
   // If the model returns plain prose instead of JSON, fall back to showing it as the reply.
   aiLastShow = null;
   aiLastSuggestions = null;
-  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, show: null, target: null, devices: null });
+  const empty = () => ({ reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, show: null, target: null, devices: null, guest: null });
   if (!text) return empty();
   const t = String(text).trim().replace(/```(?:json)?/gi, "");
   let j = null;
@@ -6488,6 +6488,13 @@ function aiExtractJson(text) {
     }
     if (arr.length) devices = arr;
   }
+  let guest = null;
+  if (j.guest && typeof j.guest === "object" && !Array.isArray(j.guest)) {
+    const act = String(j.guest.action || "").toLowerCase();
+    if (act === "breakout" || act === "pullback") {
+      guest = { action: act, target: (typeof j.guest.target === "string" && j.guest.target.trim()) ? j.guest.target.trim() : "" };
+    }
+  }
   const memory = (typeof j.memory === "string" && j.memory.trim()) ? j.memory.trim().slice(0, 2000) : null;
   let pos = null;
   if (Array.isArray(j.pos)) {
@@ -6538,10 +6545,10 @@ function aiExtractJson(text) {
   else if (j.safeWord && typeof j.safeWord === "object" && !Array.isArray(j.safeWord) && typeof j.safeWord.word === "string" && j.safeWord.word.trim()) {
     safeWord = { action: "safeWord", word: j.safeWord.word.trim() };
   }
-  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer || about || safeWord || aiLastShow || Object.prototype.hasOwnProperty.call(j, "devices") || Object.prototype.hasOwnProperty.call(j, "target")) {
-    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, about, safeWord, lang, target, devices };
+  if (typeof reply === "string" || Object.prototype.hasOwnProperty.call(j, "set") || Object.prototype.hasOwnProperty.call(j, "limits") || run || memory || pos || ui || face || avatar || video || search || addon || timer || about || safeWord || aiLastShow || Object.prototype.hasOwnProperty.call(j, "devices") || Object.prototype.hasOwnProperty.call(j, "target") || Object.prototype.hasOwnProperty.call(j, "guest")) {
+    return { reply, params: aiNormalizeParams(j.set), limits: parseLimits(j.limits), run, memory, pos, ui, face, avatar, video, search, addon, timer, about, safeWord, lang, target, devices, guest };
   }
-  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, target: null, devices: null };
+  return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null, target: null, devices: null, guest: null };
 }
 // When the model omits "suggestions", build a small natural set ourselves so the
 // chips never fall back to the generic pair, and so the stored history always
@@ -12418,7 +12425,7 @@ async function compSend() {
     const res = await aiCall(msgs);
     if (th) th.remove();
     if (aiLastShow) companionApplyShow(aiLastShow);
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon || res.devices || res.target) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.avatar || res.video || res.search || res.addon || res.devices || res.target || res.guest) {
       if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
@@ -12508,6 +12515,7 @@ async function compSend() {
     // Apply "set" AFTER "limits" so a combined "raise the limit + raise the
     // speed" reply uses the NEW cap (important in full-submission mode).
     aiRouteMachine(res);
+    if (res.guest) aiApplyGuest(res.guest);
     if (res.safeWord) {
       const sw = typeof res.safeWord === "string" ? { action: "safeWord", word: res.safeWord } : res.safeWord;
       if (sw && typeof sw === "object") aiPosApplyEnvelope(sw, aiCanRunActive());
@@ -12548,7 +12556,7 @@ function compRoomContext() {
   if (!parts.length) return "";
   return "\n\nPEOPLE IN THE ROOM (real people on their own devices, chatting with you through the host — in addition to the user):\n- " + parts.join("\n- ")
     + "\n\nTheir chat messages arrive as user messages prefixed with their name (e.g. \"John: hi\"). Address them by name, keep them in the dynamic, and treat their messages as coming from that person, NOT the user. NEVER store facts about guests in \"memory\" — \"memory\" is ONLY about the user. When a guest leaves you are told — stop addressing them."
-    + "\n\nCONTROLLING GUESTS' TOYS: use \"target\":\"<guest name>\" (or \"all\" / \"me\") so \"set\"/\"run\"/\"addon\"/\"pos\" act on that person's device instead of the host's (\"me\" is the default). To drive two people differently in the same reply, use \"devices\":[{\"target\":\"me\",\"set\":{...}},{\"target\":\"john\",\"set\":{...}}]. Only target guests listed as (ready to play). NEVER change a guest's limits or safe word remotely — those are theirs alone.";
+    + "\n\nCONTROLLING GUESTS' TOYS: use \"target\":\"<guest name>\" (or \"all\" / \"me\") so \"set\"/\"run\"/\"addon\"/\"pos\" act on that person's device instead of the host's (\"me\" is the default). To drive two people differently in the same reply, use \"devices\":[{\"target\":\"me\",\"set\":{...}},{\"target\":\"john\",\"set\":{...}}]. Only target guests listed as (ready to play). NEVER change a guest's limits or safe word remotely — those are theirs alone. To send a guest who agreed to play into their private get-ready room, use \"guest\":{\"action\":\"breakout\",\"target\":\"<name>\"} (\"action\":\"pullback\" brings them back to watching).";
 }
 
 async function compRoomSend() {
@@ -12568,7 +12576,7 @@ async function compRoomSend() {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.memory || res.about || res.face || res.avatar || res.video || res.addon || res.timer || res.lang || res.devices || res.target) {
+    if (res.reply || res.params || res.memory || res.about || res.face || res.avatar || res.video || res.addon || res.timer || res.lang || res.devices || res.target || res.guest) {
       if (res.raw) { compMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       compMessages.pop();
@@ -12591,6 +12599,7 @@ async function compRoomSend() {
     if (res.video) aiApplyVideo(res.video);
     if (res.timer) compApplyTimer(res.timer);
     aiRouteMachine(res);
+    if (res.guest) aiApplyGuest(res.guest);
     if (res.reply) compCheckAiInitiated(res.reply);
     if (compCumWords(aiStripEmotionTags(res.reply || "")) || aiLastShow === "cum") compHandleCum("reply");
   } catch (e) {
@@ -13055,7 +13064,7 @@ async function aiSend(opts) {
     ];
     const res = await aiCall(msgs);
     if (th) th.remove();
-    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon || res.devices || res.target) {
+    if (res.reply || res.params || res.limits || res.run || res.memory || res.about || res.pos || res.safeWord || res.ui || res.face || res.video || res.search || res.addon || res.devices || res.target || res.guest) {
       if (res.raw) { aiMessages.push({ role: "assistant", content: aiRawForHistory(res.raw, res.reply), ts: Date.now() }); aiDebugPersistSoon(); }
     } else {
       aiMessages.pop();
@@ -13105,6 +13114,7 @@ async function aiSend(opts) {
       aiPendingLimits = null;
     }
     aiRouteMachine(res);
+    if (res.guest) aiApplyGuest(res.guest);
     if (res.safeWord) {
       const sw = typeof res.safeWord === "string" ? { action: "safeWord", word: res.safeWord } : res.safeWord;
       if (sw && typeof sw === "object") aiPosApplyEnvelope(sw, aiCanRunActive());
@@ -16620,6 +16630,22 @@ function aiRouteMachine(res) {
   }
   const target = (typeof res.target === "string" && res.target.trim()) ? res.target.trim() : "me";
   aiRouteOne(target, res.params, res.run, res.pos, res.addon);
+}
+function aiApplyGuest(p) {
+  if (!p || typeof p !== "object" || Array.isArray(p)) return;
+  const action = String(p.action || "").toLowerCase();
+  if (action !== "breakout" && action !== "pullback") return;
+  if (sess.role !== "host") return;
+  let g = sessionGuestByName(p.target);
+  if (!g && !p.target) g = sess.guests.find(x => x.state !== "ready") || null;
+  if (!g) { aiInjectSystem(null, "You tried to send a guest to get ready, but no such guest is in the room. Do NOT narrate it as if it happened."); return; }
+  if (action === "breakout") {
+    if (g.state === "breakout") { aiLog(g.name + " already in breakout"); return; }
+    sessionSendGuestBreakout(g.id, true);
+  } else {
+    if (g.state === "watch") { aiLog(g.name + " already watching"); return; }
+    sessionSendGuestBreakout(g.id, false);
+  }
 }
 
 function aiApplyAddon(p) {
