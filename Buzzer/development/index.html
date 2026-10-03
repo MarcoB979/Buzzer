@@ -1141,6 +1141,13 @@
           <label style="display:block;margin-bottom:4px;">Scenario — the prompt text. Write <b>[scene1]</b> (or a state name) anywhere to show that overlay, or let me choose when it fits.</label>
           <textarea id="sceneDesc" rows="6" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:8px;font-size:.85rem;" placeholder="Describe the scene — who, where, what happens…"></textarea>
         </div>
+        <div class="slider-group" style="margin:2px 0 8px;">
+          <div class="slider-row compact">
+            <div class="slider-head"><span class="slider-name">Strictness — follow the scenario</span><span class="val-num" id="sceneStrictVal" style="background:#38bdf8;color:#000;">50</span></div>
+            <div class="slider-track"><input type="range" id="sceneStrict" min="0" max="100" value="50" step="1"></div>
+          </div>
+          <div style="font-size:.68rem;color:#94a3b8;">0 = free improvisation · 100 = follow the scenario strictly</div>
+        </div>
         <div id="sceneStateRows"></div>
         <button class="ble-btn small" id="sceneAddState" type="button" style="margin-top:6px;">＋ Add scene state</button>
       </div>
@@ -10157,6 +10164,17 @@ function compSceneFromText(text) {
   if (m) return { key: m[1].trim(), clean: (t.slice(0, m.index) + " " + t.slice(m.index + m[0].length)).replace(/\s{2,}/g, " ").trim() };
   return { key: null, clean: t };
 }
+// Trigger a scene state automatically from its trigger words (like body states).
+function compSceneFromKeywords(text) {
+  const sc = compSceneCurrent();
+  if (!sc) return null;
+  const t = String(text || "").toLowerCase();
+  for (const st of (sc.states || [])) {
+    const words = String(st.keywords || "").split(/[,;]/).map(w => w.trim().toLowerCase()).filter(Boolean);
+    if (words.length && words.some(w => t.indexOf(w) >= 0)) return st.key || st.name;
+  }
+  return null;
+}
 function compSceneSyncName() {
   const el = $("compSceneName");
   if (!el) return;
@@ -10170,8 +10188,14 @@ function compSceneContext() {
   if (sc.desc) out += " — " + sc.desc;
   const states = (sc.states || []);
   if (states.length) {
-    out += "\nSCENE STATES: you may show one as a floating overlay by writing \"[scene:<key>]\" in your reply when the moment fits (or \"[scene1]\" for the first). Available: " + states.map(s => '"' + (s.name || s.key) + '"' + (s.keywords ? " (trigger: " + s.keywords + ")" : "")).join(", ") + ". Only trigger one when it genuinely fits the story.";
+    out += "\nSCENE STATES: these are the story's moments/beats, roughly in order. Show one as a floating overlay by writing \"[scene:<key>]\" in your reply when that moment arrives (\"[scene1]\" = the first state, \"[scene:name]\" by name). The app also watches your words and shows a state automatically when you use its trigger words. Available, in order: " + states.map(s => '"' + (s.name || s.key) + '"' + (s.keywords ? " (trigger words: " + s.keywords + ")" : "")).join(", ") + ". Show each only when it genuinely fits the moment — don't rush through them or skip ahead wildly.";
   }
+  const strict = (typeof sc.strict === "number") ? Math.round(sc.strict) : 50;
+  if (strict >= 80) out += "\nSCENARIO STRICTNESS: STRICT — follow the scenario closely and in order, hit every beat, respect any time limits (e.g. a quickie), and don't introduce anything outside the scenario.";
+  else if (strict <= 20) out += "\nSCENARIO STRICTNESS: FREE — use the scenario as the backbone but let the story evolve naturally; detours and digressions are fine as long as the premise stays intact.";
+  else out += "\nSCENARIO STRICTNESS: BALANCED — keep the scenario as the backbone, hit its main beats in order, but let the timing and details breathe naturally.";
+  out += "\nSCENARIO CONSISTENCY (always): stay true to the scenario's premise, cast, roles and orientation — never introduce a new character, change a role, or contradict the setup unless the user explicitly asks. If the user refuses, hesitates or walks away, follow that naturally (the story can slow down, change or end) rather than forcing it.";
+  out += "\nSCENARIO TIMING: to show a scene on a schedule (e.g. every 3-5 minutes, or 30-40 seconds apart), use the timer envelope with a line that contains \"[scene:<key>]\", e.g. {\"timer\":{\"min\":180,\"max\":300,\"lines\":[\"[scene:spank] you get spanked now\"],\"repeat\":3}}.";
   return out;
 }
 function compSceneNew() {
@@ -10190,6 +10214,7 @@ function compSceneSelect(id) {
   companionSave();
   const ni = $("sceneNameInput"); if (ni) ni.value = sc.name || "";
   const d = $("sceneDesc"); if (d) d.value = sc.desc || "";
+  compSceneStrictSync();
   compSceneBuildList(); compSceneBuildRows(); compSceneSyncName();
 }
 function compSceneSave() {
@@ -10361,12 +10386,21 @@ function compSceneCalibrate(si, mode) {
   cancel.onclick = () => finish(false);
   clear.onclick = () => { if (mode === "start") st.start = null; else st.target = null; compScenesSave(compScenes()); compSceneBuildRows(); cleanup(); };
 }
+function compSceneStrictSync() {
+  const sl = $("sceneStrict"); const sv = $("sceneStrictVal");
+  if (!sl) return;
+  const sc = compSceneCurrent();
+  const v = (sc && typeof sc.strict === "number") ? Math.round(sc.strict) : 50;
+  sl.value = String(v);
+  if (sv) sv.textContent = String(v);
+}
 function compSceneOpenBuilder() {
   const m = $("sceneSetup");
   if (!m) return;
   const sc = compSceneCurrent();
   const ni = $("sceneNameInput"); if (ni) ni.value = sc ? (sc.name || "") : "";
   const d = $("sceneDesc"); if (d) d.value = sc ? (sc.desc || "") : "";
+  compSceneStrictSync();
   compSceneBuildList(); compSceneBuildRows();
   m.style.display = "";
 }
@@ -12217,6 +12251,7 @@ async function compSend() {
     if (res.reply) {
       const scTrig = compSceneFromText(res.reply);
       if (scTrig.key) compSceneShow(scTrig.key);
+      else if (!compSceneAnim.active) { const kw = compSceneFromKeywords(res.reply); if (kw) compSceneShow(kw); }
       const clean = aiStripEmotionTags(scTrig.clean);
       compAddMsg("assistant", escapeHtml(clean));
       if (aiSpeakEnabled()) aiSpeak(clean);
@@ -12415,9 +12450,11 @@ function compTimerSchedule() {
     if (compBusy) { compTimerHandle = setTimeout(compTimerSchedule, 2000); return; }
     compTimerLines.shift();
     const line = item.lines[Math.floor(Math.random() * item.lines.length)];
-    compAddMsg("assistant", escapeHtml(line));
-    if (aiSpeakEnabled()) aiSpeak(line);
-    companionLiveExpress(line);
+    const scTrig = compSceneFromText(line);
+    if (scTrig.key) compSceneShow(scTrig.key);
+    compAddMsg("assistant", escapeHtml(scTrig.clean));
+    if (aiSpeakEnabled()) aiSpeak(scTrig.clean);
+    companionLiveExpress(scTrig.clean);
     compTimerSchedule();
   }, ms);
 }
@@ -12604,6 +12641,8 @@ function compLiveStart() {
   const sExport = $("sceneExportBtn"); if (sExport) sExport.onclick = exportScene;
   const sImport = $("sceneImportBtn"); const sImportInput = $("sceneImportInput");
   if (sImport && sImportInput) { sImport.onclick = () => sImportInput.click(); sImportInput.onchange = () => { const f = sImportInput.files && sImportInput.files[0]; sImportInput.value = ""; importScene(f); }; }
+  const sStrict = $("sceneStrict"); const sStrictVal = $("sceneStrictVal");
+  if (sStrict) { sStrict.addEventListener("input", () => { if (sStrictVal) sStrictVal.textContent = sStrict.value; }); sStrict.addEventListener("change", () => { const sc = compSceneCurrent(); if (sc) { sc.strict = parseInt(sStrict.value, 10); compScenesSave(compScenes()); } }); }
   const micTop = $("compMicTop"); if (micTop) micTop.onclick = compVoice;
   const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
   const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
