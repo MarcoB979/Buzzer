@@ -353,6 +353,7 @@
   .ai-system { color: #64748b; font-size: .7rem; align-self: center; }
   .ai-thinking { color: #94a3b8; font-style: italic; }
   .ai-row { display: flex; gap: 6px; }
+  .comp-suggest { display: flex; flex-wrap: wrap; gap: 6px; }
   .ai-row input { flex: 1 1 auto; min-width: 0; background: #1e293b; border: 1px solid var(--border-color); color: #fff; border-radius: 6px; padding: 7px 8px; font-size: .78rem; }
   .ai-yes { background: #16a34a; color: #fff; border: none; border-radius: 6px; padding: 2px 8px; font-size: .72rem; font-weight: bold; cursor: pointer; margin-left: 6px; }
   .ai-mic.recording, .ai-live.active { background: #dc2626; animation: ai-pulse 1s ease-in-out infinite; }
@@ -945,6 +946,7 @@
             <button class="ble-btn small" id="compSpeak" type="button" title="Toggle spoken replies">🔊</button>
             <button class="ble-btn small" id="compSend" type="button">Go</button>
           </div>
+          <div class="comp-suggest" id="compSuggest" style="display:none;"></div>
           <details class="pad-debug" id="compMonitorPanel">
             <summary>🖥 Live Dashboard Monitor</summary>
             <div class="cpp-logger" style="margin-top:8px; max-width:none;">
@@ -10434,6 +10436,50 @@ function aiPosTapStop() {
   if (!(aiPos.active || aiPos.moving)) return;
   aiPosHandleInput("stop", null);
 }
+// Context-aware quick replies shown under the companion input (tap to send).
+const COMP_SUGGEST = {
+  en: {
+    running: ["harder", "faster", "deeper", "slower", "pull out"],
+    ready: ["fuck me", "start slow", "tease me", "harder and faster"],
+    nolimits: ["let's find my positions", "set my limits"],
+    pos: ["stop", "a bit more", "a bit back"],
+    confirm: ["yes", "a bit more", "a bit back"]
+  },
+  nl: {
+    running: ["harder", "sneller", "dieper", "zachter", "trek terug"],
+    ready: ["neuk me", "begin langzaam", "plaag me", "harder en sneller"],
+    nolimits: ["zoek mijn dieptes", "stel mijn limieten in"],
+    pos: ["stop", "iets meer", "iets terug"],
+    confirm: ["ja", "iets meer", "iets terug"]
+  }
+};
+function compSuggestions() {
+  const L = COMP_SUGGEST[aiSpeechLang()] || COMP_SUGGEST.en;
+  if (aiPos && (aiPos.active || aiPos.moving)) return aiPos.awaitingConfirm ? L.confirm : L.pos;
+  if (aiMachineRunning()) return L.running;
+  if (aiLimitsConfirmed()) return L.ready;
+  return L.nolimits;
+}
+let compSuggestLast = "";
+function compRenderSuggestions() {
+  const box = $("compSuggest");
+  if (!box) return;
+  const list = (compBusy || compListening) ? [] : compSuggestions();
+  const key = (compBusy || compListening ? "b|" : "") + list.join("|");
+  if (key === compSuggestLast) return;
+  compSuggestLast = key;
+  box.innerHTML = "";
+  if (!list.length) { box.style.display = "none"; return; }
+  for (const s of list) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "ble-btn small";
+    b.textContent = s;
+    b.onclick = () => { const inp = $("compInput"); if (inp) inp.value = s; compSend(); };
+    box.appendChild(b);
+  }
+  box.style.display = "";
+}
 // The companion always uses the split layout (avatar + controls on the left,
 // chat history on the right). Focused mode is intentionally removed to keep a
 // single predictable layout with more room.
@@ -11917,7 +11963,7 @@ function compLiveStart() {
   const stopBtn = $("compStop"); if (stopBtn) stopBtn.onclick = compEmergencyStop;
   const posStop = $("compPosStop"); if (posStop) posStop.onclick = aiPosTapStop;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
-  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompRailPos(); syncCompVideoAvatar(); }, 180);
+  setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompRailPos(); syncCompVideoAvatar(); compRenderSuggestions(); }, 180);
   document.addEventListener("pointermove", (e) => {
     const av = $("companionAvatar"); if (!av || !companionState.shown) return;
     const r = av.getBoundingClientRect();
