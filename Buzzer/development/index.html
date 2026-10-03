@@ -12630,7 +12630,7 @@ function compGuestJoined(name, about) {
   const who = String(name || "Guest").slice(0, 24);
   const info = (about && String(about).trim()) ? (" (" + String(about).trim().slice(0, 500) + ")") : "";
   compAddMsgLocal("system", escapeHtml(who + " joined the room" + (info ? " — profile shared" : "")));
-  compMessages.push({ role: "system", content: "GUEST JOINED: " + who + info + ". In character, greet them warmly and pull them into what's happening — use their name. Their messages arrive as user messages prefixed with their name. NEVER store facts about guests in \"memory\" — \"memory\" is only about the user.", ts: Date.now() });
+  compMessages.push({ role: "system", content: "GUEST JOINED: " + who + info + ". In character, greet them warmly and pull them into what's happening — use their name. Their messages arrive as user messages prefixed with their name. Pace the invite to YOUR persona and the mood: you may chat, flirt, tease or order them around for as long as it feels right — do NOT rush them into getting ready. Invite them into the private get-ready room when the moment feels right, or the instant they ask to join in. NEVER store facts about guests in \"memory\" — \"memory\" is only about the user.", ts: Date.now() });
   aiDebugPersistSoon();
   if (compModeActive && companionEnabled() && !compBusy) compRoomSend();
 }
