@@ -6380,6 +6380,7 @@ function aiExtractJson(text) {
       if (emb.ui && !j.ui) j.ui = emb.ui;
     }
   }
+  if (!aiLastSuggestions) aiLastSuggestions = aiFallbackSuggestions(reply);
   const parseLimits = (L) => {
     if (!L || typeof L !== "object" || Array.isArray(L)) return null;
     const out = {};
@@ -6446,13 +6447,48 @@ function aiExtractJson(text) {
   }
   return { reply: null, params: aiNormalizeParams(j), limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, video: null, search: null, addon: null, timer: null, about: null, safeWord: null, lang: null };
 }
+// When the model omits "suggestions", build a small natural set ourselves so the
+// chips never fall back to the generic pair, and so the stored history always
+// shows the model a good example (which keeps it returning suggestions).
+function aiFallbackSuggestions(replyText) {
+  const L = aiSpeechLang() || "en";
+  const T = {
+    en: { q: ["yes", "no", "maybe", "tell me"], chat: ["tell me more", "what do you want?", "I want you", "keep going"], run: ["harder", "faster", "deeper", "slower"], pos: ["stop", "a bit more", "a bit back"], confirm: ["yes", "a bit more", "a bit back"] },
+    nl: { q: ["ja", "nee", "misschien", "vertel"], chat: ["vertel meer", "wat wil je?", "ik wil jou", "ga door"], run: ["harder", "sneller", "dieper", "zachter"], pos: ["stop", "iets meer", "iets terug"], confirm: ["ja", "iets meer", "iets terug"] },
+    de: { q: ["ja", "nein", "vielleicht", "erzähl"], chat: ["erzähl mehr", "was willst du?", "ich will dich", "weiter"], run: ["härter", "schneller", "tiefer", "langsamer"], pos: ["stopp", "etwas mehr", "etwas zurück"], confirm: ["ja", "etwas mehr", "etwas zurück"] },
+    fr: { q: ["oui", "non", "peut-être", "raconte"], chat: ["raconte encore", "qu'est-ce que tu veux ?", "je te veux", "continue"], run: ["plus fort", "plus vite", "plus profond", "plus doucement"], pos: ["stop", "un peu plus", "un peu en arrière"], confirm: ["oui", "un peu plus", "un peu en arrière"] }
+  };
+  const d = T[L] || T.en;
+  const t = String(replyText || "").trim();
+  const posOn = (typeof aiPos !== "undefined" && aiPos && (aiPos.active || aiPos.moving));
+  if (aiMachineRunning()) return d.run;
+  if (posOn) return (typeof aiPos !== "undefined" && aiPos.awaitingConfirm) ? d.confirm : d.pos;
+  if (/[?¿؟]\s*$/.test(t)) return d.q;
+  return d.chat;
+}
 // Keep the AI conversation history JSON-formatted so the model doesn't drift
-// into plain text (which drops all structured fields like "suggestions").
+// into plain text (which drops all structured fields like "suggestions"), and
+// always carry a "suggestions" array so the model keeps including it.
 function aiRawForHistory(raw, reply) {
   const s = String(raw || "").trim();
   if (!s) return s;
-  if (s.startsWith("{")) return s; // already a JSON envelope
-  return JSON.stringify({ reply: reply || s });
+  const sugg = aiFallbackSuggestions(reply || "");
+  if (s.startsWith("{")) {
+    try {
+      const j = JSON.parse(s);
+      if (j && typeof j === "object" && !Array.isArray(j)) {
+        if (!Array.isArray(j.suggestions) || !j.suggestions.length) j.suggestions = sugg;
+        return JSON.stringify(j);
+      }
+    } catch (e) {}
+    return s;
+  }
+  return JSON.stringify({ reply: reply || s, suggestions: sugg });
+}
+// The "suggestions" rule is easy for the model to forget when it's buried in
+// the middle of the system message, so this is appended as the very LAST line.
+function aiSuggestionsReminder() {
+  return "\n\nFINAL REMINDER (applies to THIS reply): ALWAYS include the \"suggestions\" array in your JSON — 2-4 SHORT, natural replies the user is likely to tap next, in their language, matching what you just said. Never generic filler; never omit it, even for short replies.";
 }
 
 // ---------- mode context, safety caps, standard-mode apply ----------
@@ -10438,7 +10474,8 @@ function compNewSession(confirmFirst) {
   const lang = aiStoredLang();
   const greetings = AI_COMP_WELCOME[lang] || AI_COMP_WELCOME.en;
   const greet = greetings[Math.floor(Math.random() * greetings.length)];
-  compMessages.push({ role: "assistant", content: JSON.stringify({ reply: greet }), ts: Date.now() });
+  aiLastSuggestions = aiFallbackSuggestions(greet);
+  compMessages.push({ role: "assistant", content: JSON.stringify({ reply: greet, suggestions: aiLastSuggestions }), ts: Date.now() });
   compAddMsg("assistant", escapeHtml(greet));
   if (aiSpeakEnabled()) aiSpeak(greet);
   aiDebugPersistSoon();
@@ -11633,7 +11670,7 @@ async function compSend() {
       return;
     }
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compCustomPromptText() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + aiSuggestionsReminder() },
       ...compMessages
     ];
     const res = await aiCall(msgs);
