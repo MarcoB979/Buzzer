@@ -927,6 +927,7 @@
           <div class="comp-railpos" id="compRailPos" style="display:none;">
             <div class="comp-railpos-label">Rail Position</div>
             <div class="comp-railpos-value" id="compRailPosValue">—</div>
+            <button class="ble-btn small danger" id="compPosStop" type="button" title="Stop here and save this point">✋ Stop here</button>
           </div>
           <div class="comp-video" id="compVideo" style="display:none;">
             <div class="comp-video-title"><span id="compVideoName">video</span></div>
@@ -10429,6 +10430,10 @@ function compEmergencyStop() {
   compAddMsg("assistant", "Emergency stop — you're safe.");
   if (aiSpeakEnabled()) aiSpeak("Emergency stop.");
 }
+function aiPosTapStop() {
+  if (!(aiPos.active || aiPos.moving)) return;
+  aiPosHandleInput("stop", null);
+}
 // The companion always uses the split layout (avatar + controls on the left,
 // chat history on the right). Focused mode is intentionally removed to keep a
 // single predictable layout with more room.
@@ -10486,6 +10491,13 @@ function syncCompRailPos() {
   const busy = !!(aiPos && aiPos.active);
   // Show the readout in the space the sliders normally occupy while positioning.
   el.style.display = busy ? "flex" : "none";
+  const btn = $("compPosStop");
+  if (btn) {
+    const awaiting = !!(aiPos && aiPos.awaitingConfirm);
+    const moving = !!(aiPos && (aiPos.moving || aiPos.phase === "retract"));
+    btn.style.display = (busy && (moving || awaiting)) ? "" : "none";
+    btn.textContent = awaiting ? "✓ Yes, this is the spot" : "✋ Stop here";
+  }
   if (!busy) return;
   const val = $("compRailPosValue");
   if (!val) return;
@@ -11903,6 +11915,7 @@ function compLiveStart() {
   const speakTop = $("compSpeakTop"); if (speakTop) speakTop.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
   const newBtn = $("compNew"); if (newBtn) newBtn.onclick = () => compNewSession(true);
   const stopBtn = $("compStop"); if (stopBtn) stopBtn.onclick = compEmergencyStop;
+  const posStop = $("compPosStop"); if (posStop) posStop.onclick = aiPosTapStop;
   const inp = $("compInput"); if (inp) inp.addEventListener("keydown", e => { if ((e.key === "Enter" || e.keyCode === 13) && !e.isComposing && !e.shiftKey) { e.preventDefault(); compSend(); } });
   setInterval(() => { const av = $("companionAvatar"); if (!av) return; const sp = aiIsSpeaking(); av.classList.toggle("talking", sp); syncCompVideo(); syncCompConnect(); syncCompSlidersVisibility(); syncCompRailPos(); syncCompVideoAvatar(); }, 180);
   document.addEventListener("pointermove", (e) => {
