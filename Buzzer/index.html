@@ -11,6 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/mp4box@0.5.2/dist/mp4box.all.min.js"></script>
 <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 <script>document.write('<script src="companion-prompt.js?cb=' + Date.now() + '"><\/script>');</script>
+<script>document.write('<script src="coyote-waves.js?cb=' + Date.now() + '"><\/script>');</script>
 <script>window.__castApiAvailable=false;window.__onGCastApiAvailable=function(a){window.__castApiAvailable=!!a;};</script>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -13498,9 +13499,9 @@ function compAddonsRender() {
 
 // ---------- Coyote (DG-Labs e-stim, V3 protocol) ----------
 const COYOTE_DEFAULTS = { a_power:0, b_power:0, a_freq:40, b_freq:40, a_wave:50, b_wave:50, limit:50 };
-// Bundled waves ship with the app; users can add more via "Load .pulse wave".
-// Each entry: { name: "Wave name", content: "<full Dungeonlab .pulse text>" }.
-const COYOTE_BUNDLED_PRESETS = [];
+// Bundled waves ship with the app (loaded from coyote-waves.js); users can add
+// more via "Load .pulse wave". Each entry: { name: "Wave name", content: "<full Dungeonlab .pulse text>" }.
+const COYOTE_BUNDLED_PRESETS = (typeof window !== "undefined" && Array.isArray(window.COYOTE_BUNDLED_PRESETS)) ? window.COYOTE_BUNDLED_PRESETS : [];
 function coyoteDef() { return ADDON_DEFS.find(x => x.id === "coyote"); }
 function coyoteState() { return ADDON_STATE["coyote"] || (ADDON_STATE["coyote"] = {}); }
 function coyoteActive() { const st = coyoteState(); return addonEnabled("coyote") && !!(st && (st.connected || st.on)); }
