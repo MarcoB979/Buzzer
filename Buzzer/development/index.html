@@ -661,7 +661,7 @@
   .companion-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
   .comp-main { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 100%; }
   .comp-side { flex: 1 1 auto; min-height: 0; width: 100%; display: flex; flex-direction: column; gap: 8px; }
-  .companion-avatar { position: relative; width: min(64vw, 300px); height: min(64vw, 300px); flex: 0 0 auto; }
+  .companion-avatar { position: relative; width: min(100%, 360px); height: auto; aspect-ratio: 1 / 1; flex: 0 0 auto; }
   .companion-avatar .companion-img { width: 100%; height: 100%; display: block; position: relative; }
   .companion-img { overflow: hidden; border-radius: 50%; background: #0b1220; transition: transform .11s ease; transform-origin: 50% 42%; }
   .companion-img.upload { border-radius: 22px; }
@@ -673,6 +673,9 @@
   .companion-view .ai-row { width: 100%; }
   #compSpeak.muted, #compSpeakTop.muted { opacity: .55; }
   #compLive.on, #compLiveTop.on { background: #166534; }
+  .comp-avatar-name { width: 100%; text-align: center; font-size: .95rem; font-weight: bold; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .comp-talk-btn { width: 100%; padding: 14px 12px; font-size: 1.1rem; font-weight: 700; border-radius: 14px; }
+  .comp-talk-btn.recording { background: #7f1d1d; }
   .companion-avatar .companion-img.live { overflow: hidden; border-radius: 50%; background: #0b1220; }
   .companion-avatar canvas.live { width: 100%; height: 100%; display: block; }
   .companion-avatar video.comp-talk-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 2; background: #0b1220; }
@@ -755,13 +758,13 @@
   /* split layout (landscape / tablet) */
   .companion-view.split .companion-body {
     display: grid;
-    grid-template-columns: minmax(150px, 220px) 1fr;
+    grid-template-columns: minmax(180px, 260px) 1fr;
     grid-template-rows: minmax(0, 1fr);
     gap: 12px;
     align-items: stretch;
   }
   .companion-view.split .comp-main { grid-column: 1; grid-row: 1; min-height: 0; overflow-y: auto; justify-content: flex-start; }
-  .companion-view.split .companion-avatar { width: min(100%, 130px); height: min(100%, 130px); }
+  .companion-view.split .companion-avatar { width: 100%; height: auto; aspect-ratio: 1 / 1; }
   .companion-view.split .comp-sliders { display: flex; }
   .companion-view.split .comp-side { grid-column: 2; grid-row: 1; min-height: 0; }
   @keyframes compBreathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.015); } }
@@ -922,6 +925,8 @@
       <div class="companion-body" id="companionBody">
         <div class="comp-main">
           <div class="companion-avatar" id="companionAvatar"></div>
+          <div class="comp-avatar-name" id="compAvatarName"></div>
+          <button class="ble-btn comp-talk-btn" id="compTalkBig" type="button" title="Tap, speak, and I'll answer">🎤 Talk</button>
           <div class="comp-watch" id="compWatch">
             <div class="comp-watch-toolbar">
               <span class="comp-watch-name" id="compWatchName">video</span>
@@ -9440,6 +9445,8 @@ function companionGen() {
 }
 function companionRender() {
   const box = $("companionAvatar");
+  const nameEl = $("compAvatarName");
+  if (nameEl) nameEl.textContent = companionState.avatarName || "";
   if (!box) return;
   const state = compActiveState();
   if (compIsBodyState(state)) {
@@ -11955,14 +11962,20 @@ function compApplyTimer(t) {
   compTimerSchedule();
 }
 
+function compMicBtnState(on) {
+  const tb = $("compTalkBig");
+  if (tb) { tb.textContent = on ? "🎤 Listening…" : "🎤 Talk"; tb.classList.toggle("recording", on); }
+}
 function compVoice() {
   if (aiWhisperEnabled() && aiCanWhisper()) {
     if (compListening) return;
     compListening = true;
     compMicDuckVideo();
+    compMicBtnState(true);
     aiRecordMic(text => {
       compListening = null;
       compMicRestoreVideo();
+      compMicBtnState(false);
       if (text) { const i = $("compInput"); if (i) i.value = text; compSend(); }
       else compAddMsg("system", "Couldn't hear that (or Whisper is unreachable).");
     });
@@ -11977,12 +11990,13 @@ function compVoice() {
   rec.maxAlternatives = 1;
   compListening = rec;
   compMicDuckVideo();
+  compMicBtnState(true);
   rec.onresult = (e) => {
     const t = (e.results && e.results[0] && e.results[0][0]) ? e.results[0][0].transcript : "";
     if (t && t.trim()) { const i = $("compInput"); if (i) i.value = t.trim(); compSend(); }
   };
-  rec.onend = () => { compListening = null; compMicRestoreVideo(); };
-  try { rec.start(); } catch (e) { compAddMsg("system", "Couldn't start the microphone."); }
+  rec.onend = () => { compListening = null; compMicRestoreVideo(); compMicBtnState(false); };
+  try { rec.start(); } catch (e) { compMicBtnState(false); compAddMsg("system", "Couldn't start the microphone."); }
 }
 
 let compLiveLastText = "";
@@ -12112,6 +12126,7 @@ function compLiveStart() {
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
+  const talkBig = $("compTalkBig"); if (talkBig) talkBig.onclick = compVoice;
   const live = $("compLive"); if (live) live.onclick = compLiveToggle;
   const micTop = $("compMicTop"); if (micTop) micTop.onclick = compVoice;
   const liveTop = $("compLiveTop"); if (liveTop) liveTop.onclick = compLiveToggle;
