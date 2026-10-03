@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0a0a12" />
+<title>FAQ — Buzzer</title>
+<meta name="description" content="Frequently asked questions about Buzzer: requirements, safety, AI providers, privacy, sessions and troubleshooting." />
+<link rel="icon" href="assets/img/buzzer-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="bg-aurora"></div>
+<div class="bg-grid"></div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><img src="assets/img/buzzer-icon.svg" alt="Buzzer icon" /><span class="brand-text">Buzzer</span></a>
+    <div class="nav-links">
+      <a href="features.html">Features</a>
+      <a href="help.html">Tutorial</a>
+      <a href="faq.html">FAQ</a>
+      <a href="privacy.html">Privacy</a>
+      <a class="btn btn-primary btn-sm nav-cta" href="../Buzzer/index.html">Open the app</a>
+    </div>
+    <button class="nav-toggle" type="button" aria-label="Menu">☰</button>
+  </div>
+</nav>
+
+<header class="hero" style="padding-bottom:0;">
+  <div class="wrap">
+    <span class="eyebrow">Questions</span>
+    <h1 style="font-size:clamp(2rem,4.4vw,3.2rem);">Asked and answered.</h1>
+  </div>
+</header>
+
+<section class="section">
+  <div class="wrap" style="max-width:820px;">
+
+    <h2 class="kicker" style="margin-top:0;">Basics</h2>
+    <details class="faq-item"><summary>What exactly is Buzzer?</summary><div class="faq-body">A browser app that controls your OSSM sex machine, and layers an AI companion (face + voice + personality), story-driven scenes, multi-person avatars, live sessions with friends, and toy add-ons on top.</div></details>
+    <details class="faq-item"><summary>Is it free?</summary><div class="faq-body">Yes — the app is free and runs entirely in your browser. AI features can use the free Pollinations endpoint, or your own API key (DeepSeek, OpenAI-compatible, Gemini) for privacy and quality. ElevenLabs voices use your own key.</div></details>
+    <details class="faq-item"><summary>What do I need to run it?</summary><div class="faq-body">A Chrome- or Edge-based browser (Web Bluetooth is required for the OSSM), an OSSM, and Bluetooth. No install, no account, no server.</div></details>
+    <details class="faq-item"><summary>Does it work on iPhone?</summary><div class="faq-body">The interface works everywhere, but Web Bluetooth for the OSSM needs Chrome or Edge. On iOS, Web Bluetooth support is limited — use a Chromium browser where available, or a desktop/Android device.</div></details>
+
+    <h2 class="kicker">Safety</h2>
+    <details class="faq-item" id="safety"><summary>How does safety work?</summary><div class="faq-body">A safe word stops everything instantly. The machine never starts until you've confirmed your minimum/maximum depth and maximum speed. The AI can only raise limits with your confirmation (or in Wild / Full-submission mode, which you choose). Guests keep their own limits and safe word on their own device.</div></details>
+    <details class="faq-item"><summary>Can the AI hurt me?</summary><div class="faq-body">The AI stays within your confirmed depth and speed limits and respects your safe word. Fisting and e-stim add-ons include their own extra safety guidance. You remain in control at all times.</div></details>
+
+    <h2 class="kicker">AI &amp; voices</h2>
+    <details class="faq-item"><summary>Which AI providers are supported?</summary><div class="faq-body">DeepSeek, OpenAI (and any OpenAI-compatible server: Groq, Together, OpenRouter, Ollama, LM Studio), Gemini, and a free Pollinations endpoint. Each provider keeps its own API key.</div></details>
+    <details class="faq-item"><summary>Is the free AI private?</summary><div class="faq-body">No — Pollinations is a shared, unauthenticated public endpoint. For private conversations use a keyed provider. DeepSeek processes data in China.</div></details>
+    <details class="faq-item"><summary>What voices can it speak in?</summary><div class="faq-body">Your device's built-in voice, ElevenLabs (your key), Google, VoiceRSS or Fish. Each character in a multi-person cast can have a different voice.</div></details>
+    <details class="faq-item"><summary>Does it remember me?</summary><div class="faq-body">Yes — it stores a memory of what you share (name, tastes, preferences) locally. "Forget me" erases it while keeping your settings and keys.</div></details>
+
+    <h2 class="kicker">Scenes, casts &amp; sessions</h2>
+    <details class="faq-item"><summary>Do I need to write scenes?</summary><div class="faq-body">No. Scenes are optional structure. Without one, the companion improvises freely — including full multi-person threesomes from a cast.</div></details>
+    <details class="faq-item"><summary>What is a "cast"?</summary><div class="faq-body">A set of 2+ characters, each with their own look, voice and linked toy. The AI plays all of them, switching who speaks and whose toy moves.</div></details>
+    <details class="faq-item"><summary>Can the AI control two machines differently?</summary><div class="faq-body">Yes. With a cast, each character can target a different toy (your machine, a guest's, or an add-on), so one can thrust hard while another does something gentle — in the same moment.</div></details>
+    <details class="faq-item"><summary>How do sessions work?</summary><div class="faq-body">One person hosts and shares a code; others join peer-to-peer (WebRTC). You get private chat, optional webcams, video sharing, and a room AI. There's no relay server — connections are direct and encrypted.</div></details>
+    <details class="faq-item"><summary>Is a guest automatically "played" when they join?</summary><div class="faq-body">Never. A guest is a spectator until they complete their own private "get ready" flow (connect, safe word, limits) and opt in. The room AI can't touch their toy before that.</div></details>
+
+    <h2 class="kicker">Privacy</h2>
+    <details class="faq-item"><summary>Where is my data stored?</summary><div class="faq-body">On your device. Chats, memory, settings, keys and media live in your browser's local storage and IndexedDB. Nothing is uploaded to Buzzer (there is no Buzzer server).</div></details>
+    <details class="faq-item"><summary>Are my API keys exported?</summary><div class="faq-body">No. Exports (settings, backups, avatars, scenes) never include your AI or voice API keys. The settings export is obfuscated so keys can't be read by simply opening it.</div></details>
+    <details class="faq-item"><summary>Can others see my chats?</summary><div class="faq-body">Only people you invite into a live session, and only over an encrypted peer-to-peer connection. There is no central storage.</div></details>
+
+    <h2 class="kicker">Troubleshooting</h2>
+    <details class="faq-item"><summary>It won't connect to my OSSM</summary><div class="faq-body">Use Chrome/Edge, enable Bluetooth, and make sure the device isn't paired to another tab. Reload and tap Connect.</div></details>
+    <details class="faq-item"><summary>The machine won't start</summary><div class="faq-body">Confirm your limits (min/max depth, max speed) and safe word first — Buzzer won't start until you have.</div></details>
+    <details class="faq-item"><summary>My avatar disappeared / reset</summary><div class="faq-body">Very large photos can overflow storage — use reasonable sizes. Export your avatar regularly as a backup.</div></details>
+    <details class="faq-item"><summary>The AI's suggestion chips are stale</summary><div class="faq-body">They're generated per reply and fall back to sensible defaults. If they look stuck, start a new session (↻) to reset the conversation.</div></details>
+
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <a class="brand" href="index.html"><img src="assets/img/buzzer-icon.svg" alt="Buzzer icon" /><span class="brand-text">Buzzer</span></a>
+        <p style="color:#64748b;font-size:.9rem;max-width:30em;margin-top:12px;">The living remote for your OSSM. Made for adults, by people who care about consent, safety and privacy.</p>
+      </div>
+      <div><h4>Product</h4><a href="features.html">Features</a><a href="help.html">Tutorial</a><a href="faq.html">FAQ</a><a href="../Buzzer/index.html">Open the app</a></div>
+      <div><h4>Trust</h4><a href="privacy.html">Privacy policy</a><a href="faq.html#safety">Safety</a></div>
+      <div><h4>Community</h4><a href="https://github.com/MarcoB979/Buzzer" target="_blank" rel="noopener">GitHub</a></div>
+    </div>
+    <div class="fine">© <span data-year>2026</span> Buzzer · Volt Labs. Intended for adults (18+). All use is at your own responsibility.</div>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

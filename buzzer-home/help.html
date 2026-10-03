@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0a0a12" />
+<title>Tutorial &amp; Help — Buzzer</title>
+<meta name="description" content="Step-by-step guide to Buzzer: connecting your OSSM, setting up the AI companion, scenes, multi-person casts, live sessions and add-ons." />
+<link rel="icon" href="assets/img/buzzer-icon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+<div class="bg-aurora"></div>
+<div class="bg-grid"></div>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><img src="assets/img/buzzer-icon.svg" alt="Buzzer icon" /><span class="brand-text">Buzzer</span></a>
+    <div class="nav-links">
+      <a href="features.html">Features</a>
+      <a href="help.html">Tutorial</a>
+      <a href="faq.html">FAQ</a>
+      <a href="privacy.html">Privacy</a>
+      <a class="btn btn-primary btn-sm nav-cta" href="../Buzzer/index.html">Open the app</a>
+    </div>
+    <button class="nav-toggle" type="button" aria-label="Menu">☰</button>
+  </div>
+</nav>
+
+<header class="hero" style="padding-bottom:0;">
+  <div class="wrap">
+    <span class="eyebrow">Tutorial</span>
+    <h1 style="font-size:clamp(2rem,4.4vw,3.2rem);">Everything, explained clearly.</h1>
+    <p class="lede">From first connection to full multi-person sessions — follow along in order, or jump to what you need.</p>
+  </div>
+</header>
+
+<section class="section">
+  <div class="wrap" style="display:grid;grid-template-columns:240px 1fr;gap:40px;">
+    <aside class="toc">
+      <h4 style="margin:0 0 10px;text-transform:uppercase;letter-spacing:.08em;font-size:.8rem;color:var(--muted);">Contents</h4>
+      <a href="#start">1 · Getting started</a>
+      <a href="#safety">2 · Safety first</a>
+      <a href="#companion">3 · AI companion</a>
+      <a href="#voice">4 · Voice &amp; talk</a>
+      <a href="#scenes">5 · Scenes</a>
+      <a href="#cast">6 · Multi-person cast</a>
+      <a href="#sessions">7 · Live sessions</a>
+      <a href="#addons">8 · Add-ons</a>
+      <a href="#video">9 · Video &amp; cast</a>
+      <a href="#keys">10 · AI providers &amp; keys</a>
+      <a href="#backup">11 · Backup &amp; share</a>
+      <a href="#trouble">12 · Troubleshooting</a>
+    </aside>
+
+    <div class="tutorial">
+      <h2 id="start">1 · Getting started</h2>
+      <div class="callout safe"><b>You need:</b> a Chrome- or Edge-based browser (on phone, tablet or PC), an OSSM in range, and Bluetooth switched on. Everything runs in the browser — no app store, no account.</div>
+      <ol>
+        <li>Open <a href="../Buzzer/index.html">Buzzer</a>. The interface loads instantly and works offline once open.</li>
+        <li>Tap <b>🔌 Connect</b> and pick your OSSM from the list. The status dot turns green when paired.</li>
+        <li>Pick a mode at the top: <b>Advanced Penetration</b> (full control), <b>Standard</b> (simpler), or <b>Funscript</b>.</li>
+        <li>Move the sliders, or press <b>Start</b> and adjust as you go. You're driving.</li>
+      </ol>
+
+      <h2 id="safety">2 · Safety first</h2>
+      <p>Buzzer never lets the machine start before you've told it your limits. Do this once per session:</p>
+      <ol>
+        <li>Tell the companion a <b>safe word</b> (anything you'll remember and can say instantly).</li>
+        <li>Set your <b>minimum depth</b>, <b>maximum depth</b> and <b>maximum speed</b> — either type the three numbers, or let the companion guide you by feel (it slides in slowly; you say "stop" at each point).</li>
+        <li>Confirm. Only then can the machine move on its own.</li>
+      </ol>
+      <div class="callout warn"><b>The safe word always wins.</b> Saying it stops everything immediately, no matter what mode you're in or who is controlling. A common everyday word (like "stop") can fire by accident in chat — Buzzer will gently suggest a more distinctive one.</div>
+
+      <h2 id="companion">3 · AI companion</h2>
+      <ol>
+        <li>Open <b>💞 AI Companion</b>. On first run it walks you through a short setup: what to call it, what you're into, and how it should look.</li>
+        <li>Use the <b>🧑 Builder</b> to change its look — drawn, or your own photos/videos with animated blinks, expressions and body states.</li>
+        <li>Set its <b>persona</b> (who it is) and your <b>About yourself</b> (who you are). It uses both to stay in character and pick the right dynamic.</li>
+        <li>Pick an <b>initiative</b> level — 🛡 Strict (asks first), Playful, Wild, or Full submission (it may raise limits without asking).</li>
+      </ol>
+      <p>Then just talk. It remembers what you share, and it can drive the machine whenever you ask — or, at higher initiative, on its own.</p>
+
+      <h2 id="voice">4 · Voice &amp; talk</h2>
+      <p>Tap <b>🎤 Talk</b> to speak a line, or <b>🎧</b> for hands-free conversation while playing. Replies can be spoken aloud:</p>
+      <ul>
+        <li><b>Device voice</b> — no setup, works offline.</li>
+        <li><b>ElevenLabs</b> — paste your own API key + a Voice ID for realistic voices.</li>
+        <li><b>Google / VoiceRSS / Fish</b> — other providers you can pick in AI settings.</li>
+      </ul>
+      <p>Each character in a multi-person cast has its own voice — set it in the avatar builder's <b>🗣 Voice</b> section.</p>
+
+      <h2 id="scenes">5 · Scenes</h2>
+      <p>A scene is a story the AI role-plays with you, with optional structure:</p>
+      <ol>
+        <li>Open <b>🎬 Scene</b> and create one, or start from a bundled sample.</li>
+        <li>Write the <b>scenario</b> in your own words. You can add <code>[scene:name]</code> beats, <code>[timer: after 3-5 minutes]</code> events, and <code>[toy:eject start …]</code> triggers inline.</li>
+        <li>Set <b>strictness</b>: 0 = free improvisation, 100 = follow the script closely.</li>
+      </ol>
+      <p>Don't want a story? Skip scenes entirely — the companion improvises on its own.</p>
+
+      <h2 id="cast">6 · Multi-person cast</h2>
+      <p>Want two partners at once? Build a cast:</p>
+      <ol>
+        <li>In the avatar builder, create each character as its own avatar (name, persona, look, voice).</li>
+        <li>Tap <b>＋ Add current avatar to cast</b> for each one.</li>
+        <li>For each cast member, set its <b>toy</b> — <code>host</code> (your machine), a guest's name, or an add-on like <code>coyoteA</code>.</li>
+      </ol>
+      <p>With 2+ characters, the companion shows them side by side, speaks as both, and can drive each toy independently. Saving a scene also saves the cast; selecting it restores the characters.</p>
+
+      <h2 id="sessions">7 · Live sessions</h2>
+      <p>Invite a friend (or friends) into your session:</p>
+      <ol>
+        <li>Open <b>Sessions</b> and tap <b>▶ Host a session</b>. Share the code or link.</li>
+        <li>The guest enters the code and taps <b>Join</b>. You'll both appear in the room with private chat.</li>
+        <li><b>Control:</b> you decide who may control your machine; <b>mirroring</b> lets a guest copy your machine's motion.</li>
+        <li><b>Playing together:</b> the room AI chats with everyone and can drive each person's toy. Guests are never touched until they've cleared their own safety setup in a private "get ready" room.</li>
+      </ol>
+      <div class="callout"><b>Multi-person sessions:</b> with a cast of two avatars, one character can stay with you while the second accompanies the guest into their private setup — then you all play together.</div>
+
+      <h2 id="addons">8 · Add-ons</h2>
+      <p>Enable add-ons in <b>Settings → Add-ons</b>:</p>
+      <ul>
+        <li><b>Fist-IT</b> — fisting play with its own safety guidance.</li>
+        <li><b>Ejaculate</b> — watersports (piss) scenes.</li>
+        <li><b>Coyote (DG-Labs)</b> — e-stim with 72 curated wave patterns across two channels.</li>
+        <li><b>Buttplug.io</b> — any Buttplug-compatible toy through Intiface.</li>
+      </ul>
+      <p>The AI can drive all of them through the <code>addon</code> field, and scene markers like <code>[toy:…]</code> can trigger them at the right moment.</p>
+
+      <h2 id="video">9 · Video &amp; cast</h2>
+      <ul>
+        <li><b>Local videos</b> — open a folder and the AI can play any file by name.</li>
+        <li><b>Online favorites</b> — save URLs and play them inside the app.</li>
+        <li><b>Stash</b> — connect your Stash server to browse its library.</li>
+        <li><b>Cast to TV</b> — send video to a Chromecast and keep the machine in sync.</li>
+      </ul>
+
+      <h2 id="keys">10 · AI providers &amp; keys</h2>
+      <p>In <b>AI settings</b>, choose a provider and add its key. Each provider keeps its <b>own</b> key:</p>
+      <ul>
+        <li><b>DeepSeek</b> — private, keyed; processes data in China.</li>
+        <li><b>OpenAI</b> (compatible) — works with OpenAI, Groq, Together, OpenRouter, or a local model (Ollama / LM Studio) via a base URL.</li>
+        <li><b>Gemini</b> — Google's model.</li>
+        <li><b>Free (Pollinations)</b> — no key, but a shared public endpoint with no privacy guarantee.</li>
+      </ul>
+      <div class="callout warn">Your keys stay on your device and are <b>never</b> included in any export. The free endpoint is not private — for anything personal, use a keyed provider.</div>
+
+      <h2 id="backup">11 · Backup &amp; share</h2>
+      <ul>
+        <li><b>Backup</b> (Settings) — saves everything (settings, avatars, scenes, memory, media) as a file you can restore.</li>
+        <li><b>Settings export</b> — obfuscated file with your keys; import on another device.</li>
+        <li><b>Avatar / Scene export</b> — share a single avatar or scene (including its voice and cast) as a zip.</li>
+        <li><b>Forget me</b> — erases what the AI learned about you while keeping your settings and keys.</li>
+      </ul>
+
+      <h2 id="trouble">12 · Troubleshooting</h2>
+      <div class="faq-item"><summary>It won't connect to my OSSM</summary><div class="faq-body">Use Chrome or Edge, enable Bluetooth, and make sure the OSSM isn't already paired to another tab or device. Reload and tap Connect again.</div></div>
+      <div class="faq-item"><summary>No sound / voice doesn't speak</summary><div class="faq-body">Check the 🔊 toggle is on and your device isn't muted. ElevenLabs needs both a key and a Voice ID — use the Test button.</div></div>
+      <div class="faq-item"><summary>The machine won't start</summary><div class="faq-body">Buzzer requires confirmed limits (min/max depth, max speed) and a safe word before it will start the machine. Tell the companion your numbers.</div></div>
+      <div class="faq-item"><summary>A guest can't be controlled by the AI</summary><div class="faq-body">The guest must finish their private "get ready" flow (connect, safe word, limits) and be marked ✅ ready before the room AI may drive their toy.</div></div>
+      <div class="faq-item"><summary>Camera / microphone is blocked</summary><div class="faq-body">Tap the lock icon in the address bar → Permissions → allow Camera/Microphone, then reload.</div></div>
+
+      <div class="callout" style="margin-top:24px;"><b>Glossary:</b> <b>OSSM</b> — the Open Source Sex Machine. <b>Rail</b> — the sliding arm that thrusts. <b>Pos</b> — position setup (your shallow/deep points). <b>Cast</b> — the set of characters in a multi-person session. <b>Breakout room</b> — a guest's private, safe setup space.</div>
+    </div>
+  </div>
+</section>
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-grid">
+      <div>
+        <a class="brand" href="index.html"><img src="assets/img/buzzer-icon.svg" alt="Buzzer icon" /><span class="brand-text">Buzzer</span></a>
+        <p style="color:#64748b;font-size:.9rem;max-width:30em;margin-top:12px;">The living remote for your OSSM. Made for adults, by people who care about consent, safety and privacy.</p>
+      </div>
+      <div><h4>Product</h4><a href="features.html">Features</a><a href="help.html">Tutorial</a><a href="faq.html">FAQ</a><a href="../Buzzer/index.html">Open the app</a></div>
+      <div><h4>Trust</h4><a href="privacy.html">Privacy policy</a><a href="faq.html#safety">Safety</a></div>
+      <div><h4>Community</h4><a href="https://github.com/MarcoB979/Buzzer" target="_blank" rel="noopener">GitHub</a></div>
+    </div>
+    <div class="fine">© <span data-year>2026</span> Buzzer · Volt Labs. Intended for adults (18+). All use is at your own responsibility.</div>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>
