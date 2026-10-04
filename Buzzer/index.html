@@ -1114,6 +1114,7 @@
           <select id="avatarVoiceProvider" onchange="compVoiceUiSave();compVoiceUiSync()" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
             <option value="system">Device voice (system)</option>
             <option value="elevenlabs">ElevenLabs</option>
+            <option value="fish">Fish Audio</option>
             <option value="alltalk">AllTalk (local)</option>
           </select>
           <div id="avatarVoiceElevenRow" style="display:none;">
@@ -1397,6 +1398,10 @@
           <input type="password" id="aiElevenLabsKey" placeholder="sk_…" autocomplete="off">
           <label class="ai-set-label" for="aiElevenLabsVoiceId">Voice ID</label>
           <input type="text" id="aiElevenLabsVoiceId" placeholder="21m00Tcm4TlvDq8ikWAM" autocomplete="off">
+          <label class="ai-set-label" for="aiElevenLabsVoiceName">Voice name (for your library)</label>
+          <input type="text" id="aiElevenLabsVoiceName" placeholder="e.g. Ava" autocomplete="off">
+          <button type="button" class="ble-btn small" id="aiElevenLabsVoiceAdd" style="margin-top:6px;">➕ Add voice to library</button>
+          <div id="aiVoiceLib-elevenlabs" style="margin-top:6px;"></div>
           <button type="button" class="ble-btn small" id="aiElevenLabsTest" style="margin-top:6px;">🔊 Test voice</button>
           <div class="ai-set-hint">Your own key — replies are sent to ElevenLabs and billed to your account only. Find the Voice ID in ElevenLabs → Voices → your voice (the long ID in the URL or details). Note: free accounts cannot use the public “Library” voices through the API — use your own cloned/custom voice or upgrade to Starter.</div>
         </div>
@@ -1405,7 +1410,11 @@
           <input type="text" id="aiAllTalkUrl" placeholder="http://127.0.0.1:7851" autocomplete="off">
           <label class="ai-set-label" for="aiAllTalkVoice">Voice (file name)</label>
           <input type="text" id="aiAllTalkVoice" placeholder="e.g. female_01.wav" autocomplete="off">
-          <button type="button" class="ble-btn small" id="aiAllTalkLoad" style="margin-top:6px;">📋 Load voices from server</button>
+          <label class="ai-set-label" for="aiAllTalkVoiceName">Voice name (for your library)</label>
+          <input type="text" id="aiAllTalkVoiceName" placeholder="e.g. Ava" autocomplete="off">
+          <button type="button" class="ble-btn small" id="aiAllTalkVoiceAdd" style="margin-top:6px;">➕ Add voice to library</button>
+          <button type="button" class="ble-btn small" id="aiAllTalkImport" style="margin-top:6px;">📋 Import all server voices</button>
+          <div id="aiVoiceLib-alltalk" style="margin-top:6px;"></div>
           <button type="button" class="ble-btn small" id="aiAllTalkTest" style="margin-top:6px;">🔊 Test voice</button>
           <div class="ai-set-hint">Your own local AllTalk TTS server (default http://127.0.0.1:7851). Fully private — the audio never leaves your machine. Enter the voice file name shown in AllTalk (e.g. female_01.wav). Use "Load voices" to fetch the list from the server.</div>
         </div>
@@ -1426,6 +1435,10 @@
           <input type="password" id="aiFishKey" placeholder="Get a key at fish.audio/app/api-keys" autocomplete="off">
           <label class="ai-set-label" for="aiFishVoice">Voice ID</label>
           <input type="text" id="aiFishVoice" placeholder="Voice model ID from your Fish Audio library (or a clone)" autocomplete="off">
+          <label class="ai-set-label" for="aiFishVoiceName">Voice name (for your library)</label>
+          <input type="text" id="aiFishVoiceName" placeholder="e.g. Ava" autocomplete="off">
+          <button type="button" class="ble-btn small" id="aiFishVoiceAdd" style="margin-top:6px;">➕ Add voice to library</button>
+          <div id="aiVoiceLib-fish" style="margin-top:6px;"></div>
           <label class="ai-set-label" for="aiFishSpeed">Speed (0.5–2)</label>
           <input type="number" id="aiFishSpeed" min="0.5" max="2" step="0.1">
           <button type="button" class="ble-btn small" id="aiFishTest" style="margin-top:6px;">🔊 Test voice</button>
@@ -7383,6 +7396,82 @@ function aiSpeakBrowser(text, voice) {
 function aiTtsProvider() {
   try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return (p === "elevenlabs" || p === "google" || p === "voicerss" || p === "fish" || p === "alltalk") ? p : "system"; } catch (e) { return "system"; }
 }
+// ---------- Per-provider voice library ----------
+function aiVoiceLib(provider) {
+  try { const a = JSON.parse(localStorage.getItem("ossm-voices-" + provider) || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+}
+function aiVoiceLibSave(provider, list) { try { localStorage.setItem("ossm-voices-" + provider, JSON.stringify(list || [])); } catch (e) {} }
+function aiVoiceLibAdd(provider, name, id) {
+  if (!name || !id) return false;
+  const list = aiVoiceLib(provider).filter(v => v.id !== id);
+  list.push({ name: String(name).trim(), id: String(id).trim() });
+  aiVoiceLibSave(provider, list);
+  return true;
+}
+function aiVoiceLibRemove(provider, id) { aiVoiceLibSave(provider, aiVoiceLib(provider).filter(v => v.id !== id)); }
+function aiVoiceActiveKey(provider) {
+  if (provider === "elevenlabs") return "ossm-elevenlabs-voice-id";
+  if (provider === "fish") return "ossm-fish-voice";
+  if (provider === "alltalk") return "ossm-alltalk-voice";
+  return "";
+}
+function aiVoiceActiveInput(provider) {
+  if (provider === "elevenlabs") return $("aiElevenLabsVoiceId");
+  if (provider === "fish") return $("aiFishVoice");
+  if (provider === "alltalk") return $("aiAllTalkVoice");
+  return null;
+}
+function aiVoiceLibRender(provider) {
+  const host = $("aiVoiceLib-" + provider);
+  if (!host) return;
+  const list = aiVoiceLib(provider);
+  host.innerHTML = "";
+  if (!list.length) { host.innerHTML = '<div style="font-size:.72rem;color:#94a3b8;">No saved voices yet — add one above.</div>'; return; }
+  list.forEach(v => {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:6px;align-items:center;margin:3px 0;flex-wrap:wrap;";
+    const use = document.createElement("button");
+    use.type = "button"; use.className = "ble-btn small"; use.textContent = v.name + " · " + v.id;
+    use.title = "Use this voice";
+    use.onclick = () => { const k = aiVoiceActiveKey(provider); if (k) { try { localStorage.setItem(k, v.id); } catch (e) {} } const inp = aiVoiceActiveInput(provider); if (inp) inp.value = v.id; aiVoiceLibRender(provider); };
+    const rm = document.createElement("button");
+    rm.type = "button"; rm.className = "ble-btn small danger"; rm.textContent = "✕";
+    rm.title = "Remove";
+    rm.onclick = () => { aiVoiceLibRemove(provider, v.id); aiVoiceLibRender(provider); compVoiceListRefresh(); };
+    row.appendChild(use); row.appendChild(rm);
+    host.appendChild(row);
+  });
+}
+function aiVoiceLibAddFromInputs(provider) {
+  let idInp, nameInp;
+  if (provider === "elevenlabs") { idInp = $("aiElevenLabsVoiceId"); nameInp = $("aiElevenLabsVoiceName"); }
+  else if (provider === "fish") { idInp = $("aiFishVoice"); nameInp = $("aiFishVoiceName"); }
+  else if (provider === "alltalk") { idInp = $("aiAllTalkVoice"); nameInp = $("aiAllTalkVoiceName"); }
+  const id = idInp ? idInp.value.trim() : "";
+  const name = nameInp ? nameInp.value.trim() : "";
+  if (!id) { funLog("Enter a voice ID / file name first."); return; }
+  aiVoiceLibAdd(provider, name || id, id);
+  aiVoiceLibRender(provider);
+  compVoiceListRefresh();
+}
+async function aiAllTalkImportVoices() {
+  const base = aiAllTalkUrl().replace(/\/+$/, "");
+  try {
+    const r = await fetch(base + "/api/voices");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const arr = Array.isArray(j.voices) ? j.voices : (Array.isArray(j) ? j : []);
+    if (!arr.length) throw new Error("no voices");
+    const list = aiVoiceLib("alltalk");
+    arr.forEach(v => { const name = String(v).replace(/\.wav$/i, ""); if (!list.some(x => x.id === v)) list.push({ name, id: v }); });
+    aiVoiceLibSave("alltalk", list);
+    aiVoiceLibRender("alltalk");
+    compVoiceListRefresh();
+    funLog("Imported " + arr.length + " AllTalk voices.");
+  } catch (e) {
+    funLog("Couldn't reach AllTalk at " + base + " — is it running?");
+  }
+}
 function aiElevenLabsSettings() {
   let key = "", voiceId = "";
   try { key = (localStorage.getItem("ossm-elevenlabs-key") || "").trim(); } catch (e) {}
@@ -11098,31 +11187,37 @@ function compVoiceUiLoad() {
 }
 function compVoiceUiSync() {
   const prov = $("avatarVoiceProvider");
-  const provider = (prov && (prov.value === "elevenlabs" || prov.value === "alltalk")) ? prov.value : "system";
-  const er = $("avatarVoiceElevenRow"); if (er) er.style.display = (provider === "elevenlabs" || provider === "alltalk") ? "" : "none";
+  const provider = (prov && (prov.value === "elevenlabs" || prov.value === "fish" || prov.value === "alltalk")) ? prov.value : "system";
+  const er = $("avatarVoiceElevenRow"); if (er) er.style.display = (provider === "elevenlabs" || provider === "fish" || provider === "alltalk") ? "" : "none";
   const sr = $("avatarVoiceSystemRow"); if (sr) sr.style.display = provider === "system" ? "" : "none";
-  const lbl = $("avatarVoiceIdLabel"); if (lbl) lbl.textContent = provider === "alltalk" ? "AllTalk voice" : "ElevenLabs Voice ID";
-  const idInp = $("avatarVoiceId"); if (idInp) idInp.style.display = provider === "alltalk" ? "none" : "";
-  const list = $("avatarVoiceList"); if (list) list.style.display = provider === "alltalk" ? "" : "none";
+  const lbl = $("avatarVoiceIdLabel"); if (lbl) lbl.textContent = provider === "alltalk" ? "AllTalk voice" : (provider === "fish" ? "Fish voice" : "ElevenLabs voice");
+  const idInp = $("avatarVoiceId"); if (idInp) idInp.style.display = "none";
+  const list = $("avatarVoiceList"); if (list) list.style.display = (provider === "elevenlabs" || provider === "fish" || provider === "alltalk") ? "" : "none";
   const reload = $("avatarVoiceReload"); if (reload) reload.style.display = provider === "alltalk" ? "" : "none";
-  if (provider === "alltalk") compVoiceLoadAllTalk();
+  if (provider !== "system") compVoiceListRefresh();
 }
-async function compVoiceLoadAllTalk() {
+function compVoiceListRefresh() {
   const list = $("avatarVoiceList");
   if (!list) return;
-  const base = aiAllTalkUrl().replace(/\/+$/, "");
-  try {
-    const r = await fetch(base + "/api/voices");
-    if (!r.ok) throw new Error("HTTP " + r.status);
-    const j = await r.json();
-    const arr = Array.isArray(j.voices) ? j.voices : (Array.isArray(j) ? j : []);
-    const cur = ($("avatarVoiceId") ? $("avatarVoiceId").value : "").trim();
-    list.innerHTML = '<option value="">— choose a voice —</option>';
-    arr.forEach(v => { const o = document.createElement("option"); o.value = v; o.textContent = v; if (cur && cur === v) o.selected = true; list.appendChild(o); });
-  } catch (e) {
-    list.innerHTML = '<option value="">(can\'t reach AllTalk at ' + base + ')</option>';
+  const prov = $("avatarVoiceProvider");
+  const provider = (prov && prov.value) ? prov.value : "system";
+  const lib = aiVoiceLib(provider);
+  const cur = ($("avatarVoiceId") ? $("avatarVoiceId").value : "").trim();
+  list.innerHTML = "";
+  const empty = document.createElement("option");
+  empty.value = ""; empty.textContent = lib.length ? "— choose a voice —" : "(no voices yet — add them in Settings)";
+  list.appendChild(empty);
+  if (cur && !lib.some(v => v.id === cur)) {
+    const o = document.createElement("option"); o.value = cur; o.textContent = "current: " + cur; o.selected = true; list.appendChild(o);
   }
+  lib.forEach(v => {
+    const o = document.createElement("option");
+    o.value = v.id; o.textContent = (v.name || v.id) + (v.name ? " · " + v.id : "");
+    if (cur === v.id) o.selected = true;
+    list.appendChild(o);
+  });
 }
+function compVoiceLoadAllTalk() { aiAllTalkImportVoices(); }
 function compVoiceListPick() {
   const list = $("avatarVoiceList");
   const idInp = $("avatarVoiceId");
@@ -14289,6 +14384,9 @@ function aiDebugRestore() {
     if (fishSpeed) fishSpeed.value = aiFishSpeed();
     if (atUrl) atUrl.value = aiAllTalkUrl();
     if (atVoice) atVoice.value = aiAllTalkVoice();
+    aiVoiceLibRender("elevenlabs");
+    aiVoiceLibRender("fish");
+    aiVoiceLibRender("alltalk");
   };
   if (ttsProv) ttsProv.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-provider", ttsProv.value); } catch (e) {} syncTtsUi(); });
   if (elKey) elKey.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-key", elKey.value.trim()); } catch (e) {} });
@@ -14312,6 +14410,10 @@ function aiDebugRestore() {
   if (atTest) atTest.onclick = aiTestAllTalk;
   const atLoad = $("aiAllTalkLoad");
   if (atLoad) atLoad.onclick = aiAllTalkLoadVoices;
+  const elAdd = $("aiElevenLabsVoiceAdd"); if (elAdd) elAdd.onclick = () => aiVoiceLibAddFromInputs("elevenlabs");
+  const fishAdd = $("aiFishVoiceAdd"); if (fishAdd) fishAdd.onclick = () => aiVoiceLibAddFromInputs("fish");
+  const atAdd = $("aiAllTalkVoiceAdd"); if (atAdd) atAdd.onclick = () => aiVoiceLibAddFromInputs("alltalk");
+  const atImport = $("aiAllTalkImport"); if (atImport) atImport.onclick = aiAllTalkImportVoices;
   syncTtsUi();
   const aiSetPanel = $("aiSettings");
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) { aiLoadVoices(); if (aiWhisperEnabled()) aiPopulateMicList(); } });
