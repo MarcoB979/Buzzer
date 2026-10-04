@@ -1114,9 +1114,10 @@
           <select id="avatarVoiceProvider" onchange="compVoiceUiSave();compVoiceUiSync()" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
             <option value="system">Device voice (system)</option>
             <option value="elevenlabs">ElevenLabs</option>
+            <option value="alltalk">AllTalk (local)</option>
           </select>
           <div id="avatarVoiceElevenRow" style="display:none;">
-            <label style="display:block;margin-bottom:4px;">ElevenLabs Voice ID</label>
+            <label id="avatarVoiceIdLabel" style="display:block;margin-bottom:4px;">ElevenLabs Voice ID</label>
             <input type="text" id="avatarVoiceId" oninput="compVoiceUiSave()" placeholder="21m00Tcm4TlvDq8ikWAM" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
           </div>
           <div id="avatarVoiceSystemRow">
@@ -1387,6 +1388,7 @@
           <option value="fish">Fish Audio (free)</option>
           <option value="voicerss">VoiceRSS (free key)</option>
           <option value="elevenlabs">ElevenLabs (your key)</option>
+          <option value="alltalk">AllTalk (local server)</option>
         </select>
         <div id="aiElevenLabsRow" style="display:none;">
           <label class="ai-set-label" for="aiElevenLabsKey">ElevenLabs API key</label>
@@ -1395,6 +1397,15 @@
           <input type="text" id="aiElevenLabsVoiceId" placeholder="21m00Tcm4TlvDq8ikWAM" autocomplete="off">
           <button type="button" class="ble-btn small" id="aiElevenLabsTest" style="margin-top:6px;">🔊 Test voice</button>
           <div class="ai-set-hint">Your own key — replies are sent to ElevenLabs and billed to your account only. Find the Voice ID in ElevenLabs → Voices → your voice (the long ID in the URL or details). Note: free accounts cannot use the public “Library” voices through the API — use your own cloned/custom voice or upgrade to Starter.</div>
+        </div>
+        <div id="aiAllTalkRow" style="display:none;">
+          <label class="ai-set-label" for="aiAllTalkUrl">AllTalk server URL</label>
+          <input type="text" id="aiAllTalkUrl" placeholder="http://127.0.0.1:7851" autocomplete="off">
+          <label class="ai-set-label" for="aiAllTalkVoice">Voice (file name)</label>
+          <input type="text" id="aiAllTalkVoice" placeholder="e.g. female_01.wav" autocomplete="off">
+          <button type="button" class="ble-btn small" id="aiAllTalkLoad" style="margin-top:6px;">📋 Load voices from server</button>
+          <button type="button" class="ble-btn small" id="aiAllTalkTest" style="margin-top:6px;">🔊 Test voice</button>
+          <div class="ai-set-hint">Your own local AllTalk TTS server (default http://127.0.0.1:7851). Fully private — the audio never leaves your machine. Enter the voice file name shown in AllTalk (e.g. female_01.wav). Use "Load voices" to fetch the list from the server.</div>
         </div>
         <div id="aiGoogleTtsRow" style="display:none;">
           <button type="button" class="ble-btn small" id="aiGoogleTtsTest" style="margin-top:6px;">🔊 Test voice</button>
@@ -7324,6 +7335,8 @@ function aiSpeak(text, voice) {
     aiSpeakVoiceRss(text);
   } else if (p === "google") {
     aiSpeakGoogle(text);
+  } else if (p === "alltalk") {
+    aiSpeakAllTalk(text, (v && v.voiceId) || null);
   } else {
     aiSpeakBrowser(text, v);
   }
@@ -7366,7 +7379,7 @@ function aiSpeakBrowser(text, voice) {
   } catch (e) {}
 }
 function aiTtsProvider() {
-  try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return (p === "elevenlabs" || p === "google" || p === "voicerss" || p === "fish") ? p : "system"; } catch (e) { return "system"; }
+  try { const p = (localStorage.getItem("ossm-tts-provider") || "").trim(); return (p === "elevenlabs" || p === "google" || p === "voicerss" || p === "fish" || p === "alltalk") ? p : "system"; } catch (e) { return "system"; }
 }
 function aiElevenLabsSettings() {
   let key = "", voiceId = "";
@@ -7592,6 +7605,87 @@ function aiTestVoiceRss() {
   aiAudio.onerror = () => { done("✖ Failed (key/limit?)"); try { aiAddMsg("system", "🔇 VoiceRSS test failed — check your key and request limit."); } catch (e) {} };
   aiAudio.play().then(() => { if (btn) btn.textContent = "▶ Playing…"; }).catch(() => done("✖ Playback blocked"));
 }
+// ---------- AllTalk (local TTS server, default http://127.0.0.1:7851) ----------
+function aiAllTalkUrl() { try { return (localStorage.getItem("ossm-alltalk-url") || "http://127.0.0.1:7851").trim() || "http://127.0.0.1:7851"; } catch (e) { return "http://127.0.0.1:7851"; } }
+function aiAllTalkVoice() { try { return (localStorage.getItem("ossm-alltalk-voice") || "").trim(); } catch (e) { return ""; } }
+function aiAllTalkConfigured() { return !!aiAllTalkVoice(); }
+let aiAllTalkWarned = false;
+function aiAllTalkWarn(msg) {
+  if (aiAllTalkWarned) return;
+  aiAllTalkWarned = true;
+  try { aiAddMsg("system", "🔇 AllTalk failed — " + msg + " Using the device voice instead."); } catch (e) {}
+}
+async function aiSpeakAllTalk(text, voiceName) {
+  const base = aiAllTalkUrl().replace(/\/+$/, "");
+  const voice = (voiceName && String(voiceName).trim()) || aiAllTalkVoice();
+  if (!voice) { aiSpeakBrowser(text); return; }
+  aiStopAudio();
+  try {
+    const resp = await fetch(base + "/api/tts-generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text_input: text,
+        text_filtering: "standard",
+        character_voice: voice,
+        narrator_enabled: "false",
+        narrator_voice: "male_01.wav",
+        text_not_inside: "character",
+        language: aiSpeechLang() || "en",
+        output_file_name: "buzzer_tts",
+        output_file_timestamp: "true",
+        autoplay: "false",
+        autoplay_volume: "0.8"
+      })
+    });
+    if (!resp.ok) { aiAllTalkWarn("HTTP " + resp.status); aiSpeakBrowser(text); return; }
+    const j = await resp.json().catch(() => null);
+    let rel = j && (j.output_file_url || j.output_file_uri || "");
+    if (!rel) { aiAllTalkWarn("no audio returned"); aiSpeakBrowser(text); return; }
+    const audioUrl = (String(rel).indexOf("http") === 0) ? String(rel) : (base + String(rel));
+    const blob = await (await fetch(audioUrl)).blob();
+    aiBuildEnvelope(blob);
+    const url = URL.createObjectURL(blob);
+    if (!aiAudio) aiAudio = new Audio();
+    aiAudio.src = url;
+    aiAudio.onended = () => { const u = aiAudio.src; try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {} try { if (u) URL.revokeObjectURL(u); } catch (e) {} };
+    await aiAudio.play().catch(() => {});
+  } catch (e) {
+    aiAllTalkWarn(e && e.message ? e.message : "network error");
+    aiSpeakBrowser(text);
+  }
+}
+async function aiAllTalkLoadVoices() {
+  const base = aiAllTalkUrl().replace(/\/+$/, "");
+  const btn = $("aiAllTalkLoad");
+  const resetBtn = (t, ms) => setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = t; } }, ms);
+  if (btn) { btn.disabled = true; btn.textContent = "Loading…"; }
+  try {
+    const r = await fetch(base + "/api/voices");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const arr = Array.isArray(j.voices) ? j.voices : (Array.isArray(j) ? j : []);
+    if (!arr.length) throw new Error("no voices listed");
+    try { aiAddMsg("system", "🎙 AllTalk voices: " + arr.slice(0, 20).join(", ") + (arr.length > 20 ? " …" : "")); } catch (e) {}
+    if (btn) btn.textContent = "✓ " + arr.length + " voices";
+    resetBtn("📋 Load voices", 6000);
+  } catch (e) {
+    if (btn) btn.textContent = "✖ " + (e && e.message ? e.message : "unreachable");
+    try { aiAddMsg("system", "🔇 AllTalk voices failed — is the server running at " + base + "?"); } catch (e2) {}
+    resetBtn("📋 Load voices", 8000);
+  }
+}
+function aiTestAllTalk() {
+  const voice = aiAllTalkVoice();
+  const btn = $("aiAllTalkTest");
+  const resetBtn = (t, ms) => setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = t; } }, ms);
+  if (!voice) { if (btn) { btn.textContent = "⚠ Enter a voice first"; resetBtn("🔊 Test voice", 2500); } return; }
+  if (btn) { btn.disabled = true; btn.textContent = "Testing…"; }
+  aiSpeakAllTalk("Hallo, dit is een test van mijn AllTalk stem.", voice).then(() => {
+    if (btn) { btn.textContent = "✓ Playing…"; resetBtn("🔊 Test voice", 4000); }
+  }).catch(() => { if (btn) { btn.textContent = "✖ Failed"; resetBtn("🔊 Test voice", 4000); } });
+}
+
 // ---------- Fish Audio (free tier, neural, 83 languages, voice via model ID) ----------
 function aiFishKey() { try { return (localStorage.getItem("ossm-fish-key") || "").trim(); } catch (e) { return ""; } }
 function aiFishVoice() { try { return (localStorage.getItem("ossm-fish-voice") || "").trim(); } catch (e) { return ""; } }
@@ -10989,7 +11083,7 @@ function compAvatarRefreshBuilder() {
 // ---------- Per-character voice + cast (multi-person avatar) ----------
 function compVoiceUiLoad() {
   const v = companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 };
-  const prov = $("avatarVoiceProvider"); if (prov) prov.value = v.provider === "elevenlabs" ? "elevenlabs" : "system";
+  const prov = $("avatarVoiceProvider"); if (prov) prov.value = (v.provider === "elevenlabs" || v.provider === "alltalk") ? v.provider : "system";
   const vi = $("avatarVoiceId"); if (vi) vi.value = v.voiceId || "";
   const vn = $("avatarVoiceName"); if (vn) vn.value = v.voiceName || "";
   const vl = $("avatarVoiceLang"); if (vl) vl.value = v.lang || "";
@@ -10999,9 +11093,10 @@ function compVoiceUiLoad() {
 }
 function compVoiceUiSync() {
   const prov = $("avatarVoiceProvider");
-  const provider = (prov && prov.value === "elevenlabs") ? "elevenlabs" : "system";
-  const er = $("avatarVoiceElevenRow"); if (er) er.style.display = provider === "elevenlabs" ? "" : "none";
+  const provider = (prov && (prov.value === "elevenlabs" || prov.value === "alltalk")) ? prov.value : "system";
+  const er = $("avatarVoiceElevenRow"); if (er) er.style.display = (provider === "elevenlabs" || provider === "alltalk") ? "" : "none";
   const sr = $("avatarVoiceSystemRow"); if (sr) sr.style.display = provider === "system" ? "" : "none";
+  const lbl = $("avatarVoiceIdLabel"); if (lbl) lbl.textContent = provider === "alltalk" ? "AllTalk voice (file name)" : "ElevenLabs Voice ID";
 }
 function compVoiceUiSave() {
   const prov = $("avatarVoiceProvider");
@@ -14141,6 +14236,9 @@ function aiDebugRestore() {
   const fishKey = $("aiFishKey");
   const fishVoice = $("aiFishVoice");
   const fishSpeed = $("aiFishSpeed");
+  const atRow = $("aiAllTalkRow");
+  const atUrl = $("aiAllTalkUrl");
+  const atVoice = $("aiAllTalkVoice");
   const sysTtsRow = $("aiSystemTtsRow");
   const syncTtsUi = () => {
     const prov = aiTtsProvider();
@@ -14149,6 +14247,7 @@ function aiDebugRestore() {
     if (gooRow) gooRow.style.display = prov === "google" ? "" : "none";
     if (vrRow) vrRow.style.display = prov === "voicerss" ? "" : "none";
     if (fishRow) fishRow.style.display = prov === "fish" ? "" : "none";
+    if (atRow) atRow.style.display = prov === "alltalk" ? "" : "none";
     if (sysTtsRow) sysTtsRow.style.display = prov === "system" ? "" : "none";
     const s = aiElevenLabsSettings();
     if (elKey) elKey.value = s.key;
@@ -14158,6 +14257,8 @@ function aiDebugRestore() {
     if (fishKey) fishKey.value = aiFishKey();
     if (fishVoice) fishVoice.value = aiFishVoice();
     if (fishSpeed) fishSpeed.value = aiFishSpeed();
+    if (atUrl) atUrl.value = aiAllTalkUrl();
+    if (atVoice) atVoice.value = aiAllTalkVoice();
   };
   if (ttsProv) ttsProv.addEventListener("change", () => { try { localStorage.setItem("ossm-tts-provider", ttsProv.value); } catch (e) {} syncTtsUi(); });
   if (elKey) elKey.addEventListener("change", () => { try { localStorage.setItem("ossm-elevenlabs-key", elKey.value.trim()); } catch (e) {} });
@@ -14175,6 +14276,12 @@ function aiDebugRestore() {
   if (fishSpeed) fishSpeed.addEventListener("change", () => { try { localStorage.setItem("ossm-fish-speed", fishSpeed.value); } catch (e) {} });
   const fishTest = $("aiFishTest");
   if (fishTest) fishTest.onclick = aiTestFish;
+  if (atUrl) atUrl.addEventListener("change", () => { try { localStorage.setItem("ossm-alltalk-url", atUrl.value.trim() || "http://127.0.0.1:7851"); } catch (e) {} });
+  if (atVoice) atVoice.addEventListener("change", () => { try { localStorage.setItem("ossm-alltalk-voice", atVoice.value.trim()); } catch (e) {} });
+  const atTest = $("aiAllTalkTest");
+  if (atTest) atTest.onclick = aiTestAllTalk;
+  const atLoad = $("aiAllTalkLoad");
+  if (atLoad) atLoad.onclick = aiAllTalkLoadVoices;
   syncTtsUi();
   const aiSetPanel = $("aiSettings");
   if (aiSetPanel) aiSetPanel.addEventListener("toggle", () => { if (aiSetPanel.open) { aiLoadVoices(); if (aiWhisperEnabled()) aiPopulateMicList(); } });
