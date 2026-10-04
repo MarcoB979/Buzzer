@@ -10350,11 +10350,9 @@ function compBodyUpload(file) {
     buildBodySetupRows();
     funLog("Full-body photo set — now tap each body state to set its focus point.");
   };
-  compResizeImage(file, 1600, 0.85).then((dataUrl) => {
+  compResizeImage(file, 1024, 0.8).then((dataUrl) => {
     if (dataUrl) { apply(dataUrl); return; }
-    const rd = new FileReader();
-    rd.onload = () => apply(String(rd.result));
-    rd.readAsDataURL(file);
+    funLog("Couldn't read that photo — try a JPG or PNG.");
   });
 }
 function compBodyStatePhoto(file, state) {
@@ -10367,11 +10365,9 @@ function compBodyStatePhoto(file, state) {
     buildBodySetupRows();
     funLog("Photo set for \"" + compBodyLabel(state) + "\".");
   };
-  compResizeImage(file, 1600, 0.85).then((dataUrl) => {
+  compResizeImage(file, 1024, 0.8).then((dataUrl) => {
     if (dataUrl) { apply(dataUrl); return; }
-    const rd = new FileReader();
-    rd.onload = () => apply(String(rd.result));
-    rd.readAsDataURL(file);
+    funLog("Couldn't read that photo — try a JPG or PNG.");
   });
 }
 function compBodyStateVideos(files, state) {
@@ -12151,11 +12147,9 @@ function companionConsentAndLoad(file, state) {
     img.onerror = () => funLog("Couldn't read that image — try another.");
     img.src = dataUrl;
   };
-  compResizeImage(file, 1400, 0.85).then((dataUrl) => {
+  compResizeImage(file, 1024, 0.8).then((dataUrl) => {
     if (dataUrl) { apply(dataUrl); return; }
-    const rd = new FileReader();
-    rd.onload = () => apply(String(rd.result));
-    rd.readAsDataURL(file);
+    funLog("Couldn't read that image — try another.");
   });
 }
 function companionLiveAskConsent(img, dataUrl, state) {
@@ -13196,6 +13190,52 @@ function compSeeMeLogShot(dataUrl, desc) {
     if (compSeeMeShots.length > 20) compSeeMeShots.splice(0, compSeeMeShots.length - 20);
   } catch (e) {}
 }
+// Downscale a stored photo data URL to a compact JPEG (keeps localStorage under quota).
+function compDownscaleDataUrl(dataUrl, maxDim, quality) {
+  maxDim = maxDim || 1024;
+  quality = (quality === undefined) ? 0.8 : quality;
+  return new Promise((res) => {
+    if (!dataUrl || String(dataUrl).indexOf("data:") !== 0) return res(dataUrl);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || img.width || maxDim;
+        const h = img.naturalHeight || img.height || maxDim;
+        const isJpeg = String(dataUrl).indexOf("image/jpeg") >= 0 || String(dataUrl).indexOf("image/jpg") >= 0;
+        if (isJpeg && w <= maxDim && h <= maxDim) return res(dataUrl);
+        const scale = Math.min(1, maxDim / Math.max(w, h));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(w * scale));
+        c.height = Math.max(1, Math.round(h * scale));
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL("image/jpeg", quality));
+      } catch (e) { res(dataUrl); }
+    };
+    img.onerror = () => res(dataUrl);
+    img.src = dataUrl;
+  });
+}
+async function compDownscaleAvatarImages(av) {
+  if (!av) return;
+  try {
+    av.customImage = await compDownscaleDataUrl(av.customImage, 1024, 0.8);
+    if (av.body && av.body.img) av.body.img = await compDownscaleDataUrl(av.body.img, 1024, 0.8);
+    for (const s of ["laugh", "blush", "rough"]) { const e = av.expr && av.expr[s]; if (e && e.img) e.img = await compDownscaleDataUrl(e.img, 1024, 0.8); }
+    if (av.body && av.body.points) { for (const k of Object.keys(av.body.points)) { const p = av.body.points[k]; if (p && p.img) p.img = await compDownscaleDataUrl(p.img, 1024, 0.8); } }
+  } catch (e) {}
+}
+async function compMigratePhotoSizes() {
+  try {
+    if (localStorage.getItem("ossm-photos-migrated") === "2") return;
+    await compDownscaleAvatarImages(companionState);
+    companionSave();
+    const list = compAvatars();
+    for (const a of list) await compDownscaleAvatarImages(a);
+    compAvatarsSave(list);
+    try { localStorage.setItem("ossm-photos-migrated", "2"); } catch (e) {}
+  } catch (e) {}
+}
+setTimeout(compMigratePhotoSizes, 1200);
 function compSeeMeLookInterval() {
   const m = compSeeMeLookMode();
   if (m === "change") return 4000;
@@ -14507,6 +14547,7 @@ async function importAvatar(file) {
       }
     }
     let list = compAvatars();
+    await compDownscaleAvatarImages(snap);
     if (list.some(a => a.id === snap.id)) snap.id = newMid + "-" + Date.now().toString(36);
     list.push(snap);
     compAvatarsSave(list);
