@@ -1109,6 +1109,10 @@
             <option value="character">Stay in character (my fantasy self)</option>
             <option value="real">Keep it real (what it actually sees)</option>
           </select>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:.78rem;color:#94a3b8;cursor:pointer;">
+            <input type="checkbox" id="compSeeMeLogChk">
+            Save camera snapshots to the debug log (for troubleshooting)
+          </label>
         </div>
         <div class="photo-modal-actions">
           <button class="ble-btn small" id="compSeeMeModalCancel" type="button">Cancel</button>
@@ -13045,6 +13049,7 @@ let compSeeMeLookTimer = null;
 let compSeeMeLookBusy = false;
 let compSeeMeLastDesc = "";
 let compSeeMeReactBusy = false;
+let compSeeMeShots = [];   // ring buffer of {ts, desc, dataUrl} for the debug export
 function compSeeMeVideo() {
   if (compSeeMeVideoEl) return compSeeMeVideoEl;
   compSeeMeVideoEl = document.createElement("video");
@@ -13104,10 +13109,11 @@ function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
   ok.textContent = okLabel || "OK";
   compSeeMeModalCb = onOk || null;
   cancel.style.display = onOk ? "" : "none";
-  const lookRow = $("compSeeMeLookRow"), sel = $("compSeeMeLookSel"), sel2 = $("compSeeMeStyleSel");
+  const lookRow = $("compSeeMeLookRow"), sel = $("compSeeMeLookSel"), sel2 = $("compSeeMeStyleSel"), logChk = $("compSeeMeLogChk");
   if (lookRow) lookRow.style.display = onOk ? "" : "none";
   if (sel) { try { sel.value = compSeeMeLookMode(); } catch (e) {} }
   if (sel2) { try { sel2.value = compSeeMeStyle(); } catch (e) {} }
+  if (logChk) { try { logChk.checked = compSeeMeLogEnabled(); } catch (e) {} }
   m.style.display = "";
 }
 function aiVisionProvider() {
@@ -13161,7 +13167,11 @@ async function compSeeMeStart() {
     compSeeMeSync();
     funLog("The avatar can see you now. Tap 👁 on the avatar to turn it off.");
     compSeeMeLastDesc = "";
-    await sleepMs(600);
+    await new Promise((res) => {
+      let n = 0;
+      const poll = () => { n++; if ((v.videoWidth > 0 && v.readyState >= 2) || n > 40) return res(); setTimeout(poll, 150); };
+      poll();
+    });
     compSeeMeLookTick();
     compSeeMeLookSchedule();
   } catch (e) {
@@ -13175,6 +13185,16 @@ function compSeeMeLookMode() {
 }
 function compSeeMeStyle() {
   try { return localStorage.getItem("ossm-seeme-style") === "real" ? "real" : "character"; } catch (e) { return "character"; }
+}
+function compSeeMeLogEnabled() {
+  try { return localStorage.getItem("ossm-seeme-log") === "1"; } catch (e) { return false; }
+}
+function compSeeMeLogShot(dataUrl, desc) {
+  if (!compSeeMeLogEnabled()) return;
+  try {
+    compSeeMeShots.push({ ts: Date.now(), desc: desc || "", dataUrl: dataUrl || "" });
+    if (compSeeMeShots.length > 20) compSeeMeShots.splice(0, compSeeMeShots.length - 20);
+  } catch (e) {}
 }
 function compSeeMeLookInterval() {
   const m = compSeeMeLookMode();
@@ -13207,7 +13227,7 @@ async function compSeeMeLookTick() {
   if (!compSeeMeOn || compSeeMeLookBusy) return;
   compSeeMeLookBusy = true;
   try {
-    const dataUrl = compSeeMeSnapshot();
+    const dataUrl = await compSeeMeSnapshot();
     if (dataUrl) {
       const desc = await aiVisionDescribe(dataUrl, compSeeMeStyle());
       if (desc) {
@@ -13216,6 +13236,7 @@ async function compSeeMeLookTick() {
         const changed = !isFirst && !compSeeMeSameDesc(compSeeMeLastDesc, desc);
         const quiet = (mode !== "turn") && !isFirst && !changed; // keep watching, but stay quiet until something actually changes
         compSeeMeLastDesc = desc;
+        compSeeMeLogShot(dataUrl, desc);
         if (!quiet) compSeeMeReact(desc);
       }
     }
@@ -13253,14 +13274,34 @@ async function compSeeMeReact(desc) {
   } catch (e) {}
   compSeeMeReactBusy = false;
 }
-function compSeeMeSnapshot() {
+function compSeeMeFlash() {
   const v = compSeeMeVideo();
-  if (!v || !compSeeMeOn || !v.videoWidth) return "";
+  if (!v) return;
+  try { v.style.boxShadow = "0 0 0 6px rgba(255,255,255,.85)"; setTimeout(() => { try { v.style.boxShadow = ""; } catch (e) {} }, 260); } catch (e) {}
+}
+async function compSeeMeSnapshot() {
+  if (!compSeeMeOn || !compSeeMeStream) return "";
+  const track = compSeeMeStream.getVideoTracks()[0];
+  if (track && track.readyState === "live" && window.ImageCapture) {
+    try {
+      const cap = new ImageCapture(track);
+      const bmp = await cap.grabFrame();
+      const w = 1024, h = Math.max(1, Math.round(1024 * bmp.height / bmp.width));
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      c.getContext("2d").drawImage(bmp, 0, 0, w, h);
+      compSeeMeFlash();
+      return c.toDataURL("image/jpeg", 0.85);
+    } catch (e) {}
+  }
+  const v = compSeeMeVideo();
+  if (!v || !v.videoWidth) return "";
   try {
     const w = 1024, h = Math.max(1, Math.round(1024 * v.videoHeight / v.videoWidth));
     const c = document.createElement("canvas");
     c.width = w; c.height = h;
     c.getContext("2d").drawImage(v, 0, 0, w, h);
+    compSeeMeFlash();
     return c.toDataURL("image/jpeg", 0.85);
   } catch (e) { return ""; }
 }
@@ -13304,11 +13345,12 @@ async function aiVisionDescribe(dataUrl, style) {
 async function compSeeMeContext() {
   if (!compSeeMeOn || !compSeeMeStream) return "";
   try {
-    const dataUrl = compSeeMeSnapshot();
+    const dataUrl = await compSeeMeSnapshot();
     if (!dataUrl) return "";
     const style = compSeeMeStyle();
     const desc = await aiVisionDescribe(dataUrl, style);
     if (!desc) return "";
+    compSeeMeLogShot(dataUrl, desc);
     const frame = (style === "real")
       ? "react to what you truly see"
       : "stay fully in character — describe their body and gender exactly as their own self-image (ABOUT THE USER / your memory), never what the raw camera shows";
@@ -13669,7 +13711,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
-  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } } compSeeMeModalHide(); if (cb) cb(); };
+  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } const logChk = $("compSeeMeLogChk"); if (logChk) { try { localStorage.setItem("ossm-seeme-log", logChk.checked ? "1" : "0"); } catch (e) {} } } compSeeMeModalHide(); if (cb) cb(); };
   const smCancel = $("compSeeMeModalCancel"); if (smCancel) smCancel.onclick = compSeeMeModalHide;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
@@ -14155,6 +14197,15 @@ function exportDeveloperInfo() {
   push("=== LIVE MONITOR (" + monitorLines.length + " lines) ===");
   for (const l of monitorLines) {
     push((l.ts ? "[" + stamp(l.ts) + "] " : "") + (l.cls ? "(" + l.cls + ") " : "") + l.text + (l.n > 1 ? "  (×" + l.n + ")" : ""));
+  }
+
+  if (compSeeMeLogEnabled() && compSeeMeShots.length) {
+    push("");
+    push("=== CAMERA SNAPSHOTS (" + compSeeMeShots.length + " most recent, base64 JPEG data URLs) ===");
+    for (const sh of compSeeMeShots) {
+      push("[" + clock(sh.ts) + "] " + (sh.desc || "(no description)"));
+      push(sh.dataUrl || "(no image)");
+    }
   }
 
   const blob = new Blob([L.join("\n")], { type: "text/plain;charset=utf-8" });
