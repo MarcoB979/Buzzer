@@ -1096,6 +1096,15 @@
       <div class="photo-modal-card" style="max-width:420px;">
         <div class="photo-modal-title" id="compSeeMeModalTitle">Let the avatar see you?</div>
         <div class="photo-modal-body" id="compSeeMeModalBody"></div>
+        <div id="compSeeMeLookRow" style="margin-bottom:14px;">
+          <div style="font-size:.78rem;color:#94a3b8;margin-bottom:4px;">How often should the avatar look at you?</div>
+          <select id="compSeeMeLookSel" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;">
+            <option value="turn">Only when I message</option>
+            <option value="change">When something changes</option>
+            <option value="10">Every 10 seconds</option>
+            <option value="30">Every 30 seconds</option>
+          </select>
+        </div>
         <div class="photo-modal-actions">
           <button class="ble-btn small" id="compSeeMeModalCancel" type="button">Cancel</button>
           <button class="ble-btn small" id="compSeeMeModalOk" type="button">Turn on camera</button>
@@ -13027,6 +13036,10 @@ let compSeeMeStream = null;
 let compSeeMeOn = false;
 let compSeeMeVideoEl = null;
 let compSeeMeBtnEl = null;
+let compSeeMeLookTimer = null;
+let compSeeMeLookBusy = false;
+let compSeeMeLastDesc = "";
+let compSeeMeReactBusy = false;
 function compSeeMeVideo() {
   if (compSeeMeVideoEl) return compSeeMeVideoEl;
   compSeeMeVideoEl = document.createElement("video");
@@ -13069,6 +13082,7 @@ function compSeeMeAttach() {
 }
 function compSeeMeOff() {
   compSeeMeOn = false;
+  compSeeMeLookStop();
   if (compSeeMeStream) { compSeeMeStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} }); compSeeMeStream = null; }
   if (compSeeMeVideoEl) { compSeeMeVideoEl.style.display = "none"; try { compSeeMeVideoEl.srcObject = null; } catch (e) {} }
   compSeeMeSync();
@@ -13085,6 +13099,9 @@ function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
   ok.textContent = okLabel || "OK";
   compSeeMeModalCb = onOk || null;
   cancel.style.display = onOk ? "" : "none";
+  const lookRow = $("compSeeMeLookRow"), sel = $("compSeeMeLookSel");
+  if (lookRow) lookRow.style.display = onOk ? "" : "none";
+  if (sel) { try { sel.value = compSeeMeLookMode(); } catch (e) {} }
   m.style.display = "";
 }
 function aiVisionProvider() {
@@ -13133,14 +13150,95 @@ async function compSeeMeStart() {
     const v = compSeeMeVideo();
     v.srcObject = stream;
     v.style.display = "";
+    try { await v.play(); } catch (e) {}
     compSeeMeAttach();
     compSeeMeSync();
     funLog("The avatar can see you now. Tap 👁 on the avatar to turn it off.");
+    compSeeMeLastDesc = "";
+    await sleepMs(600);
+    compSeeMeLookTick();
+    compSeeMeLookSchedule();
   } catch (e) {
     compSeeMeOn = false;
     compSeeMeSync();
     compSeeMeModalShow("Camera unavailable: " + escapeHtml(e && e.message ? e.message : e), "OK", null);
   }
+}
+function compSeeMeLookMode() {
+  try { const m = localStorage.getItem("ossm-seeme-look") || "turn"; return (m === "change" || m === "10" || m === "30") ? m : "turn"; } catch (e) { return "turn"; }
+}
+function compSeeMeLookInterval() {
+  const m = compSeeMeLookMode();
+  if (m === "change") return 4000;
+  if (m === "10") return 10000;
+  if (m === "30") return 30000;
+  return 0;
+}
+function compSeeMeLookSchedule() {
+  compSeeMeLookStop();
+  const iv = compSeeMeLookInterval();
+  if (!iv || !compSeeMeOn) return;
+  compSeeMeLookTimer = setInterval(compSeeMeLookTick, iv);
+}
+function compSeeMeLookStop() {
+  if (compSeeMeLookTimer) { clearInterval(compSeeMeLookTimer); compSeeMeLookTimer = null; }
+}
+function compSeeMeSameDesc(a, b) {
+  const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const na = norm(a), nb = norm(b);
+  if (!na || !nb) return false;
+  if (na === nb) return true;
+  const wa = na.split(" "), wb = nb.split(" ");
+  const set = new Set(wa);
+  let same = 0;
+  for (const w of wb) if (set.has(w)) same++;
+  return (same / Math.max(1, Math.min(wa.length, wb.length))) > 0.6;
+}
+async function compSeeMeLookTick() {
+  if (!compSeeMeOn || compSeeMeLookBusy) return;
+  compSeeMeLookBusy = true;
+  try {
+    const dataUrl = compSeeMeSnapshot();
+    if (dataUrl) {
+      const desc = await aiVisionDescribe(dataUrl);
+      if (desc) {
+        const mode = compSeeMeLookMode();
+        const changed = compSeeMeLastDesc && !compSeeMeSameDesc(compSeeMeLastDesc, desc);
+        if (!(mode === "change" && compSeeMeLastDesc && !changed)) {
+          compSeeMeLastDesc = desc;
+          compSeeMeReact(desc);
+        }
+      }
+    }
+  } catch (e) {}
+  compSeeMeLookBusy = false;
+}
+async function compSeeMeReact(desc) {
+  if (!compModeActive || compBusy || compSeeMeReactBusy) return;
+  compSeeMeReactBusy = true;
+  try {
+    const cur = aiCurrentState();
+    const memOn = aiMemoryActive();
+    const mem = aiMemory();
+    const memLine = (memOn && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const recent = compMessages.slice(-6);
+    const msgs = [
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + compPersonaText() + compAboutText() + compExprContext() + compSceneContext() + compRoomContext() + compCastContext() },
+      ...recent,
+      { role: "user", content: "[LOOKING AT YOU] You can see the user on camera right now: " + desc + " Say ONE short, natural, in-character line reacting to what you actually see — a tease, a compliment, or a comment on their state. Keep it to one sentence. Do not repeat anything you said recently. Only set \"reply\" (and optionally \"show\" to change your expression)." }
+    ];
+    const res = await aiCall(msgs);
+    if (res && res.reply) {
+      const clean = aiStripEmotionTags(res.reply);
+      if (clean) {
+        compAddMsg("assistant", escapeHtml(clean), "ai-speaker-avatar");
+        if (aiSpeakEnabled()) aiSpeak(clean, companionState.voice);
+        companionLiveExpress(res.reply);
+      }
+      if (res.show) companionApplyShow(res.show);
+    }
+  } catch (e) {}
+  compSeeMeReactBusy = false;
 }
 function compSeeMeSnapshot() {
   const v = compSeeMeVideo();
@@ -13551,7 +13649,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
-  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; compSeeMeModalHide(); if (cb) cb(); };
+  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } } compSeeMeModalHide(); if (cb) cb(); };
   const smCancel = $("compSeeMeModalCancel"); if (smCancel) smCancel.onclick = compSeeMeModalHide;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
