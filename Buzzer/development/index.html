@@ -975,7 +975,6 @@
             <button class="ble-btn small" id="compBuilderBtn" type="button" title="Open the Avatar builder">🧑 Builder</button>
             <button class="ble-btn small" id="compFreedomBtn" type="button" title="Companion initiative — tap to change">🛡 Strict</button>
             <button class="ble-btn small" id="compSceneBtn" type="button" title="Open the Scene builder">🎬 Scene</button>
-            <button class="ble-btn small" id="compSeeMe" type="button" title="Let the avatar see you through your webcam (explicit consent)">👁 See me</button>
           </div>
           <div class="comp-scene-name" id="compSceneName"></div>
           <div class="comp-social" id="compSocial" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
@@ -1089,6 +1088,17 @@
         <div class="photo-modal-actions" style="margin-top:10px;">
           <button class="ble-btn small" id="compNameCancel" type="button">Cancel</button>
           <button class="ble-btn small" id="compNameOk" type="button">Add</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="photo-modal" id="compSeeMeModal" style="display:none;z-index:210;">
+      <div class="photo-modal-card" style="max-width:420px;">
+        <div class="photo-modal-title" id="compSeeMeModalTitle">Let the avatar see you?</div>
+        <div class="photo-modal-body" id="compSeeMeModalBody"></div>
+        <div class="photo-modal-actions">
+          <button class="ble-btn small" id="compSeeMeModalCancel" type="button">Cancel</button>
+          <button class="ble-btn small" id="compSeeMeModalOk" type="button">Turn on camera</button>
         </div>
       </div>
     </div>
@@ -13016,25 +13026,66 @@ async function compSend() {
 let compSeeMeStream = null;
 let compSeeMeOn = false;
 let compSeeMeVideoEl = null;
+let compSeeMeBtnEl = null;
 function compSeeMeVideo() {
   if (compSeeMeVideoEl) return compSeeMeVideoEl;
   compSeeMeVideoEl = document.createElement("video");
   compSeeMeVideoEl.muted = true;
   compSeeMeVideoEl.playsInline = true;
   compSeeMeVideoEl.autoplay = true;
-  compSeeMeVideoEl.style.cssText = "position:absolute;bottom:10px;right:10px;width:30%;aspect-ratio:1/1;object-fit:cover;border-radius:50%;border:2px solid #38bdf8;z-index:6;background:#0b1220;display:none;";
+  compSeeMeVideoEl.style.cssText = "position:absolute;bottom:10px;left:10px;width:30%;aspect-ratio:1/1;object-fit:cover;border-radius:50%;border:2px solid #38bdf8;z-index:6;background:#0b1220;display:none;";
   return compSeeMeVideoEl;
 }
+function compSeeMeBtn() {
+  if (compSeeMeBtnEl) return compSeeMeBtnEl;
+  compSeeMeBtnEl = document.createElement("button");
+  compSeeMeBtnEl.type = "button";
+  compSeeMeBtnEl.textContent = "👁";
+  compSeeMeBtnEl.title = "Let the avatar see you (webcam)";
+  compSeeMeBtnEl.style.cssText = "position:absolute;bottom:10px;right:10px;width:38px;height:38px;border-radius:50%;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:1.1rem;line-height:1;cursor:pointer;z-index:7;display:flex;align-items:center;justify-content:center;padding:0;";
+  compSeeMeBtnEl.onclick = compSeeMeToggle;
+  return compSeeMeBtnEl;
+}
+function compSeeMeSync() {
+  if (!compSeeMeBtnEl) return;
+  if (compSeeMeOn) {
+    compSeeMeBtnEl.style.background = "#0891b2";
+    compSeeMeBtnEl.style.borderColor = "#38bdf8";
+    compSeeMeBtnEl.style.color = "#fff";
+    compSeeMeBtnEl.title = "Turn off — the avatar can see you";
+  } else {
+    compSeeMeBtnEl.style.background = "#0f172a";
+    compSeeMeBtnEl.style.borderColor = "#334155";
+    compSeeMeBtnEl.style.color = "#94a3b8";
+    compSeeMeBtnEl.title = "Let the avatar see you (webcam)";
+  }
+}
 function compSeeMeAttach() {
-  if (!compSeeMeVideoEl) return;
   const box = $("companionAvatar");
-  if (box && compSeeMeVideoEl.parentNode !== box) { try { box.appendChild(compSeeMeVideoEl); } catch (e) {} }
+  if (!box) return;
+  const btn = compSeeMeBtn();
+  if (btn.parentNode !== box) { try { box.appendChild(btn); } catch (e) {} }
+  if (compSeeMeVideoEl && compSeeMeVideoEl.parentNode !== box) { try { box.appendChild(compSeeMeVideoEl); } catch (e) {} }
 }
 function compSeeMeOff() {
   compSeeMeOn = false;
   if (compSeeMeStream) { compSeeMeStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} }); compSeeMeStream = null; }
   if (compSeeMeVideoEl) { compSeeMeVideoEl.style.display = "none"; try { compSeeMeVideoEl.srcObject = null; } catch (e) {} }
-  const btn = $("compSeeMe"); if (btn) { btn.textContent = "👁 See me"; btn.classList.remove("active"); }
+  compSeeMeSync();
+}
+let compSeeMeModalCb = null;
+function compSeeMeModalHide() {
+  compSeeMeModalCb = null;
+  const m = $("compSeeMeModal"); if (m) m.style.display = "none";
+}
+function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
+  const m = $("compSeeMeModal"), body = $("compSeeMeModalBody"), ok = $("compSeeMeModalOk"), cancel = $("compSeeMeModalCancel");
+  if (!m || !body || !ok || !cancel) return;
+  body.innerHTML = bodyHtml;
+  ok.textContent = okLabel || "OK";
+  compSeeMeModalCb = onOk || null;
+  cancel.style.display = onOk ? "" : "none";
+  m.style.display = "";
 }
 function aiVisionProvider() {
   const s = aiProviderSettings();
@@ -13064,8 +13115,17 @@ function aiVisionProviderName(p) {
 async function compSeeMeToggle() {
   if (compSeeMeOn) { compSeeMeOff(); funLog("The avatar can't see you anymore."); return; }
   const p = aiVisionProvider();
-  if (!p) { alert("The avatar can't see you yet — vision needs a DeepSeek, OpenAI or Gemini API key. Add one under 🤖 AI assistant (it can be the same one you chat with)."); return; }
-  if (!confirm("Allow the AI avatar to SEE you through your webcam?\n\nYour camera stays on your device. Only short snapshots are sent to " + aiVisionProviderName(p) + " to describe what you look like (clothes, body, posture) so the avatar can react. Nothing is saved. You can watch the same live view in the little bubble and turn this off any time.")) return;
+  if (!p) {
+    compSeeMeModalShow("The avatar can't see you yet — vision needs a <b>DeepSeek</b>, <b>OpenAI</b> or <b>Gemini</b> API key. Add one under 🤖 AI assistant (it can be the same one you chat with).", "OK", null);
+    return;
+  }
+  compSeeMeModalShow(
+    "Allow the AI avatar to <b>see you</b> through your webcam?<br><br>Your camera stays on your device. Only short snapshots are sent to <b>" + aiVisionProviderName(p) + "</b> to describe what you look like (clothes, body, posture) so the avatar can react. <b>Nothing is saved.</b> You can watch the same live view in the little bubble, and turn it off any time.",
+    "Turn on camera",
+    () => compSeeMeStart()
+  );
+}
+async function compSeeMeStart() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
     compSeeMeStream = stream;
@@ -13074,11 +13134,12 @@ async function compSeeMeToggle() {
     v.srcObject = stream;
     v.style.display = "";
     compSeeMeAttach();
-    const btn = $("compSeeMe"); if (btn) { btn.textContent = "👁 Seeing me"; btn.classList.add("active"); }
-    funLog("The avatar can see you now. Turn it off with 👁 Seeing me.");
+    compSeeMeSync();
+    funLog("The avatar can see you now. Tap 👁 on the avatar to turn it off.");
   } catch (e) {
     compSeeMeOn = false;
-    alert("Camera unavailable: " + (e && e.message ? e.message : e));
+    compSeeMeSync();
+    compSeeMeModalShow("Camera unavailable: " + escapeHtml(e && e.message ? e.message : e), "OK", null);
   }
 }
 function compSeeMeSnapshot() {
@@ -13490,7 +13551,8 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
-  const seeMe = $("compSeeMe"); if (seeMe) seeMe.onclick = compSeeMeToggle;
+  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; compSeeMeModalHide(); if (cb) cb(); };
+  const smCancel = $("compSeeMeModalCancel"); if (smCancel) smCancel.onclick = compSeeMeModalHide;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const talkBig = $("compTalkBig"); if (talkBig) talkBig.onclick = compVoice;
