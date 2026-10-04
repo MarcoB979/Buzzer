@@ -1111,7 +1111,7 @@
           </select>
           <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:.78rem;color:#94a3b8;cursor:pointer;">
             <input type="checkbox" id="compSeeMeLogChk">
-            Save camera snapshots to the debug log (for troubleshooting)
+            Save every camera snapshot (pick a folder) — for troubleshooting
           </label>
         </div>
         <div class="photo-modal-actions">
@@ -13044,6 +13044,7 @@ let compSeeMeLookBusy = false;
 let compSeeMeLastDesc = "";
 let compSeeMeReactBusy = false;
 let compSeeMeShots = [];   // ring buffer of {ts, desc, dataUrl} for the debug export
+let compSeeMeDirHandle = null;   // optional folder picked to save snapshot .jpg files
 function compSeeMeVideo() {
   if (compSeeMeVideoEl) return compSeeMeVideoEl;
   compSeeMeVideoEl = document.createElement("video");
@@ -13183,12 +13184,30 @@ function compSeeMeStyle() {
 function compSeeMeLogEnabled() {
   try { return localStorage.getItem("ossm-seeme-log") === "1"; } catch (e) { return false; }
 }
-function compSeeMeLogShot(dataUrl, desc) {
+async function compSeeMeLogShot(dataUrl, desc) {
   if (!compSeeMeLogEnabled()) return;
   try {
     compSeeMeShots.push({ ts: Date.now(), desc: desc || "", dataUrl: dataUrl || "" });
-    if (compSeeMeShots.length > 20) compSeeMeShots.splice(0, compSeeMeShots.length - 20);
+    if (compSeeMeShots.length > 30) compSeeMeShots.splice(0, compSeeMeShots.length - 30);
   } catch (e) {}
+  if (compSeeMeDirHandle && dataUrl) {
+    try {
+      const d = new Date();
+      const pad = (n, w) => String(n).padStart(w, "0");
+      const name = "snap-" + d.getFullYear() + pad(d.getMonth() + 1, 2) + pad(d.getDate(), 2) + "-" + pad(d.getHours(), 2) + pad(d.getMinutes(), 2) + pad(d.getSeconds(), 2) + "-" + pad(d.getMilliseconds(), 3) + ".jpg";
+      const blob = dataUrlToBlob(dataUrl);
+      if (blob) {
+        const fh = await compSeeMeDirHandle.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob);
+        await w.close();
+        const lh = await compSeeMeDirHandle.getFileHandle("snapshots.txt", { create: true });
+        const lw = await lh.createWritable({ keepExistingData: true });
+        await lw.write("[" + d.toLocaleString() + "] " + (desc || "(no description)") + "\n");
+        await lw.close();
+      }
+    } catch (e) {}
+  }
 }
 // Downscale a stored photo data URL to a compact JPEG (keeps localStorage under quota).
 function compDownscaleDataUrl(dataUrl, maxDim, quality) {
@@ -13350,8 +13369,8 @@ async function aiVisionDescribe(dataUrl, style) {
   if (!p) return "";
   const inChar = style !== "real";
   const prompt = inChar
-    ? "Describe this webcam image in 1-2 short, plain sentences. Report: the person's face (glasses or not, facial hair or not, hair color and style, expression), clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, which area of the body is visible (face, chest area, crotch/between the legs, backside), and whether they appear aroused. IMPORTANT: do NOT mention gender or sex at all — never say male/female/man/woman, never name anatomy (penis, vagina, breasts), and do NOT mention age, body size or shape, body hair on the body, or the size of any body part. Start with \"You see:\"."
-    : "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. Describe everything visible about the person: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude), chest/genitals visible or covered, body hair, body shape, and posture/position. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
+    ? "Describe this webcam image in 1-2 short, plain sentences. Report: the person's face (glasses or not, facial hair or not, hair color and style, expression), clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, which area of the body is visible (face, chest area, crotch/between the legs, backside), and whether they appear aroused. If the image is too dark, too blurry, too close, or the lens is blocked (e.g. a finger over it), say that plainly instead of guessing. IMPORTANT: do NOT mention gender or sex at all — never say male/female/man/woman, never name anatomy (penis, vagina, breasts), and do NOT mention age, body size or shape, body hair on the body, or the size of any body part. Start with \"You see:\"."
+    : "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. Describe everything visible: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude) and its COLOR, chest/genitals visible or covered, body hair, body shape, posture/position, and anything they are doing or holding (e.g. smoking a cigarette). If the image is too dark, too blurry, too close, or the lens is blocked (e.g. a finger over it), say that plainly instead of guessing. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
   try {
     if (p.kind === "openai" || p.kind === "deepseek") {
       const url = (p.baseUrl || "https://api.deepseek.com").replace(/\/+$/, "") + "/chat/completions";
@@ -13751,7 +13770,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
-  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } const logChk = $("compSeeMeLogChk"); if (logChk) { try { localStorage.setItem("ossm-seeme-log", logChk.checked ? "1" : "0"); } catch (e) {} } } compSeeMeModalHide(); if (cb) cb(); };
+  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = async () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } const logChk = $("compSeeMeLogChk"); if (logChk) { try { localStorage.setItem("ossm-seeme-log", logChk.checked ? "1" : "0"); } catch (e) {} if (logChk.checked) { try { if (window.showDirectoryPicker) { compSeeMeDirHandle = await window.showDirectoryPicker({ mode: "readwrite" }); funLog("Snapshots will be saved to the folder you picked."); } else { funLog("This browser can't save snapshots to a folder — they'll be included in the developer export (zip) instead."); } } catch (e) { compSeeMeDirHandle = null; } } else { compSeeMeDirHandle = null; } } } compSeeMeModalHide(); if (cb) cb(); };
   const smCancel = $("compSeeMeModalCancel"); if (smCancel) smCancel.onclick = compSeeMeModalHide;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
@@ -14184,7 +14203,7 @@ function aiExportFmtMsg(content) {
   }
   return t;
 }
-function exportDeveloperInfo() {
+async function exportDeveloperInfo() {
   const now = new Date();
   const clock = (t) => new Date(t).toLocaleTimeString([], { hour12: false });
   const stamp = (t) => new Date(t).toLocaleString();
@@ -14241,11 +14260,21 @@ function exportDeveloperInfo() {
 
   if (compSeeMeLogEnabled() && compSeeMeShots.length) {
     push("");
-    push("=== CAMERA SNAPSHOTS (" + compSeeMeShots.length + " most recent, base64 JPEG data URLs) ===");
-    for (const sh of compSeeMeShots) {
-      push("[" + clock(sh.ts) + "] " + (sh.desc || "(no description)"));
-      push(sh.dataUrl || "(no image)");
-    }
+    push("=== CAMERA SNAPSHOTS (" + compSeeMeShots.length + " most recent — included as .jpg files in this zip) ===");
+    for (const sh of compSeeMeShots) push("[" + clock(sh.ts) + "] " + (sh.desc || "(no description)"));
+    try {
+      const JSZip = await loadJSZip();
+      const zip = new JSZip();
+      zip.file("buzzer-dev-info.txt", L.join("\n"));
+      const shots = zip.folder("snapshots");
+      compSeeMeShots.forEach((sh, i) => {
+        const jblob = dataUrlToBlob(sh.dataUrl);
+        if (jblob) shots.file("snap-" + String(i + 1).padStart(3, "0") + "-" + clock(sh.ts).replace(/:/g, "-") + ".jpg", jblob);
+      });
+      const zblob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
+      saveBlobAs(zblob, "buzzer-dev-info-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".zip");
+      return;
+    } catch (e) {}
   }
 
   const blob = new Blob([L.join("\n")], { type: "text/plain;charset=utf-8" });
