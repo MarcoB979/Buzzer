@@ -13234,7 +13234,7 @@ async function compSeeMeReact(desc) {
     const style = compSeeMeStyle();
     const frame = (style === "real")
       ? "Comment on what you actually see."
-      : "Stay fully in character — describe their body as their own self-image (ABOUT THE USER / your memory of them), never the raw camera details.";
+      : "Stay fully in character — describe their body and gender exactly as their own self-image (ABOUT THE USER / your memory of them), never what the raw camera shows.";
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + compPersonaText() + compAboutText() + compExprContext() + compSceneContext() + compRoomContext() + compCastContext() },
       ...recent,
@@ -13269,7 +13269,7 @@ async function aiVisionDescribe(dataUrl, style) {
   if (!p) return "";
   const inChar = style !== "real";
   const prompt = inChar
-    ? "Describe this webcam image in 1-2 short, plain sentences focused ONLY on the person's state and what is happening: clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, and which part of their body is in frame (face, chest, genitals, ass) and whether they appear aroused. Do NOT mention age, body size or shape, body hair, or the size of any body part. Start with \"You see:\"."
+    ? "Describe this webcam image in 1-2 short, plain sentences focused ONLY on the person's state and what is happening. Report: clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, which area of the body is visible (face, chest area, crotch/between the legs, backside), and whether they appear aroused. IMPORTANT: do NOT mention gender or sex at all — never say male/female/man/woman, never name anatomy (penis, vagina, breasts), and do NOT mention age, body size or shape, body hair, or the size of any body part. Only state and area. Start with \"You see:\"."
     : "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. Describe everything visible about the person: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude), chest/genitals visible or covered, body hair, body shape, and posture/position. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
   try {
     if (p.kind === "openai" || p.kind === "deepseek") {
@@ -13311,7 +13311,7 @@ async function compSeeMeContext() {
     if (!desc) return "";
     const frame = (style === "real")
       ? "react to what you truly see"
-      : "stay fully in character — see their body through their own self-image (ABOUT THE USER / your memory), never the raw details";
+      : "stay fully in character — describe their body and gender exactly as their own self-image (ABOUT THE USER / your memory), never what the raw camera shows";
     return "\n\nWEBCAM (you can actually see the user live on camera right now — " + frame + "): " + desc + " If the user claims something about their body or clothing that contradicts what you actually see (e.g. says they took their shirt off but it is still on), notice it and call it out in character — playful and teasing, never preachy.";
   } catch (e) { return ""; }
 }
