@@ -1119,6 +1119,8 @@
           <div id="avatarVoiceElevenRow" style="display:none;">
             <label id="avatarVoiceIdLabel" style="display:block;margin-bottom:4px;">ElevenLabs Voice ID</label>
             <input type="text" id="avatarVoiceId" oninput="compVoiceUiSave()" placeholder="21m00Tcm4TlvDq8ikWAM" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;">
+            <select id="avatarVoiceList" onchange="compVoiceListPick()" style="display:none;width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;margin-bottom:6px;"></select>
+            <button type="button" class="ble-btn small" id="avatarVoiceReload" onclick="compVoiceLoadAllTalk()" style="display:none;margin-bottom:6px;">↻ Load AllTalk voices</button>
           </div>
           <div id="avatarVoiceSystemRow">
             <label style="display:block;margin-bottom:4px;">Device voice name</label>
@@ -7438,6 +7440,7 @@ async function aiSpeakElevenLabs(text, key, voiceId) {
       return;
     }
     const blob = await resp.blob();
+    sessionBroadcastAudio(blob, "audio/mpeg");
     aiBuildEnvelope(blob);
     const url = URL.createObjectURL(blob);
     if (!aiAudio) aiAudio = new Audio();
@@ -7644,6 +7647,7 @@ async function aiSpeakAllTalk(text, voiceName) {
     if (!rel) { aiAllTalkWarn("no audio returned"); aiSpeakBrowser(text); return; }
     const audioUrl = (String(rel).indexOf("http") === 0) ? String(rel) : (base + String(rel));
     const blob = await (await fetch(audioUrl)).blob();
+    sessionBroadcastAudio(blob, "audio/wav");
     aiBuildEnvelope(blob);
     const url = URL.createObjectURL(blob);
     if (!aiAudio) aiAudio = new Audio();
@@ -7723,6 +7727,7 @@ async function aiSpeakFish(text) {
       return;
     }
     const blob = await resp.blob();
+    sessionBroadcastAudio(blob, "audio/mpeg");
     aiBuildEnvelope(blob);
     const url = URL.createObjectURL(blob);
     if (!aiAudio) aiAudio = new Audio();
@@ -11096,7 +11101,32 @@ function compVoiceUiSync() {
   const provider = (prov && (prov.value === "elevenlabs" || prov.value === "alltalk")) ? prov.value : "system";
   const er = $("avatarVoiceElevenRow"); if (er) er.style.display = (provider === "elevenlabs" || provider === "alltalk") ? "" : "none";
   const sr = $("avatarVoiceSystemRow"); if (sr) sr.style.display = provider === "system" ? "" : "none";
-  const lbl = $("avatarVoiceIdLabel"); if (lbl) lbl.textContent = provider === "alltalk" ? "AllTalk voice (file name)" : "ElevenLabs Voice ID";
+  const lbl = $("avatarVoiceIdLabel"); if (lbl) lbl.textContent = provider === "alltalk" ? "AllTalk voice" : "ElevenLabs Voice ID";
+  const idInp = $("avatarVoiceId"); if (idInp) idInp.style.display = provider === "alltalk" ? "none" : "";
+  const list = $("avatarVoiceList"); if (list) list.style.display = provider === "alltalk" ? "" : "none";
+  const reload = $("avatarVoiceReload"); if (reload) reload.style.display = provider === "alltalk" ? "" : "none";
+  if (provider === "alltalk") compVoiceLoadAllTalk();
+}
+async function compVoiceLoadAllTalk() {
+  const list = $("avatarVoiceList");
+  if (!list) return;
+  const base = aiAllTalkUrl().replace(/\/+$/, "");
+  try {
+    const r = await fetch(base + "/api/voices");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    const arr = Array.isArray(j.voices) ? j.voices : (Array.isArray(j) ? j : []);
+    const cur = ($("avatarVoiceId") ? $("avatarVoiceId").value : "").trim();
+    list.innerHTML = '<option value="">— choose a voice —</option>';
+    arr.forEach(v => { const o = document.createElement("option"); o.value = v; o.textContent = v; if (cur && cur === v) o.selected = true; list.appendChild(o); });
+  } catch (e) {
+    list.innerHTML = '<option value="">(can\'t reach AllTalk at ' + base + ')</option>';
+  }
+}
+function compVoiceListPick() {
+  const list = $("avatarVoiceList");
+  const idInp = $("avatarVoiceId");
+  if (list && idInp) { idInp.value = list.value; compVoiceUiSave(); }
 }
 function compVoiceUiSave() {
   const prov = $("avatarVoiceProvider");
@@ -15334,6 +15364,53 @@ function sessionCodeFromUrl() { try { return new URLSearchParams(location.search
 function sessionGuestById(id) { return sess.guests.find(g => g.id === id); }
 function sessionBroadcast(obj) { for (const g of sess.guests) { try { if (g.conn && g.conn.open) g.conn.send(obj); } catch (e) {} } }
 function sessionSend(obj) { try { if (sess.hostConn && sess.hostConn.open) sess.hostConn.send(obj); } catch (e) {} }
+
+// ---------- Shared room audio (host streams its AI voice to guests) ----------
+let sessAudioParts = {};
+function sessionBroadcastAudio(blob, mime) {
+  if (sess.role !== "host" || !sess.guests.length) return;
+  if (!blob || blob.size < 200) return;
+  const id = "aud" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const reader = new FileReader();
+  reader.onload = () => {
+    const b64 = String(reader.result || "").split(",")[1] || "";
+    if (!b64) return;
+    const chunk = 40000;
+    const count = Math.ceil(b64.length / chunk);
+    for (let i = 0; i < count; i++) {
+      const part = b64.slice(i * chunk, (i + 1) * chunk);
+      const msg = { t: "ai-audio", id, mime: mime || (blob.type || "audio/mpeg"), part: i, count, data: part };
+      for (const g of sess.guests) {
+        if (g.conn && g.conn.open) { try { g.conn.send(msg); } catch (e) {} }
+      }
+    }
+  };
+  reader.readAsDataURL(blob);
+}
+function sessionOnAiAudio(d) {
+  if (!d || !d.id || sess.role !== "guest") return;
+  if (sess.myState === "breakout") return;
+  sessAudioParts = sessAudioParts || {};
+  let buf = sessAudioParts[d.id];
+  if (!buf) buf = sessAudioParts[d.id] = { parts: [], count: d.count || 0, mime: d.mime || "audio/mpeg" };
+  buf.parts[d.part || 0] = d.data || "";
+  const got = buf.parts.filter(x => typeof x === "string" && x.length).length;
+  if (!(got >= (buf.count || 1) && buf.count > 0)) return;
+  delete sessAudioParts[d.id];
+  try {
+    const bin = atob(buf.parts.join(""));
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    const blob = new Blob([arr], { type: buf.mime });
+    aiStopAudio();
+    const url = URL.createObjectURL(blob);
+    if (!aiAudio) aiAudio = new Audio();
+    aiAudio.src = url;
+    aiAudio.onended = () => { const u = aiAudio.src; try { aiAudio.removeAttribute("src"); aiAudio.load(); } catch (e) {} try { if (u) URL.revokeObjectURL(u); } catch (e) {} };
+    aiAudio.play().catch(() => {});
+  } catch (e) {}
+}
+
 function sessionSendPrefs() {
   if (sess.role !== "guest") return;
   sessionSend({ t: "prefs", mirror: !!sess.mirrorDevice, watch: !!sess.watchVideo });
@@ -16087,6 +16164,9 @@ function sessionOnHostData(d) {
   else if (d.t === "aimove") {
     if (sess.myState === "ready") aiApplyLocalMove(d.params || null, d.run || null, d.pos || null, d.addon || null);
   }
+  else if (d.t === "ai-audio") {
+    sessionOnAiAudio(d);
+  }
   else if (d.t === "apply") {
     if (d.kind === "estop") {
       if (sess.mirrorDevice && connected) { monitor("Session: host estop — stopping my device", "warn"); emergencyStop(); }
@@ -16107,6 +16187,7 @@ async function sessionLeave() {
   sess.remoteStreams = {}; sess.guests = []; sess.hostConn = null;
   sess.role = null; sess.code = ""; sess.myRole = "watch"; sess.myState = "watch"; sess.hostState = null;
   try { sessionStorage.removeItem("ossm-session-my-state"); } catch (e) {}
+  sessAudioParts = {};
   if (sess.compSynced) { sess.compSynced = false; if (compModeActive) { try { companionClose(); } catch (e) {} } }
   sess.mirrorDevice = false;
   playReset();
