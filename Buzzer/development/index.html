@@ -352,6 +352,24 @@
   .ai-user { background: #1e293b; color: #e2e8f0; align-self: flex-end; }
   .ai-assistant { background: #0f172a; color: #cbd5e1; border: 1px solid #334155; }
   .ai-system { color: #64748b; font-size: .7rem; align-self: center; }
+  /* Per-person chat colors — every speaker gets their own background tint */
+  .ai-speaker-avatar { background: #082f45; border: 1px solid #38bdf8; color: #e0f2fe; }
+  .ai-cast-0 { background: #0e2a47; border: 1px solid #3b82f6; }
+  .ai-cast-1 { background: #3b1030; border: 1px solid #ec4899; }
+  .ai-cast-2 { background: #0a3322; border: 1px solid #10b981; }
+  .ai-cast-3 { background: #3a2608; border: 1px solid #f59e0b; }
+  .ai-cast-4 { background: #24104a; border: 1px solid #8b5cf6; }
+  .ai-cast-5 { background: #3a0f0f; border: 1px solid #ef4444; }
+  .ai-cast-6 { background: #08303a; border: 1px solid #06b6d4; }
+  .ai-cast-7 { background: #2e0a2e; border: 1px solid #d946ef; }
+  .ai-guest-0 { background: #1c2e0a; border: 1px solid #84cc16; }
+  .ai-guest-1 { background: #3a1c08; border: 1px solid #f97316; }
+  .ai-guest-2 { background: #083530; border: 1px solid #14b8a6; }
+  .ai-guest-3 { background: #3a0f24; border: 1px solid #f43f5e; }
+  .ai-guest-4 { background: #101f3a; border: 1px solid #6366f1; }
+  .ai-guest-5 { background: #3a3008; border: 1px solid #eab308; }
+  .ai-guest-6 { background: #09332c; border: 1px solid #2dd4bf; }
+  .ai-guest-7 { background: #3a1220; border: 1px solid #fb7185; }
   .ai-thinking { color: #94a3b8; font-style: italic; }
   .ai-row { display: flex; gap: 6px; }
   .comp-suggest { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -8213,11 +8231,11 @@ function aiAddApplied(applied) {
   // Values are applied to the device/UI directly; the chat shows only the conversation.
 }
 
-function aiAddMsg(role, html) {
+function aiAddMsg(role, html, cls) {
   const h = (compModeActive ? $("compHistory") : null) || $("aiHistory");
   if (!h) return null;
   const d = document.createElement("div");
-  d.className = "ai-msg ai-" + role;
+  d.className = "ai-msg ai-" + role + (compMsgClass(role, cls) ? " " + compMsgClass(role, cls) : "");
   d.innerHTML = html;
   h.appendChild(d);
   h.scrollTop = h.scrollHeight;
@@ -11345,7 +11363,7 @@ function compApplyLine(actor, rawReply) {
   const clean = aiStripEmotionTags(markerClean);
   if (!clean) return;
   if (compCastActive()) compCastHighlight(actor);
-  aiAddMsg("assistant", compLineHtml(actor, clean));
+  aiAddMsg("assistant", compLineHtml(actor, clean), compLineSpeaker(actor));
   if (aiSpeakEnabled()) aiSpeak(clean, compCastVoice(actor) || companionState.voice);
   companionLiveExpress(rawReply);
 }
@@ -12697,18 +12715,35 @@ let compSetupGreeted = false;
 let compLimitsGreeted = false;
 let compPendingLimits = null;
 
-function compAddMsgLocal(role, html) {
+let compSpeakerGuestSlots = {};
+function compGuestSlot(name) {
+  const key = String(name || "guest").trim().toLowerCase() || "guest";
+  if (compSpeakerGuestSlots[key] === undefined) compSpeakerGuestSlots[key] = Object.keys(compSpeakerGuestSlots).length;
+  return compSpeakerGuestSlots[key] % 8;
+}
+function compLineSpeaker(actor) {
+  const cast = compCast();
+  const i = cast.findIndex(x => (x.name || "").toLowerCase() === String(actor || "").toLowerCase());
+  if (i >= 0) return "ai-cast-" + (i % 8);
+  return "ai-speaker-avatar";
+}
+function compMsgClass(role, cls) {
+  if (cls) return cls;
+  if (role === "assistant" && compModeActive) return "ai-speaker-avatar";
+  return "";
+}
+function compAddMsgLocal(role, html, cls) {
   const h = $("compHistory");
   if (!h) return null;
   const d = document.createElement("div");
-  d.className = "ai-msg ai-" + role;
+  d.className = "ai-msg ai-" + role + (compMsgClass(role, cls) ? " " + compMsgClass(role, cls) : "");
   d.innerHTML = html;
   h.appendChild(d);
   h.scrollTop = h.scrollHeight;
   return d;
 }
-function compAddMsg(role, html) {
-  const d = compAddMsgLocal(role, html);
+function compAddMsg(role, html, cls) {
+  const d = compAddMsgLocal(role, html, cls);
   sessionBroadcastAi(role, html);
   return d;
 }
@@ -13043,7 +13078,7 @@ async function compGuestTurn(name, text) {
   if (sess.role !== "host" || !compModeActive || !companionEnabled()) return;
   const who = String(name || "Guest").slice(0, 24);
   const display = who + ": " + String(text || "").slice(0, 500);
-  compAddMsgLocal("user", escapeHtml(display));
+  compAddMsgLocal("user", escapeHtml(display), "ai-guest-" + compGuestSlot(who));
   if (sess.role === "host") sessionBroadcast({ t: "ai", role: "user", name: who, text: String(text || "").slice(0, 500), comp: true });
   compMessages.push({ role: "user", content: display, ts: Date.now() });
   aiDebugPersistSoon();
@@ -16272,7 +16307,14 @@ function sessionOnHostData(d) {
     sessionAppendChat(aiWho, aiText);
     if (sess.myState === "breakout") return; // record history, but keep the private breakout session separate
     if (d.comp) sessionSyncCompanion({ compMode: true });
-    if (compModeActive) compAddMsg(d.role === "user" ? "user" : "assistant", (d.role === "user" ? "<b>" + escapeHtml(aiWho) + ":</b> " : "") + escapeHtml(aiText));
+    if (compModeActive) {
+      if (d.role === "user") {
+        const mine = aiWho === (sess.myName || "Guest");
+        compAddMsg("user", "<b>" + escapeHtml(aiWho) + ":</b> " + escapeHtml(aiText), mine ? null : ("ai-guest-" + compGuestSlot(aiWho)));
+      } else {
+        compAddMsg("assistant", escapeHtml(aiText), "ai-speaker-avatar");
+      }
+    }
   }
   else if (d.t === "aimove") {
     if (sess.myState === "ready") aiApplyLocalMove(d.params || null, d.run || null, d.pos || null, d.addon || null);
