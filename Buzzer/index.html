@@ -1111,7 +1111,7 @@
           </select>
           <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:.78rem;color:#94a3b8;cursor:pointer;">
             <input type="checkbox" id="compSeeMeLogChk">
-            Save every camera snapshot (pick a folder) — for troubleshooting
+            Save every camera snapshot (included in the developer export) — for troubleshooting
           </label>
         </div>
         <div class="photo-modal-actions">
@@ -13186,15 +13186,34 @@ function compSeeMeLogEnabled() {
 }
 async function compSeeMeLogShot(dataUrl, desc) {
   if (!compSeeMeLogEnabled()) return;
+  const d = new Date();
+  const name = compSeeMeSnapshotName(d);
   try {
     compSeeMeShots.push({ ts: Date.now(), desc: desc || "", dataUrl: dataUrl || "" });
-    if (compSeeMeShots.length > 30) compSeeMeShots.splice(0, compSeeMeShots.length - 30);
+    if (compSeeMeShots.length > 60) compSeeMeShots.splice(0, compSeeMeShots.length - 60);
   } catch (e) {}
+  // Persist to the browser's private storage (works on phones, survives reloads).
+  if (dataUrl) {
+    try {
+      const dir = await compSeeMeOpfsDir();
+      if (dir) {
+        const blob = dataUrlToBlob(dataUrl);
+        if (blob) {
+          const fh = await dir.getFileHandle(name, { create: true });
+          const w = await fh.createWritable();
+          await w.write(blob);
+          await w.close();
+          const lh = await dir.getFileHandle("snapshots.txt", { create: true });
+          const lw = await lh.createWritable({ keepExistingData: true });
+          await lw.write("[" + d.toLocaleString() + "] " + (desc || "(no description)") + "\n");
+          await lw.close();
+        }
+      }
+    } catch (e) {}
+  }
+  // Desktop: also write into the picked folder (visible files on disk).
   if (compSeeMeDirHandle && dataUrl) {
     try {
-      const d = new Date();
-      const pad = (n, w) => String(n).padStart(w, "0");
-      const name = "snap-" + d.getFullYear() + pad(d.getMonth() + 1, 2) + pad(d.getDate(), 2) + "-" + pad(d.getHours(), 2) + pad(d.getMinutes(), 2) + pad(d.getSeconds(), 2) + "-" + pad(d.getMilliseconds(), 3) + ".jpg";
       const blob = dataUrlToBlob(dataUrl);
       if (blob) {
         const fh = await compSeeMeDirHandle.getFileHandle(name, { create: true });
@@ -13208,6 +13227,32 @@ async function compSeeMeLogShot(dataUrl, desc) {
       }
     } catch (e) {}
   }
+}
+let compSeeMeOpfsDirCache = null;
+async function compSeeMeOpfsDir() {
+  if (compSeeMeOpfsDirCache) return compSeeMeOpfsDirCache;
+  try {
+    if (!navigator.storage || !navigator.storage.getDirectory) return null;
+    const root = await navigator.storage.getDirectory();
+    compSeeMeOpfsDirCache = await root.getDirectoryHandle("buzzer-snapshots", { create: true });
+    return compSeeMeOpfsDirCache;
+  } catch (e) { return null; }
+}
+function compSeeMeSnapshotName(d) {
+  const pad = (n, w) => String(n).padStart(w, "0");
+  return "snap-" + d.getFullYear() + pad(d.getMonth() + 1, 2) + pad(d.getDate(), 2) + "-" + pad(d.getHours(), 2) + pad(d.getMinutes(), 2) + pad(d.getSeconds(), 2) + "-" + pad(d.getMilliseconds(), 3) + ".jpg";
+}
+async function compSeeMeOpfsList() {
+  const dir = await compSeeMeOpfsDir();
+  if (!dir) return [];
+  const out = [];
+  try {
+    for await (const [name, handle] of dir.entries()) {
+      if (name.indexOf(".jpg") >= 0) { try { const f = await handle.getFile(); out.push({ name, blob: f }); } catch (e) {} }
+    }
+  } catch (e) {}
+  out.sort((a, b) => (a.name < b.name ? -1 : 1));
+  return out;
 }
 // Downscale a stored photo data URL to a compact JPEG (keeps localStorage under quota).
 function compDownscaleDataUrl(dataUrl, maxDim, quality) {
@@ -14258,19 +14303,29 @@ async function exportDeveloperInfo() {
     push((l.ts ? "[" + stamp(l.ts) + "] " : "") + (l.cls ? "(" + l.cls + ") " : "") + l.text + (l.n > 1 ? "  (×" + l.n + ")" : ""));
   }
 
-  if (compSeeMeLogEnabled() && compSeeMeShots.length) {
+  const opfsShots = await compSeeMeOpfsList();
+  const shotCount = opfsShots.length || compSeeMeShots.length;
+  if (compSeeMeLogEnabled() && shotCount) {
     push("");
-    push("=== CAMERA SNAPSHOTS (" + compSeeMeShots.length + " most recent — included as .jpg files in this zip) ===");
+    push("=== CAMERA SNAPSHOTS (" + shotCount + " snapshots included as .jpg files in this zip) ===");
     for (const sh of compSeeMeShots) push("[" + clock(sh.ts) + "] " + (sh.desc || "(no description)"));
     try {
       const JSZip = await loadJSZip();
       const zip = new JSZip();
       zip.file("buzzer-dev-info.txt", L.join("\n"));
       const shots = zip.folder("snapshots");
-      compSeeMeShots.forEach((sh, i) => {
-        const jblob = dataUrlToBlob(sh.dataUrl);
-        if (jblob) shots.file("snap-" + String(i + 1).padStart(3, "0") + "-" + clock(sh.ts).replace(/:/g, "-") + ".jpg", jblob);
-      });
+      if (opfsShots.length) {
+        opfsShots.forEach((s, i) => { shots.file(String(i + 1).padStart(3, "0") + "-" + s.name, s.blob); });
+        const dir = await compSeeMeOpfsDir();
+        if (dir) {
+          try { const lfh = await dir.getFileHandle("snapshots.txt", { create: false }); const lf = await lfh.getFile(); zip.file("snapshots-descriptions.txt", lf); } catch (e) {}
+        }
+      } else {
+        compSeeMeShots.forEach((sh, i) => {
+          const jblob = dataUrlToBlob(sh.dataUrl);
+          if (jblob) shots.file("snap-" + String(i + 1).padStart(3, "0") + "-" + clock(sh.ts).replace(/:/g, "-") + ".jpg", jblob);
+        });
+      }
       const zblob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
       saveBlobAs(zblob, "buzzer-dev-info-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".zip");
       return;
