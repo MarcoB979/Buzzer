@@ -706,6 +706,7 @@
   .companion-avatar canvas.live { width: 100%; height: 100%; display: block; }
   .companion-avatar video.comp-talk-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 2; background: #0b1220; }
   .companion-avatar video.comp-body-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; z-index: 2; background: #0b1220; }
+  #compSeeMe.active { background: #0891b2; border-color: #38bdf8; color: #fff; }
   .photo-modal { position: fixed; inset: 0; z-index: 140; background: rgba(0,0,0,.74); display: flex; align-items: center; justify-content: center; padding: 16px; }
   #photoConsent, #photoCalib, #bodyCalib, #avatarWelcome { z-index: 160; }
   .photo-modal-card { background: #0d1320; border: 1px solid #1e293b; border-radius: 14px; padding: 18px; max-width: 460px; width: 100%; color: #e2e8f0; }
@@ -974,6 +975,7 @@
             <button class="ble-btn small" id="compBuilderBtn" type="button" title="Open the Avatar builder">🧑 Builder</button>
             <button class="ble-btn small" id="compFreedomBtn" type="button" title="Companion initiative — tap to change">🛡 Strict</button>
             <button class="ble-btn small" id="compSceneBtn" type="button" title="Open the Scene builder">🎬 Scene</button>
+            <button class="ble-btn small" id="compSeeMe" type="button" title="Let the avatar see you through your webcam (explicit consent)">👁 See me</button>
           </div>
           <div class="comp-scene-name" id="compSceneName"></div>
           <div class="comp-social" id="compSocial" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
@@ -9800,7 +9802,7 @@ function companionGen() {
   const p = COMPANION_PRESETS[((companionState.preset % COMPANION_PRESETS.length) + COMPANION_PRESETS.length) % COMPANION_PRESETS.length];
   return Object.assign({ style:"lorelei", seed:"Noah" }, p, companionState.custom || {});
 }
-function companionRender() {
+function companionRenderCore() {
   const box = $("companionAvatar");
   const nameEl = $("compAvatarName");
   if (nameEl) nameEl.textContent = companionState.avatarName || "";
@@ -9871,6 +9873,10 @@ function companionRender() {
   if (typeof g.hairProbability === "number") url += "&hairProbability=" + g.hairProbability;
   if (typeof g.detailsProbability === "number") url += "&detailsProbability=" + g.detailsProbability;
   box.innerHTML = '<div class="companion-img generated"><img src="' + url + '" alt="Companion"></div>';
+}
+function companionRender() {
+  companionRenderCore();
+  compSeeMeAttach();
 }
 function companionApplyShow(v) {
   const s = String(v || "").toLowerCase().trim();
@@ -11597,6 +11603,7 @@ function companionOpen(mirrored) {
 }
 function companionClose() {
   companionLiveStop();
+  compSeeMeOff();
   const v = $("companionView");
   if (v) v.style.display = "none";
   companionRestorePanels();
@@ -12885,8 +12892,9 @@ async function compSend() {
       compBusy = false;
       return;
     }
+    const see = await compSeeMeContext();
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + compCastContext() + aiSuggestionsReminder() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + setupLine + safetyLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + compCastContext() + aiSuggestionsReminder() + see },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -13004,6 +13012,125 @@ async function compSend() {
   compDirtyTalkSchedule();
 }
 
+// ---------- Webcam vision ("the avatar can see you") — explicit consent, nothing saved ----------
+let compSeeMeStream = null;
+let compSeeMeOn = false;
+let compSeeMeVideoEl = null;
+function compSeeMeVideo() {
+  if (compSeeMeVideoEl) return compSeeMeVideoEl;
+  compSeeMeVideoEl = document.createElement("video");
+  compSeeMeVideoEl.muted = true;
+  compSeeMeVideoEl.playsInline = true;
+  compSeeMeVideoEl.autoplay = true;
+  compSeeMeVideoEl.style.cssText = "position:absolute;bottom:10px;right:10px;width:30%;aspect-ratio:1/1;object-fit:cover;border-radius:50%;border:2px solid #38bdf8;z-index:6;background:#0b1220;display:none;";
+  return compSeeMeVideoEl;
+}
+function compSeeMeAttach() {
+  if (!compSeeMeVideoEl) return;
+  const box = $("companionAvatar");
+  if (box && compSeeMeVideoEl.parentNode !== box) { try { box.appendChild(compSeeMeVideoEl); } catch (e) {} }
+}
+function compSeeMeOff() {
+  compSeeMeOn = false;
+  if (compSeeMeStream) { compSeeMeStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} }); compSeeMeStream = null; }
+  if (compSeeMeVideoEl) { compSeeMeVideoEl.style.display = "none"; try { compSeeMeVideoEl.srcObject = null; } catch (e) {} }
+  const btn = $("compSeeMe"); if (btn) { btn.textContent = "👁 See me"; btn.classList.remove("active"); }
+}
+function aiVisionProvider() {
+  const s = aiProviderSettings();
+  if (s.provider === "openai" && s.key) return { kind: "openai", key: s.key, baseUrl: s.baseUrl, model: s.model };
+  if (s.provider === "gemini" && s.key) return { kind: "gemini", key: s.key, model: s.model };
+  try {
+    const okey = (localStorage.getItem("ossm-ai-key-openai") || "").trim();
+    if (okey) {
+      const base = (localStorage.getItem("ossm-ai-base-url-openai") || "").trim() || "https://api.openai.com/v1";
+      const model = (localStorage.getItem("ossm-ai-model-openai") || "").trim() || "gpt-4o-mini";
+      return { kind: "openai", key: okey, baseUrl: base, model };
+    }
+    const gkey = (localStorage.getItem("ossm-ai-key-gemini") || "").trim();
+    if (gkey) {
+      const model = (localStorage.getItem("ossm-ai-model-gemini") || "").trim() || "gemini-flash-latest";
+      return { kind: "gemini", key: gkey, model };
+    }
+  } catch (e) {}
+  return null;
+}
+async function compSeeMeToggle() {
+  if (compSeeMeOn) { compSeeMeOff(); funLog("The avatar can't see you anymore."); return; }
+  const p = aiVisionProvider();
+  if (!p) { alert("The avatar can't see you yet — vision needs an OpenAI or Gemini API key. Add one under 🤖 AI assistant (it can stay your text provider; DeepSeek is fine for chat)."); return; }
+  if (!confirm("Allow the AI avatar to SEE you through your webcam?\n\nYour camera stays on your device. Only short snapshots are sent to " + (p.kind === "openai" ? "OpenAI" : "Google Gemini") + " to describe what you look like (clothes, body, posture) so the avatar can react. Nothing is saved. You can watch the same live view in the little bubble and turn this off any time.")) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
+    compSeeMeStream = stream;
+    compSeeMeOn = true;
+    const v = compSeeMeVideo();
+    v.srcObject = stream;
+    v.style.display = "";
+    compSeeMeAttach();
+    const btn = $("compSeeMe"); if (btn) { btn.textContent = "👁 Seeing me"; btn.classList.add("active"); }
+    funLog("The avatar can see you now. Turn it off with 👁 Seeing me.");
+  } catch (e) {
+    compSeeMeOn = false;
+    alert("Camera unavailable: " + (e && e.message ? e.message : e));
+  }
+}
+function compSeeMeSnapshot() {
+  const v = compSeeMeVideo();
+  if (!v || !compSeeMeOn || !v.videoWidth) return "";
+  try {
+    const w = 512, h = Math.max(1, Math.round(512 * v.videoHeight / v.videoWidth));
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(v, 0, 0, w, h);
+    return c.toDataURL("image/jpeg", 0.8);
+  } catch (e) { return ""; }
+}
+async function aiVisionDescribe(dataUrl) {
+  const p = aiVisionProvider();
+  if (!p) return "";
+  const prompt = "Describe this webcam image in 1-2 short, plain, literal sentences for an adult roleplay companion. Focus only on what is visible: clothing state (shirt on/off, pants on/off, underwear, fully nude), chest/genitals visible or covered, body hair, body shape, and posture/position. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
+  try {
+    if (p.kind === "openai") {
+      const url = p.baseUrl.replace(/\/+$/, "") + "/chat/completions";
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + p.key },
+        body: JSON.stringify({ model: p.model, messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: dataUrl } }] }], max_tokens: 120 })
+      });
+      const raw = await r.text();
+      if (!r.ok) return "";
+      try { return (JSON.parse(raw).choices[0].message.content || "").trim(); } catch (e) { return ""; }
+    }
+    if (p.kind === "gemini") {
+      const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(p.model) + ":generateContent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-goog-api-key": p.key },
+        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: b64 } }] }], generationConfig: { maxOutputTokens: 120 } })
+      });
+      const raw = await r.text();
+      if (!r.ok) return "";
+      try {
+        const j = JSON.parse(raw);
+        const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
+        return parts.map(x => (x && x.text) ? x.text : "").join("").trim();
+      } catch (e) { return ""; }
+    }
+  } catch (e) {}
+  return "";
+}
+async function compSeeMeContext() {
+  if (!compSeeMeOn || !compSeeMeStream) return "";
+  try {
+    const dataUrl = compSeeMeSnapshot();
+    if (!dataUrl) return "";
+    const desc = await aiVisionDescribe(dataUrl);
+    if (!desc) return "";
+    return "\n\nWEBCAM (you can actually see the user live on camera right now — react to what you truly see): " + desc + " If the user claims something about their body or clothing that contradicts what you actually see (e.g. says they took their shirt off but it is still on), notice it and call it out in character — playful and teasing, never preachy.";
+  } catch (e) { return ""; }
+}
+
 // ---------- Shared room (session guests talk to the companion) ----------
 function compRoomContext() {
   if (sess.role !== "host" || !sess.guests || !sess.guests.length) return "";
@@ -13034,8 +13161,9 @@ async function compRoomSend() {
     const memOn = aiMemoryActive();
     const mem = aiMemory();
     const memLine = (memOn && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const see = await compSeeMeContext();
     const msgs = [
-      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + compCastContext() + aiSuggestionsReminder() },
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + aiPosContext() + aiVideoContext() + localVideoContext() + stashVideoContext() + compPersonaText() + compAboutText() + compExprContext() + compStaminaContext() + compSceneContext() + compRoomContext() + compCastContext() + aiSuggestionsReminder() + see },
       ...compMessages
     ];
     const res = await aiCall(msgs);
@@ -13356,6 +13484,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
+  const seeMe = $("compSeeMe"); if (seeMe) seeMe.onclick = compSeeMeToggle;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
   const talkBig = $("compTalkBig"); if (talkBig) talkBig.onclick = compVoice;
