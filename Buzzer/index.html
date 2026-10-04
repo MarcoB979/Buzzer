@@ -1111,7 +1111,11 @@
           </select>
           <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:.78rem;color:#94a3b8;cursor:pointer;">
             <input type="checkbox" id="compSeeMeLogChk">
-            Save every camera snapshot (kept in memory while the camera is on)
+            Save every camera snapshot (real .jpg files on this device)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:.78rem;color:#94a3b8;cursor:pointer;">
+            <input type="checkbox" id="compSeeMeKeepChk">
+            Keep snapshots after the camera turns off (else auto-delete)
           </label>
         </div>
         <div class="photo-modal-actions">
@@ -13043,8 +13047,11 @@ let compSeeMeLookTimer = null;
 let compSeeMeLookBusy = false;
 let compSeeMeLastDesc = "";
 let compSeeMeReactBusy = false;
-let compSeeMeShots = [];   // ring buffer of {ts, desc, dataUrl} for the debug export
-let compSeeMeDirHandle = null;   // optional folder picked to save snapshot .jpg files
+const COMP_SEEME_MAX = 2000;     // snapshots kept on-device (OPFS) before the oldest are trimmed
+const COMP_SEEME_MAX_MEM = 200;  // fallback cap when on-device storage isn't available (memory)
+let compSeeMeShots = [];         // index of saved snapshots: {name, ts, desc, size, dataUrl?}
+let compSeeMeDirHandle = null;   // optional desktop folder (File System Access) to mirror .jpg files
+let compSeeMeOpfsDir = null;     // OPFS directory handle for on-device .jpg storage
 function compSeeMeVideo() {
   if (compSeeMeVideoEl) return compSeeMeVideoEl;
   compSeeMeVideoEl = document.createElement("video");
@@ -13091,7 +13098,8 @@ function compSeeMeOff() {
   if (compSeeMeStream) { compSeeMeStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} }); compSeeMeStream = null; }
   if (compSeeMeVideoEl) { compSeeMeVideoEl.style.display = "none"; try { compSeeMeVideoEl.srcObject = null; } catch (e) {} }
   compSeeMeSync();
-  compSeeMeDeleteShots();
+  if (!compSeeMeKeep()) compSeeMeDeleteShots(); // keep-on-device mode keeps them for later review
+  else compSeeMeStatusSync();
 }
 let compSeeMeModalCb = null;
 function compSeeMeModalHide() {
@@ -13105,11 +13113,12 @@ function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
   ok.textContent = okLabel || "OK";
   compSeeMeModalCb = onOk || null;
   cancel.style.display = onOk ? "" : "none";
-  const lookRow = $("compSeeMeLookRow"), sel = $("compSeeMeLookSel"), sel2 = $("compSeeMeStyleSel"), logChk = $("compSeeMeLogChk");
+  const lookRow = $("compSeeMeLookRow"), sel = $("compSeeMeLookSel"), sel2 = $("compSeeMeStyleSel"), logChk = $("compSeeMeLogChk"), keepChk = $("compSeeMeKeepChk");
   if (lookRow) lookRow.style.display = onOk ? "" : "none";
   if (sel) { try { sel.value = compSeeMeLookMode(); } catch (e) {} }
   if (sel2) { try { sel2.value = compSeeMeStyle(); } catch (e) {} }
   if (logChk) { try { logChk.checked = compSeeMeLogEnabled(); } catch (e) {} }
+  if (keepChk) { try { keepChk.checked = compSeeMeKeep(); } catch (e) {} }
   m.style.display = "";
 }
 function aiVisionProvider() {
@@ -13145,7 +13154,7 @@ async function compSeeMeToggle() {
     return;
   }
   compSeeMeModalShow(
-    "Allow the AI avatar to <b>see you</b> through your webcam?<br><br>Your camera stays on your device. Only short snapshots are sent to <b>" + aiVisionProviderName(p) + "</b> to describe what you look like so the avatar can react. If you tick \"Save every camera snapshot\", those snapshots are kept <b>in memory only</b> while the camera is on — you can download them as a .zip or delete them anytime, and they are <b>deleted automatically</b> the moment you turn the camera off or close the companion.",
+    "Allow the AI avatar to <b>see you</b> through your webcam?<br><br>Your camera stays on your device. Only short snapshots are sent to <b>" + aiVisionProviderName(p) + "</b> to describe what you look like so the avatar can react. If you tick \"Save every camera snapshot\", each one is saved as a real <b>.jpg file on this device</b> (in the browser's private on-device storage). They survive reloads and — if you tick \"Keep on device\" — stay after the camera turns off so you can review a long session. You can download them as a .zip or delete them anytime from the chat column, and you can set them to auto-delete when the camera turns off.",
     "Turn on camera",
     () => compSeeMeStart()
   );
@@ -13188,26 +13197,41 @@ function compSeeMeLogEnabled() {
 }
 async function compSeeMeLogShot(dataUrl, desc) {
   if (!compSeeMeLogEnabled()) return;
-  try {
-    compSeeMeShots.push({ ts: Date.now(), desc: desc || "", dataUrl: dataUrl || "" });
-    if (compSeeMeShots.length > 200) compSeeMeShots.splice(0, compSeeMeShots.length - 200);
-  } catch (e) {}
-  compSeeMeStatusSync();
-  // Desktop only: also write into a user-picked folder (visible files on disk).
-  if (compSeeMeDirHandle && dataUrl) {
+  const ts = Date.now();
+  const blob = dataUrl ? dataUrlToBlob(dataUrl) : null;
+  const name = compSeeMeSnapshotName(new Date(ts));
+  const dir = await compSeeMeOpfsEnsure();
+  let stored = false;
+  if (dir && blob) {
     try {
-      const d = new Date();
-      const blob = dataUrlToBlob(dataUrl);
-      if (blob) {
-        const fh = await compSeeMeDirHandle.getFileHandle(compSeeMeSnapshotName(d), { create: true });
-        const w = await fh.createWritable();
-        await w.write(blob);
-        await w.close();
-        const lh = await compSeeMeDirHandle.getFileHandle("snapshots.txt", { create: true });
-        const lw = await lh.createWritable({ keepExistingData: true });
-        await lw.write("[" + d.toLocaleString() + "] " + (desc || "(no description)") + "\n");
-        await lw.close();
-      }
+      const fh = await dir.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(blob);
+      await w.close();
+      stored = true;
+    } catch (e) {
+      if (e && e.name === "QuotaExceededError") funLog("Snapshot storage is full — the oldest snapshots will be trimmed.");
+    }
+  }
+  compSeeMeShots.push({ name, ts, desc: desc || "", size: blob ? blob.size : 0, dataUrl: stored ? null : (dataUrl || "") });
+  const cap = dir ? COMP_SEEME_MAX : COMP_SEEME_MAX_MEM;
+  if (compSeeMeShots.length > cap) {
+    const dropped = compSeeMeShots.splice(0, compSeeMeShots.length - cap);
+    if (dir) { for (const d of dropped) { try { await dir.removeEntry(d.name); } catch (e) {} } }
+  }
+  if (dir) await compSeeMeOpfsSaveManifest();
+  compSeeMeStatusSync();
+  // Desktop only: also mirror into a user-picked folder (visible files on disk).
+  if (compSeeMeDirHandle && blob) {
+    try {
+      const fh = await compSeeMeDirHandle.getFileHandle(name, { create: true });
+      const w = await fh.createWritable();
+      await w.write(blob);
+      await w.close();
+      const lh = await compSeeMeDirHandle.getFileHandle("snapshots.txt", { create: true });
+      const lw = await lh.createWritable({ keepExistingData: true });
+      await lw.write("[" + new Date(ts).toLocaleString() + "] " + (desc || "(no description)") + "\n");
+      await lw.close();
     } catch (e) {}
   }
 }
@@ -13215,11 +13239,63 @@ function compSeeMeSnapshotName(d) {
   const pad = (n, w) => String(n).padStart(w, "0");
   return "snap-" + d.getFullYear() + pad(d.getMonth() + 1, 2) + pad(d.getDate(), 2) + "-" + pad(d.getHours(), 2) + pad(d.getMinutes(), 2) + pad(d.getSeconds(), 2) + "-" + pad(d.getMilliseconds(), 3) + ".jpg";
 }
-function compSeeMeDeleteShots() {
-  const n = compSeeMeShots.length;
-  compSeeMeShots.length = 0;
+function compSeeMeKeep() {
+  try { return localStorage.getItem("ossm-seeme-keep") !== "0"; } catch (e) { return true; }
+}
+function compSeeMeOpfsAvailable() {
+  try { return !!(navigator.storage && typeof navigator.storage.getDirectory === "function"); } catch (e) { return false; }
+}
+async function compSeeMeOpfsEnsure() {
+  if (compSeeMeOpfsDir) return compSeeMeOpfsDir;
+  if (!compSeeMeOpfsAvailable()) return null;
+  try {
+    const root = await navigator.storage.getDirectory();
+    compSeeMeOpfsDir = await root.getDirectoryHandle("ossm-snapshots", { create: true });
+    return compSeeMeOpfsDir;
+  } catch (e) { compSeeMeOpfsDir = null; return null; }
+}
+async function compSeeMeOpfsSaveManifest() {
+  const dir = await compSeeMeOpfsEnsure();
+  if (!dir) return;
+  try {
+    const fh = await dir.getFileHandle("manifest.json", { create: true });
+    const w = await fh.createWritable();
+    await w.write(JSON.stringify(compSeeMeShots));
+    await w.close();
+  } catch (e) {}
+}
+async function compSeeMeOpfsLoadManifest() {
+  const dir = await compSeeMeOpfsEnsure();
+  if (!dir) return;
+  try {
+    const fh = await dir.getFileHandle("manifest.json");
+    const f = await fh.getFile();
+    const list = JSON.parse(await f.text());
+    if (Array.isArray(list)) compSeeMeShots = list.filter(x => x && x.name).slice(0, COMP_SEEME_MAX);
+  } catch (e) {}
   compSeeMeStatusSync();
-  if (n) funLog("Camera snapshots deleted (" + n + ").");
+}
+async function compSeeMeReadShot(sh) {
+  if (sh.dataUrl) return dataUrlToBlob(sh.dataUrl);
+  const dir = await compSeeMeOpfsEnsure();
+  if (dir && sh.name) {
+    try {
+      const fh = await dir.getFileHandle(sh.name);
+      return await fh.getFile();
+    } catch (e) {}
+  }
+  return null;
+}
+async function compSeeMeDeleteShots() {
+  const shots = compSeeMeShots.slice();
+  compSeeMeShots.length = 0;
+  const dir = await compSeeMeOpfsEnsure();
+  if (dir) {
+    for (const sh of shots) { try { await dir.removeEntry(sh.name); } catch (e) {} }
+    await compSeeMeOpfsSaveManifest();
+  }
+  compSeeMeStatusSync();
+  if (shots.length) funLog("Camera snapshots deleted (" + shots.length + ").");
 }
 async function compSeeMeDownloadZip() {
   const shots = compSeeMeShots.slice();
@@ -13229,14 +13305,16 @@ async function compSeeMeDownloadZip() {
     const zip = new JSZip();
     const folder = zip.folder("snapshots");
     const clock = (t) => new Date(t).toLocaleTimeString([], { hour12: false });
-    shots.forEach((sh, i) => {
-      const b = dataUrlToBlob(sh.dataUrl);
-      if (b) folder.file("snap-" + String(i + 1).padStart(3, "0") + "-" + clock(sh.ts).replace(/:/g, "-") + ".jpg", b);
-    });
+    let ok = 0;
+    for (let i = 0; i < shots.length; i++) {
+      const sh = shots[i];
+      const b = await compSeeMeReadShot(sh);
+      if (b) { folder.file("snap-" + String(i + 1).padStart(3, "0") + "-" + clock(sh.ts).replace(/:/g, "-") + ".jpg", b); ok++; }
+    }
     zip.file("snapshots.txt", shots.map(sh => "[" + new Date(sh.ts).toLocaleString() + "] " + (sh.desc || "")).join("\n"));
     const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
     saveBlobAs(blob, "buzzer-snapshots-" + new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".zip");
-    funLog("Snapshots downloaded (" + shots.length + ").");
+    funLog("Snapshots downloaded (" + ok + " files).");
   } catch (e) { funLog("Couldn't build the snapshot zip: " + (e && e.message ? e.message : e)); }
 }
 let compSeeMeStatusEl = null;
@@ -13251,13 +13329,18 @@ function compSeeMeStatusEnsure() {
 }
 function compSeeMeStatusSync() {
   const el = compSeeMeStatusEnsure();
-  const on = compSeeMeOn && compSeeMeLogEnabled();
-  el.style.display = on ? "flex" : "none";
-  if (!on) return;
-  el.innerHTML = "";
   const n = compSeeMeShots.length;
+  const live = compSeeMeOn && compSeeMeLogEnabled();
+  const show = live || n > 0;
+  el.style.display = show ? "flex" : "none";
+  if (!show) return;
+  el.innerHTML = "";
+  const persisted = compSeeMeOpfsDir ? true : false;
+  const where = persisted ? "on this device" : "in memory";
+  const bytes = compSeeMeShots.reduce((a, s) => a + (s.size || 0), 0);
+  const sizeTxt = bytes >= 1024 * 1024 ? (bytes / (1024 * 1024)).toFixed(1) + " MB" : Math.round(bytes / 1024) + " KB";
   const label = document.createElement("span");
-  label.textContent = "📷 " + n + " snapshot" + (n === 1 ? "" : "s") + " · memory only";
+  label.textContent = "📷 " + n + " snapshot" + (n === 1 ? "" : "s") + " · " + where + " · " + sizeTxt + (compSeeMeKeep() ? "" : " · auto-delete on stop");
   el.appendChild(label);
   const dl = document.createElement("button");
   dl.type = "button"; dl.className = "ble-btn small"; dl.textContent = "⬇ .zip";
@@ -13314,6 +13397,7 @@ async function compMigratePhotoSizes() {
   } catch (e) {}
 }
 setTimeout(compMigratePhotoSizes, 1200);
+setTimeout(() => { compSeeMeOpfsEnsure().then(() => compSeeMeOpfsLoadManifest()); }, 900);
 function compSeeMeLookInterval() {
   const m = compSeeMeLookMode();
   if (m === "change") return 4000;
@@ -13829,7 +13913,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
-  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = async () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } const logChk = $("compSeeMeLogChk"); if (logChk) { try { localStorage.setItem("ossm-seeme-log", logChk.checked ? "1" : "0"); } catch (e) {} if (logChk.checked) { try { if (window.showDirectoryPicker) { compSeeMeDirHandle = await window.showDirectoryPicker({ mode: "readwrite" }); funLog("Snapshots will be saved to the folder you picked."); } else { funLog("This browser can't save snapshots to a folder — they'll be included in the developer export (zip) instead."); } } catch (e) { compSeeMeDirHandle = null; } } else { compSeeMeDirHandle = null; } } } compSeeMeModalHide(); if (cb) cb(); };
+  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = async () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } const keepChk = $("compSeeMeKeepChk"); if (keepChk) { try { localStorage.setItem("ossm-seeme-keep", keepChk.checked ? "1" : "0"); } catch (e) {} } const logChk = $("compSeeMeLogChk"); if (logChk) { try { localStorage.setItem("ossm-seeme-log", logChk.checked ? "1" : "0"); } catch (e) {} if (logChk.checked) { try { if (window.showDirectoryPicker) { compSeeMeDirHandle = await window.showDirectoryPicker({ mode: "readwrite" }); funLog("Snapshots are also mirrored to the folder you picked (desktop)."); } else { funLog("Snapshots are saved on this device and can be downloaded as a .zip from the chat column."); } } catch (e) { compSeeMeDirHandle = null; } } else { compSeeMeDirHandle = null; } } } compSeeMeModalHide(); if (cb) cb(); };
   const smCancel = $("compSeeMeModalCancel"); if (smCancel) smCancel.onclick = compSeeMeModalHide;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
@@ -14317,7 +14401,7 @@ async function exportDeveloperInfo() {
     push((l.ts ? "[" + stamp(l.ts) + "] " : "") + (l.cls ? "(" + l.cls + ") " : "") + l.text + (l.n > 1 ? "  (×" + l.n + ")" : ""));
   }
 
-  if (compSeeMeLogEnabled() && compSeeMeShots.length) {
+  if (compSeeMeShots.length) {
     push("");
     push("=== CAMERA SNAPSHOTS (" + compSeeMeShots.length + " snapshots included as .jpg files in this zip) ===");
     for (const sh of compSeeMeShots) push("[" + clock(sh.ts) + "] " + (sh.desc || "(no description)"));
@@ -14326,10 +14410,11 @@ async function exportDeveloperInfo() {
       const zip = new JSZip();
       zip.file("buzzer-dev-info.txt", L.join("\n"));
       const shots = zip.folder("snapshots");
-      compSeeMeShots.forEach((sh, i) => {
-        const jblob = dataUrlToBlob(sh.dataUrl);
+      for (let i = 0; i < compSeeMeShots.length; i++) {
+        const sh = compSeeMeShots[i];
+        const jblob = await compSeeMeReadShot(sh);
         if (jblob) shots.file("snap-" + String(i + 1).padStart(3, "0") + "-" + clock(sh.ts).replace(/:/g, "-") + ".jpg", jblob);
-      });
+      }
       zip.file("snapshots.txt", compSeeMeShots.map(sh => "[" + new Date(sh.ts).toLocaleString() + "] " + (sh.desc || "")).join("\n"));
       const zblob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 6 } });
       saveBlobAs(zblob, "buzzer-dev-info-" + now.toISOString().replace(/[:.]/g, "-").slice(0, 19) + ".zip");
