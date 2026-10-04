@@ -13212,11 +13212,11 @@ async function compSeeMeLookTick() {
       const desc = await aiVisionDescribe(dataUrl, compSeeMeStyle());
       if (desc) {
         const mode = compSeeMeLookMode();
-        const changed = compSeeMeLastDesc && !compSeeMeSameDesc(compSeeMeLastDesc, desc);
-        if (!(mode === "change" && compSeeMeLastDesc && !changed)) {
-          compSeeMeLastDesc = desc;
-          compSeeMeReact(desc);
-        }
+        const isFirst = !compSeeMeLastDesc;
+        const changed = !isFirst && !compSeeMeSameDesc(compSeeMeLastDesc, desc);
+        const quiet = (mode !== "turn") && !isFirst && !changed; // keep watching, but stay quiet until something actually changes
+        compSeeMeLastDesc = desc;
+        if (!quiet) compSeeMeReact(desc);
       }
     }
   } catch (e) {}
