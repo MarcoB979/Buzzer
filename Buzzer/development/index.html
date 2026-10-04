@@ -1104,6 +1104,11 @@
             <option value="10">Every 10 seconds</option>
             <option value="30">Every 30 seconds</option>
           </select>
+          <div style="font-size:.78rem;color:#94a3b8;margin:10px 0 4px;">How should the avatar describe you?</div>
+          <select id="compSeeMeStyleSel" style="width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #1e293b;border-radius:8px;color:#e2e8f0;padding:6px;font-size:.85rem;">
+            <option value="character">Stay in character (my fantasy self)</option>
+            <option value="real">Keep it real (what it actually sees)</option>
+          </select>
         </div>
         <div class="photo-modal-actions">
           <button class="ble-btn small" id="compSeeMeModalCancel" type="button">Cancel</button>
@@ -13099,9 +13104,10 @@ function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
   ok.textContent = okLabel || "OK";
   compSeeMeModalCb = onOk || null;
   cancel.style.display = onOk ? "" : "none";
-  const lookRow = $("compSeeMeLookRow"), sel = $("compSeeMeLookSel");
+  const lookRow = $("compSeeMeLookRow"), sel = $("compSeeMeLookSel"), sel2 = $("compSeeMeStyleSel");
   if (lookRow) lookRow.style.display = onOk ? "" : "none";
   if (sel) { try { sel.value = compSeeMeLookMode(); } catch (e) {} }
+  if (sel2) { try { sel2.value = compSeeMeStyle(); } catch (e) {} }
   m.style.display = "";
 }
 function aiVisionProvider() {
@@ -13167,6 +13173,9 @@ async function compSeeMeStart() {
 function compSeeMeLookMode() {
   try { const m = localStorage.getItem("ossm-seeme-look") || "turn"; return (m === "change" || m === "10" || m === "30") ? m : "turn"; } catch (e) { return "turn"; }
 }
+function compSeeMeStyle() {
+  try { return localStorage.getItem("ossm-seeme-style") === "real" ? "real" : "character"; } catch (e) { return "character"; }
+}
 function compSeeMeLookInterval() {
   const m = compSeeMeLookMode();
   if (m === "change") return 4000;
@@ -13200,7 +13209,7 @@ async function compSeeMeLookTick() {
   try {
     const dataUrl = compSeeMeSnapshot();
     if (dataUrl) {
-      const desc = await aiVisionDescribe(dataUrl);
+      const desc = await aiVisionDescribe(dataUrl, compSeeMeStyle());
       if (desc) {
         const mode = compSeeMeLookMode();
         const changed = compSeeMeLastDesc && !compSeeMeSameDesc(compSeeMeLastDesc, desc);
@@ -13222,10 +13231,14 @@ async function compSeeMeReact(desc) {
     const mem = aiMemory();
     const memLine = (memOn && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
     const recent = compMessages.slice(-6);
+    const style = compSeeMeStyle();
+    const frame = (style === "real")
+      ? "Comment on what you actually see."
+      : "Stay fully in character — describe their body as their own self-image (ABOUT THE USER / your memory of them), never the raw camera details.";
     const msgs = [
       { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + compPersonaText() + compAboutText() + compExprContext() + compSceneContext() + compRoomContext() + compCastContext() },
       ...recent,
-      { role: "user", content: "[LOOKING AT YOU] You can see the user on camera right now: " + desc + " Say ONE short, natural, in-character line reacting to what you actually see — a tease, a compliment, or a comment on their state. Keep it to one sentence. Do not repeat anything you said recently. Only set \"reply\" (and optionally \"show\" to change your expression)." }
+      { role: "user", content: "[LOOKING AT YOU] You can see the user on camera right now: " + desc + " " + frame + " Say ONE short, natural, in-character line reacting to what you see — a tease, a compliment, or a comment on their state. Keep it to one sentence. Do not repeat anything you said recently. Only set \"reply\" (and optionally \"show\" to change your expression)." }
     ];
     const res = await aiCall(msgs);
     if (res && res.reply) {
@@ -13251,10 +13264,13 @@ function compSeeMeSnapshot() {
     return c.toDataURL("image/jpeg", 0.85);
   } catch (e) { return ""; }
 }
-async function aiVisionDescribe(dataUrl) {
+async function aiVisionDescribe(dataUrl, style) {
   const p = aiVisionProvider();
   if (!p) return "";
-  const prompt = "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. Describe everything visible about the person: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude), chest/genitals visible or covered, body hair, body shape, and posture/position. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
+  const inChar = style !== "real";
+  const prompt = inChar
+    ? "Describe this webcam image in 1-2 short, plain sentences focused ONLY on the person's state and what is happening: clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, and which part of their body is in frame (face, chest, genitals, ass) and whether they appear aroused. Do NOT mention age, body size or shape, body hair, or the size of any body part. Start with \"You see:\"."
+    : "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. Describe everything visible about the person: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude), chest/genitals visible or covered, body hair, body shape, and posture/position. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
   try {
     if (p.kind === "openai" || p.kind === "deepseek") {
       const url = (p.baseUrl || "https://api.deepseek.com").replace(/\/+$/, "") + "/chat/completions";
@@ -13290,9 +13306,13 @@ async function compSeeMeContext() {
   try {
     const dataUrl = compSeeMeSnapshot();
     if (!dataUrl) return "";
-    const desc = await aiVisionDescribe(dataUrl);
+    const style = compSeeMeStyle();
+    const desc = await aiVisionDescribe(dataUrl, style);
     if (!desc) return "";
-    return "\n\nWEBCAM (you can actually see the user live on camera right now — react to what you truly see): " + desc + " If the user claims something about their body or clothing that contradicts what you actually see (e.g. says they took their shirt off but it is still on), notice it and call it out in character — playful and teasing, never preachy.";
+    const frame = (style === "real")
+      ? "react to what you truly see"
+      : "stay fully in character — see their body through their own self-image (ABOUT THE USER / your memory), never the raw details";
+    return "\n\nWEBCAM (you can actually see the user live on camera right now — " + frame + "): " + desc + " If the user claims something about their body or clothing that contradicts what you actually see (e.g. says they took their shirt off but it is still on), notice it and call it out in character — playful and teasing, never preachy.";
   } catch (e) { return ""; }
 }
 
@@ -13649,7 +13669,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
-  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } } compSeeMeModalHide(); if (cb) cb(); };
+  const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } } compSeeMeModalHide(); if (cb) cb(); };
   const smCancel = $("compSeeMeModalCancel"); if (smCancel) smCancel.onclick = compSeeMeModalHide;
   const send = $("compSend"); if (send) send.onclick = compSend;
   const mic = $("compMic"); if (mic) mic.onclick = compVoice;
