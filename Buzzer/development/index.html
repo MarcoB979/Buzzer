@@ -7345,7 +7345,7 @@ function aiSpeak(text, voice) {
     if (key && voiceId) { aiSpeakElevenLabs(text, key, voiceId); return; }
     aiSpeakBrowser(text, v);
   } else if (p === "fish" && aiFishConfigured()) {
-    aiSpeakFish(text);
+    aiSpeakFish(text, (v && v.voiceId) || null);
   } else if (p === "voicerss" && aiVoiceRssConfigured()) {
     aiSpeakVoiceRss(text);
   } else if (p === "google") {
@@ -7786,9 +7786,9 @@ function aiFishSpeed() {
   try { const n = parseFloat(localStorage.getItem("ossm-fish-speed")); return isNaN(n) ? 1 : Math.min(2, Math.max(0.5, n)); } catch (e) { return 1; }
 }
 function aiFishConfigured() { return !!aiFishKey(); }
-function aiFishBody(text) {
+function aiFishBody(text, voiceId) {
   const body = { text: text, format: "mp3", prosody: { speed: aiFishSpeed(), volume: 0, normalize_loudness: true }, chunk_length: 300, latency: "normal" };
-  const voice = aiFishVoice();
+  const voice = (voiceId && String(voiceId).trim()) || aiFishVoice();
   if (voice) body.reference_id = voice;
   return body;
 }
@@ -7798,7 +7798,7 @@ function aiFishWarn(msg) {
   aiFishWarned = true;
   try { aiAddMsg("system", "🔇 Fish Audio failed — " + msg + " Falling back to VoiceRSS / Google."); } catch (e) {}
 }
-async function aiSpeakFish(text) {
+async function aiSpeakFish(text, voiceId) {
   const key = aiFishKey();
   if (!key) { aiSpeakVoiceRss(text); return; }
   aiStopAudio();
@@ -7806,7 +7806,7 @@ async function aiSpeakFish(text) {
     const resp = await fetch("https://api.fish.audio/v1/tts", {
       method: "POST",
       headers: { "Authorization": "Bearer " + key, "Content-Type": "application/json", "model": "s2.1-pro-free" },
-      body: JSON.stringify(aiFishBody(text))
+      body: JSON.stringify(aiFishBody(text, voiceId))
     });
     if (!resp.ok) {
       let msg = "HTTP " + resp.status;
@@ -11062,8 +11062,10 @@ async function importScene(file) {
     }
     compScenesSave(compScenes().concat([sc]));
     companionState.sceneId = newId; companionState.sceneName = sc.name || "";
+    if (Array.isArray(sc.cast)) { companionState.cast = JSON.parse(JSON.stringify(sc.cast)); }
     companionSave();
     if (sc.avatarId) { const av = compAvatars().find(a => a.id === sc.avatarId); if (av) compAvatarApply(av); }
+    compCastRender();
     compSceneOpenBuilder(); compSceneSyncName();
     funLog("Scene \"" + (sc.name || "scene") + "\" imported.");
   } catch (e) { alert("Import failed: " + (e && e.message ? e.message : e)); }
@@ -11106,7 +11108,8 @@ function compAvatarSnapshot() {
     landmarks: companionState.landmarks, source: companionState.source,
     expr: companionState.expr, body: companionState.body,
     mediaId: companionState.mediaId || "",
-    voice: companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 }
+    voice: companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 },
+    cast: JSON.parse(JSON.stringify(companionState.cast || []))
   };
 }
 function compAvatarApply(snap) {
@@ -11133,6 +11136,7 @@ function compAvatarApply(snap) {
     const rn = (x, def) => { const n = Number(x); return (isFinite(n) && n > 0) ? Math.min(2, Math.max(0.5, n)) : def; };
     companionState.voice = { provider: snap.voice.provider || "system", voiceId: snap.voice.voiceId || "", voiceName: snap.voice.voiceName || "", lang: snap.voice.lang || "", rate: rn(snap.voice.rate, 1), pitch: rn(snap.voice.pitch, 1) };
   }
+  if (Array.isArray(snap.cast)) { companionState.cast = JSON.parse(JSON.stringify(snap.cast)); }
   compExpr.state = "normal"; compExpr.until = 0;
   // Clear cached video object URLs so the new avatar's videos load fresh.
   compVideoUrls.forEach((u) => { if (u) { try { URL.revokeObjectURL(u); } catch (e) {} } });
@@ -11177,7 +11181,7 @@ function compAvatarRefreshBuilder() {
 // ---------- Per-character voice + cast (multi-person avatar) ----------
 function compVoiceUiLoad() {
   const v = companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 };
-  const prov = $("avatarVoiceProvider"); if (prov) prov.value = (v.provider === "elevenlabs" || v.provider === "alltalk") ? v.provider : "system";
+  const prov = $("avatarVoiceProvider"); if (prov) prov.value = (v.provider === "elevenlabs" || v.provider === "fish" || v.provider === "alltalk") ? v.provider : "system";
   const vi = $("avatarVoiceId"); if (vi) vi.value = v.voiceId || "";
   const vn = $("avatarVoiceName"); if (vn) vn.value = v.voiceName || "";
   const vl = $("avatarVoiceLang"); if (vl) vl.value = v.lang || "";
@@ -11221,12 +11225,19 @@ function compVoiceLoadAllTalk() { aiAllTalkImportVoices(); }
 function compVoiceListPick() {
   const list = $("avatarVoiceList");
   const idInp = $("avatarVoiceId");
-  if (list && idInp) { idInp.value = list.value; compVoiceUiSave(); }
+  if (list && idInp) {
+    idInp.value = list.value;
+    const prov = $("avatarVoiceProvider");
+    const provider = (prov && prov.value) ? prov.value : "system";
+    const hit = aiVoiceLib(provider).find(v => v.id === list.value);
+    const vn = $("avatarVoiceName"); if (vn) vn.value = (hit && hit.name) ? hit.name : (vn.value || "");
+    compVoiceUiSave();
+  }
 }
 function compVoiceUiSave() {
   const prov = $("avatarVoiceProvider");
   if (!prov) return;
-  const provider = prov.value === "elevenlabs" ? "elevenlabs" : "system";
+  const provider = (prov.value === "elevenlabs" || prov.value === "fish" || prov.value === "alltalk") ? prov.value : "system";
   const rn = (x) => { const n = Number(x); return (isFinite(n) && n > 0) ? Math.min(2, Math.max(0.5, n)) : 1; };
   companionState.voice = {
     provider,
@@ -11335,7 +11346,7 @@ function compApplyLine(actor, rawReply) {
   if (!clean) return;
   if (compCastActive()) compCastHighlight(actor);
   aiAddMsg("assistant", compLineHtml(actor, clean));
-  if (aiSpeakEnabled()) aiSpeak(clean, compCastVoice(actor));
+  if (aiSpeakEnabled()) aiSpeak(clean, compCastVoice(actor) || companionState.voice);
   companionLiveExpress(rawReply);
 }
 function compCastContext() {
