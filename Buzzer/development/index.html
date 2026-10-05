@@ -11549,8 +11549,12 @@ function compDeviceSummary() {
     if (addonEnabled("buttplug")) {
       const st = buttplugState();
       if (st.connected) {
-        const devs = buttplugDevices().map(d => ({ name: d.displayName || d.name }));
-        toys.push({ id: "buttplug", icon: "🔌", label: "Buttplug", on: true, devices: devs });
+        const devs = buttplugDevices().map(d => {
+          const sliders = {};
+          Array.from(buttplugFeatureOutputs(d).keys()).forEach(t => { sliders[t] = { label: t, min: 0, max: 100, value: Math.round(buttplugVal(d, t)) }; });
+          return { index: d.index, name: d.displayName || d.name, sliders };
+        });
+        toys.push({ id: "buttplug", icon: "🔌", label: "Buttplug", on: true, ride: buttplugRideAlong(), devices: devs });
       }
     }
   } catch (e) {}
@@ -11582,6 +11586,11 @@ function compVrCmdApply(cmd) {
       else if (typeof cmd.value === "number" && cmd.key) addonSlider(cmd.id, cmd.key, cmd.value);
     } else if (cmd.id === "buttplug") {
       if (cmd.stop) buttplugStopAll();
+      else if (typeof cmd.ride === "boolean") { buttplugRideSet(cmd.ride); if (cmd.ride) buttplugRideStart(); else buttplugRideStop(); }
+      else if (typeof cmd.value === "number" && typeof cmd.devIndex === "number" && cmd.type) {
+        const dev = buttplugDeviceByIndex(cmd.devIndex);
+        if (dev) buttplugSet(dev, cmd.type, cmd.value);
+      }
     }
   } catch (e) {}
 }
@@ -16635,6 +16644,28 @@ function buttplugSet(dev, type, v) {
   st.values[dev.index][type] = v;
   return buttplugRun(dev, type, v / 100);
 }
+function buttplugDeviceByIndex(idx) {
+  return buttplugDevices().find(d => d.index === idx) || null;
+}
+function buttplugRideAlong() { try { return localStorage.getItem("ossm-buttplug-ride") === "1"; } catch (e) { return false; } }
+function buttplugRideSet(on) { try { localStorage.setItem("ossm-buttplug-ride", on ? "1" : "0"); } catch (e) {} }
+let buttplugRideTimer = null;
+function buttplugRideTick() {
+  if (!buttplugRideAlong()) return;
+  const st = buttplugState();
+  if (!st || !st.client || !st.client.connected) return;
+  const level = clamp(Math.round(speed()), 0, 100);
+  buttplugDevices().forEach(d => { if (buttplugFeatureOutputs(d).has("Vibrate")) buttplugRun(d, "Vibrate", level / 100); });
+}
+function buttplugRideStart() {
+  buttplugRideStop();
+  buttplugRideTimer = setInterval(buttplugRideTick, 250);
+}
+function buttplugRideStop() {
+  if (buttplugRideTimer) { clearInterval(buttplugRideTimer); buttplugRideTimer = null; }
+  try { if (buttplugState().client && buttplugState().client.connected) buttplugDevices().forEach(d => { if (buttplugFeatureOutputs(d).has("Vibrate")) buttplugRun(d, "Vibrate", 0); }); } catch (e) {}
+}
+setTimeout(() => { if (buttplugRideAlong()) buttplugRideStart(); }, 1500);
 function buttplugBuildSection() {
   const st = buttplugState();
   const wrap = document.createElement("div");
@@ -16661,6 +16692,14 @@ function buttplugBuildSection() {
   hint.className = "ai-set-hint";
   hint.textContent = "Run Intiface Central (or Engine) serving the address above, then Connect. Your toys appear below with a slider per capability.";
   wrap.appendChild(hint);
+
+  const rideRow = document.createElement("label");
+  rideRow.style.cssText = "display:flex;align-items:center;gap:6px;font-size:.8rem;margin:6px 0;cursor:pointer;";
+  const rideChk = document.createElement("input"); rideChk.type = "checkbox"; rideChk.checked = buttplugRideAlong();
+  rideChk.addEventListener("change", () => { buttplugRideSet(rideChk.checked); if (rideChk.checked) buttplugRideStart(); else buttplugRideStop(); });
+  rideRow.appendChild(rideChk);
+  rideRow.appendChild(document.createTextNode("Ride-along: follow the OSSM stroke speed (vibrators)"));
+  wrap.appendChild(rideRow);
 
   if (st.connected) {
     const devices = buttplugDevices();
