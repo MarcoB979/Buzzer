@@ -13357,6 +13357,8 @@ let compSeeMeLastDesc = "";
 let compSeeMePrevSig = "";      // low-res pixel signature of the previous sent frame (change detection)
 let compSeeMeLastRawSig = "";   // signature of the most recently captured frame
 let compSeeMeReactBusy = false;
+let compSeeMeVideoTimer = null;
+let compSeeMeVideoBusy = false;
 const COMP_SEEME_MAX = 2000;     // snapshots kept on-device (OPFS) before the oldest are trimmed
 const COMP_SEEME_MAX_MEM = 200;  // fallback cap when on-device storage isn't available (memory)
 let compSeeMeShots = [];         // index of saved snapshots: {name, ts, desc, size, dataUrl?}
@@ -13405,6 +13407,7 @@ function compSeeMeAttach() {
 function compSeeMeOff() {
   compSeeMeOn = false;
   compSeeMeLookStop();
+  compSeeMeVideoStop();
   if (compSeeMeStream) { compSeeMeStream.getTracks().forEach(t => { try { t.stop(); } catch (e) {} }); compSeeMeStream = null; }
   if (compSeeMeVideoEl) { compSeeMeVideoEl.style.display = "none"; try { compSeeMeVideoEl.srcObject = null; } catch (e) {} }
   compSeeMeSync();
@@ -13492,6 +13495,7 @@ async function compSeeMeStart() {
     });
     compSeeMeLookTick();
     compSeeMeLookSchedule();
+    compSeeMeVideoSchedule();
   } catch (e) {
     compSeeMeOn = false;
     compSeeMeSync();
@@ -13827,6 +13831,78 @@ async function compSeeMeReact(desc) {
   } catch (e) {}
   compSeeMeReactBusy = false;
 }
+// The avatar watches the video too: capture the current frame and react in character.
+function compWatchVideoPlaying() {
+  const v = localVideoEl();
+  return (v && v.videoWidth && !v.paused && !v.ended) ? v : null;
+}
+function compWatchVideoSnapshot() {
+  const v = compWatchVideoPlaying();
+  if (!v) return "";
+  try {
+    const w = v.videoWidth, h = v.videoHeight;
+    if (!w || !h) return "";
+    const MAX = 1280;
+    const scale = Math.min(1, MAX / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * scale));
+    const ch = Math.max(1, Math.round(h * scale));
+    const c = document.createElement("canvas");
+    c.width = cw; c.height = ch;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(v, 0, 0, cw, ch);
+    return c.toDataURL("image/jpeg", 0.85);
+  } catch (e) { return ""; }
+}
+function compSeeMeVideoTick() {
+  if (!compSeeMeOn || compSeeMeVideoBusy) return;
+  if (!compWatchVideoPlaying()) return;
+  compSeeMeVideoBusy = true;
+  (async () => {
+    try {
+      const dataUrl = compWatchVideoSnapshot();
+      if (dataUrl) {
+        const desc = await aiVisionDescribeVideo(dataUrl);
+        if (desc && !compSeeMeCantSee(desc)) compSeeMeReactVideo(desc);
+      }
+    } catch (e) {}
+    compSeeMeVideoBusy = false;
+  })();
+}
+function compSeeMeVideoSchedule() {
+  compSeeMeVideoStop();
+  if (!compSeeMeOn) return;
+  compSeeMeVideoTimer = setInterval(compSeeMeVideoTick, 12000);
+}
+function compSeeMeVideoStop() {
+  if (compSeeMeVideoTimer) { clearInterval(compSeeMeVideoTimer); compSeeMeVideoTimer = null; }
+}
+async function compSeeMeReactVideo(desc) {
+  if (!compModeActive || compBusy || compSeeMeReactBusy) return;
+  compSeeMeReactBusy = true;
+  try {
+    const cur = aiCurrentState();
+    const memOn = aiMemoryActive();
+    const mem = aiMemory();
+    const memLine = (memOn && mem) ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const recent = compMessages.slice(-6);
+    const msgs = [
+      { role: "system", content: AI_COMPANION_SYSTEM + "\n\n" + aiModeContext(cur) + compFreedomContext() + addonContext() + aiLangLine() + memLine + compPersonaText() + compAboutText() + compExprContext() + compSceneContext() + compRoomContext() + compCastContext() },
+      ...recent,
+      { role: "user", content: "[WATCHING TOGETHER] You and the user are watching a video on the beamer right now. " + desc + " Say ONE short, natural, in-character line reacting to what is happening in the video — a tease, a comment, or you getting into it. One sentence. Do not repeat anything you said recently. Only set \"reply\" (and optionally \"show\" to change your expression)." }
+    ];
+    const res = await aiCall(msgs);
+    if (res && res.reply) {
+      const clean = aiStripEmotionTags(res.reply);
+      if (clean) {
+        compAddMsg("assistant", escapeHtml(clean), "ai-speaker-avatar");
+        if (aiSpeakEnabled()) aiSpeak(clean, companionState.voice);
+        companionLiveExpress(res.reply);
+      }
+      if (res.show) companionApplyShow(res.show);
+    }
+  } catch (e) {}
+  compSeeMeReactBusy = false;
+}
 function compSeeMeFlash() {
   const v = compSeeMeVideo();
   if (!v) return;
@@ -13916,6 +13992,40 @@ async function aiVisionDescribe(dataUrl, style) {
   const prompt = inChar
     ? "Describe this webcam image in 1-2 short, plain sentences. It is a low-quality webcam frame that has been auto-brightened — it may still be dark, grainy or soft, so describe what you CAN make out and give your best-effort read instead of giving up. Report: the person's face (glasses or not, facial hair or not, hair color and style, expression), clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, which area of the body is visible (face, chest area, crotch/between the legs, backside), and whether they appear aroused. Only say you can't see if the frame is almost entirely black or white, or the lens is fully blocked (e.g. a finger over it) — and even then still mention whatever faint detail you can make out. IMPORTANT: do NOT mention gender or sex at all — never say male/female/man/woman, never name anatomy (penis, vagina, breasts), and do NOT mention age, body size or shape, body hair on the body, or the size of any body part. Start with \"You see:\"."
     : "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. It is a low-quality webcam frame that has been auto-brightened — it may still be dark, grainy or soft, so describe what you CAN make out and give your best-effort read instead of giving up. Describe everything visible: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude) and its COLOR, chest/genitals visible or covered, body hair, body shape, posture/position, and anything they are doing or holding (e.g. smoking a cigarette). Only say you can't see if the frame is almost entirely black or white, or the lens is fully blocked (e.g. a finger over it) — and even then still mention whatever faint detail you can make out. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
+  try {
+    if (p.kind === "openai" || p.kind === "deepseek") {
+      const url = (p.baseUrl || "https://api.deepseek.com").replace(/\/+$/, "") + "/chat/completions";
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + p.key },
+        body: JSON.stringify({ model: p.model, messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: dataUrl } }] }], max_tokens: 160 })
+      });
+      const raw = await r.text();
+      if (!r.ok) return "";
+      try { return (JSON.parse(raw).choices[0].message.content || "").trim(); } catch (e) { return ""; }
+    }
+    if (p.kind === "gemini") {
+      const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+      const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(p.model) + ":generateContent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-goog-api-key": p.key },
+        body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: "image/jpeg", data: b64 } }] }], generationConfig: { maxOutputTokens: 120 } })
+      });
+      const raw = await r.text();
+      if (!r.ok) return "";
+      try {
+        const j = JSON.parse(raw);
+        const parts = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [];
+        return parts.map(x => (x && x.text) ? x.text : "").join("").trim();
+      } catch (e) { return ""; }
+    }
+  } catch (e) {}
+  return "";
+}
+async function aiVisionDescribeVideo(dataUrl) {
+  const p = aiVisionProvider();
+  if (!p) return "";
+  const prompt = "Describe what is happening in this video frame in 1-2 short, plain sentences for an adult roleplay companion watching along. Be neutral and literal about the scene and the action you can make out (setting, poses, positions, what the people on screen are doing, mood and lighting). Do NOT mention gender or sex at all, and do NOT name any anatomy (penis, vagina, breasts) or body size/shape. Start with \"The video shows:\".";
   try {
     if (p.kind === "openai" || p.kind === "deepseek") {
       const url = (p.baseUrl || "https://api.deepseek.com").replace(/\/+$/, "") + "/chat/completions";
