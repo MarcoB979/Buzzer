@@ -1207,6 +1207,16 @@
         <div class="photo-modal-body" style="font-size:.8rem;">
           <div style="font-weight:bold;margin-bottom:4px;">🌌 Room (360° VR + flat backdrop)</div>
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+            <select id="avatarRoomPreset" style="flex:1;min-width:160px;background:#0b1220;border:1px solid #1e293b;border-radius:6px;color:#e2e8f0;padding:5px 6px;font-size:.78rem;">
+              <option value="">🎨 Room preset…</option>
+              <option value="bedroom">🛏 Romantic bedroom</option>
+              <option value="shower">🚿 Shower / bathroom</option>
+              <option value="bar">🍸 Dark bar</option>
+              <option value="forest">🌲 Forest</option>
+              <option value="default">🌌 Default (gradient)</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
             <button class="ble-btn small" id="avatarRoomBtn" type="button">📁 360° image</button>
             <button class="ble-btn small" id="avatarRoomClear" type="button" title="Remove the 360° room">✕</button>
             <span id="avatarRoomInfo" style="font-size:.72rem;color:#94a3b8;"></span>
@@ -11477,6 +11487,16 @@ function compRoomSync() {
   const clr2 = $("avatarRoom2dClear");
   if (clr2) clr2.style.display = companionState.room2d ? "" : "none";
 }
+function compRoomPresetUrl(name) {
+  // Free Creative-Commons equirectangular (360°) rooms from Wikimedia Commons.
+  const ROOMS = {
+    bedroom: "https://commons.wikimedia.org/wiki/Special:FilePath/360_view_of_Mrs._Sandburg%27s_Bedroom_%282a47eada-2d4c-4c54-8bce-8fe81c56e617%29.jpg?width=2048",
+    shower:  "https://commons.wikimedia.org/wiki/Special:FilePath/En_suite_%E2%80%93_Panorama_%28Greg_Zaal_via_Poly_Haven%29.jpg?width=2048",
+    bar:     "https://commons.wikimedia.org/wiki/Special:FilePath/VillaMedia%2C_Wuppertal_-_die_LichtBar_%281%29.jpg?width=2048",
+    forest:  "https://commons.wikimedia.org/wiki/Special:FilePath/Mossy_forest_%E2%80%93_Panorama_%28Greg_Zaal_via_Poly_Haven%29.jpg?width=2048"
+  };
+  return ROOMS[name] || "";
+}
 function compRoom2dLoad(file) {
   if (!file) return;
   const reader = new FileReader();
@@ -14477,6 +14497,14 @@ function compLiveStart() {
   if (avImport && avImportInput) { avImport.onclick = () => avImportInput.click(); avImportInput.onchange = () => { const f = avImportInput.files && avImportInput.files[0]; avImportInput.value = ""; importAvatar(f); }; }
   const roomBtn = $("avatarRoomBtn"); const roomInput = $("avatarRoomInput");
   if (roomBtn && roomInput) { roomBtn.onclick = () => roomInput.click(); roomInput.onchange = () => { const f = roomInput.files && roomInput.files[0]; roomInput.value = ""; compRoomLoad(f); }; }
+  const roomPreset = $("avatarRoomPreset");
+  if (roomPreset) roomPreset.onchange = () => {
+    const v = roomPreset.value;
+    if (!v) return;
+    if (v === "default") companionState.room = null;
+    else { const u = compRoomPresetUrl(v); if (!u) { funLog("Couldn't find that room preset."); return; } companionState.room = u; }
+    companionSave(); compRoomSync(); funLog("Room set — open 🥽 View in VR to see it.");
+  };
   const roomClear = $("avatarRoomClear"); if (roomClear) roomClear.onclick = compRoomClear;
   const room2dBtn = $("avatarRoom2dBtn"); const room2dInput = $("avatarRoom2dInput");
   if (room2dBtn && room2dInput) { room2dBtn.onclick = () => room2dInput.click(); room2dInput.onchange = () => { const f = room2dInput.files && room2dInput.files[0]; room2dInput.value = ""; compRoom2dLoad(f); }; }
