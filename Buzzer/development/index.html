@@ -13435,35 +13435,29 @@ function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
   m.style.display = "";
 }
 function aiVisionProvider() {
+  // Vision for adult content goes through an OpenAI-compatible endpoint only:
+  // Gemini's safety filter refuses NSFW, and DeepSeek's chat API is text-only
+  // (it can't take image input), so neither works for reading webcam/video frames.
   const s = aiProviderSettings();
-  if (s.provider === "deepseek" && s.key) return { kind: "deepseek", key: s.key, baseUrl: "https://api.deepseek.com", model: "deepseek-flash" };
   if (s.provider === "openai" && s.key) return { kind: "openai", key: s.key, baseUrl: s.baseUrl, model: s.model };
-  if (s.provider === "gemini" && s.key) return { kind: "gemini", key: s.key, model: s.model };
   try {
-    const dkey = (localStorage.getItem("ossm-ai-key-deepseek") || "").trim();
-    if (dkey) return { kind: "deepseek", key: dkey, baseUrl: "https://api.deepseek.com", model: "deepseek-flash" };
     const okey = (localStorage.getItem("ossm-ai-key-openai") || "").trim();
     if (okey) {
       const base = (localStorage.getItem("ossm-ai-base-url-openai") || "").trim() || "https://api.openai.com/v1";
       const model = (localStorage.getItem("ossm-ai-model-openai") || "").trim() || "gpt-4o-mini";
       return { kind: "openai", key: okey, baseUrl: base, model };
     }
-    const gkey = (localStorage.getItem("ossm-ai-key-gemini") || "").trim();
-    if (gkey) {
-      const model = (localStorage.getItem("ossm-ai-model-gemini") || "").trim() || "gemini-flash-latest";
-      return { kind: "gemini", key: gkey, model };
-    }
   } catch (e) {}
   return null;
 }
 function aiVisionProviderName(p) {
-  return p.kind === "openai" ? "OpenAI" : (p.kind === "gemini" ? "Google Gemini" : "DeepSeek");
+  return "OpenAI (compatible)";
 }
 async function compSeeMeToggle() {
   if (compSeeMeOn) { compSeeMeOff(); funLog("The avatar can't see you anymore."); return; }
   const p = aiVisionProvider();
   if (!p) {
-    compSeeMeModalShow("The avatar can't see you yet — vision needs a <b>DeepSeek</b>, <b>OpenAI</b> or <b>Gemini</b> API key. Add one under 🤖 AI assistant (it can be the same one you chat with).", "OK", null);
+    compSeeMeModalShow("The avatar can't see you yet — vision needs an <b>OpenAI-compatible</b> API key. Gemini blocks adult content and DeepSeek is text-only, so neither can read images for this. Add one under 🤖 AI assistant → <b>OpenAI (compatible)</b> — it can be a local or self-hosted model too.", "OK", null);
     return;
   }
   compSeeMeModalShow(
