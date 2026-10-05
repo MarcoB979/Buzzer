@@ -4683,6 +4683,11 @@ let localCastFile = null, castMsgListener = null;
 let castRelay = null; // { url, name, mime, size, meta } — phone→TV relay for Stash/URL videos
 let webrtcRetryTimer = null, webrtcGotAnswer = false;
 let castVolume = 1, castMuted = false;
+let avCastOn = false, avCastPending = false;
+let avCastPc = null, avCastCanvas = null, avCastStream = null;
+let avCastRaf = 0, avCastMsg = null, avCastGotAnswer = false, avCastRetry = null;
+let avCastFaceImg = null, avCastFaceSrc = "", avCastLastBlink = 0;
+let avCastBtnEl = null;
 let castRemotePlayer = null, castRemoteController = null;
 const CAST_NS = "urn:x-cast:com.buzzer.local";
 // Paste your PUBLISHED Custom Receiver Application ID here (cast.google.com/publish).
@@ -4705,6 +4710,15 @@ function initCast() {
         castConnected = nowConnected;
         castSession = nowConnected ? castContext.getCurrentSession() : null;
         if (nowConnected) {
+          if (avCastPending) {
+            avCastPending = false;
+            castConnectAt = Date.now(); castFailNotified = false; castWasPlaying = false; castEnded = false;
+            castVolume = 1; castMuted = false;
+            avCastStart();
+            updateCastButton();
+            updateCompWatchCastButton();
+            return;
+          }
           const lv = localVideoEl();
           castPausedLocal = !!(lv && !lv.paused);
           if (castPausedLocal) lv.pause();
@@ -4721,6 +4735,8 @@ function initCast() {
           castMedia = null; castRemoteTime = 0; castClockBaseMs = 0; castConnectAt = 0; castWasPlaying = false;
           castRemotePlayer = null; castRemoteController = null;
           cleanupWebrtc();
+          avCastOn = false;
+          avCastCleanup();
           if (castTickTimer) { clearInterval(castTickTimer); castTickTimer = null; }
           setCastOverlay(false);
           fallbackToLocal();
@@ -5596,6 +5612,175 @@ function stopCast() {
     if (m && typeof m.stop === "function") m.stop(mkCastRequest("StopRequest"), () => {}, () => {});
   } catch (e) {}
   castContext.endCurrentSession(true);
+}
+// ---------- Avatar live cast (project the companion — and any playing video — to the TV) ----------
+function avCastGetFace() {
+  const state = compActiveState();
+  const media = compStateMedia(state);
+  const fb = (state !== "normal") ? compStateMedia("normal") : null;
+  return (media && media.img) || (fb && fb.img) || null;
+}
+function avCastImage(src) {
+  if (!src) return null;
+  if (avCastFaceSrc !== src) {
+    avCastFaceSrc = src;
+    avCastFaceImg = new Image();
+    try { avCastFaceImg.src = src; } catch (e) { avCastFaceImg = null; }
+  }
+  return avCastFaceImg;
+}
+function avCastDraw() {
+  if (!avCastOn || !avCastCanvas) return;
+  const c = avCastCanvas, ctx = c.getContext("2d");
+  const W = c.width, H = c.height;
+  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  const v = localVideoEl();
+  const vidPlaying = !!(v && v.videoWidth && !v.paused && !v.ended);
+  if (vidPlaying) {
+    const vw = v.videoWidth, vh = v.videoHeight;
+    const s = Math.max(W / vw, H / vh);
+    const dw = vw * s, dh = vh * s;
+    try { ctx.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
+  }
+  const img = avCastImage(avCastGetFace());
+  if (img && img.complete && img.naturalWidth) {
+    const now = performance.now();
+    if (now - avCastLastBlink > 3500) avCastLastBlink = now;
+    const blinking = (now - avCastLastBlink) < 160;
+    const speaking = aiIsSpeaking();
+    const sy = blinking ? 0.9 : (speaking ? 1 + 0.025 * Math.sin(now / 85) : 1);
+    if (vidPlaying) {
+      const d = Math.min(W, H) * 0.34;
+      const cx = W - d * 0.58, cy = H - d * 0.58;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.clip();
+      const iw = img.naturalWidth, ih = img.naturalHeight;
+      const s2 = Math.max(d / iw, d / ih);
+      const dw2 = iw * s2, dh2 = ih * s2;
+      ctx.translate(cx, cy); ctx.scale(1, sy);
+      ctx.drawImage(img, -dw2 / 2, -dh2 / 2, dw2, dh2);
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(cx, cy, d / 2 + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(56,189,248,.85)"; ctx.lineWidth = 4; ctx.stroke();
+    } else {
+      const iw = img.naturalWidth, ih = img.naturalHeight;
+      const s2 = Math.min(W / iw, H / ih);
+      const dw2 = iw * s2, dh2 = ih * s2;
+      ctx.save();
+      ctx.translate(W / 2, H / 2); ctx.scale(1, sy);
+      ctx.drawImage(img, -dw2 / 2, -dh2 / 2, dw2, dh2);
+      ctx.restore();
+    }
+  }
+}
+function avCastLoop() {
+  if (!avCastOn) { avCastRaf = 0; return; }
+  avCastDraw();
+  avCastRaf = requestAnimationFrame(avCastLoop);
+}
+function avCastCleanup() {
+  if (avCastRaf) { cancelAnimationFrame(avCastRaf); avCastRaf = 0; }
+  if (avCastRetry) { clearInterval(avCastRetry); avCastRetry = null; }
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  if (session && avCastMsg) { try { session.removeMessageListener(CAST_NS, avCastMsg); } catch (e) {} }
+  avCastMsg = null;
+  if (avCastStream) { try { avCastStream.getTracks().forEach(t => t.stop()); } catch (e) {} }
+  if (avCastPc) { try { avCastPc.close(); } catch (e) {} }
+  if (avCastCanvas) { try { if (avCastCanvas.parentNode) avCastCanvas.parentNode.removeChild(avCastCanvas); } catch (e) {} }
+  avCastStream = null; avCastPc = null; avCastCanvas = null; avCastGotAnswer = false;
+  avCastFaceSrc = ""; avCastFaceImg = null;
+  compCastBtnSync();
+}
+function avCastStop() {
+  avCastOn = false;
+  sendCastMsg({ type: "avatar-stop" });
+  avCastCleanup();
+}
+function onAvCastMessage(ns, message) {
+  let m = message;
+  if (typeof m === "string") { try { m = JSON.parse(m); if (typeof m === "string") m = JSON.parse(m); } catch (e) {} }
+  m = (m && typeof m === "object") ? m : {};
+  if (m.type === "avatar-answer") {
+    avCastGotAnswer = true;
+    if (avCastRetry) { clearInterval(avCastRetry); avCastRetry = null; }
+    if (avCastPc) avCastPc.setRemoteDescription({ type: "answer", sdp: m.sdp }).catch(() => {});
+    funLog("TV answered — avatar view connected");
+  }
+}
+function avCastStart() {
+  const session = castSession || (castContext && castContext.getCurrentSession());
+  if (!session) return;
+  avCastCleanup();
+  avCastOn = true;
+  avCastMsg = session.addMessageListener(CAST_NS, onAvCastMessage);
+  avCastCanvas = document.createElement("canvas");
+  avCastCanvas.width = 960; avCastCanvas.height = 540;
+  avCastCanvas.style.cssText = "position:fixed;left:-10000px;top:0;width:960px;height:540px;pointer-events:none;";
+  document.body.appendChild(avCastCanvas);
+  try { avCastStream = avCastCanvas.captureStream(30); }
+  catch (e) { avCastStream = avCastCanvas.captureStream ? avCastCanvas.captureStream() : null; }
+  if (!avCastStream) { funLog("Live capture not supported in this browser", "warn"); avCastStop(); return; }
+  try { avCastPc = new RTCPeerConnection({ iceServers: [] }); }
+  catch (e) { funLog("WebRTC unavailable: " + (e && e.message)); avCastStop(); return; }
+  const track = avCastStream.getVideoTracks()[0];
+  if (track) avCastPc.addTrack(track, avCastStream);
+  const sendOffer = () => {
+    if (avCastGotAnswer || !avCastPc || !avCastPc.localDescription) return;
+    sendCastMsg({ type: "avatar-offer", sdp: avCastPc.localDescription.sdp });
+  };
+  avCastPc.createOffer()
+    .then(o => avCastPc.setLocalDescription(o))
+    .then(() => waitIceComplete(avCastPc, 1500))
+    .then(sendOffer)
+    .catch(e => funLog("Avatar cast offer failed: " + (e && e.message)));
+  avCastRetry = setInterval(() => { if (avCastGotAnswer) { clearInterval(avCastRetry); avCastRetry = null; return; } sendOffer(); }, 800);
+  avCastLastBlink = performance.now();
+  avCastLoop();
+  compCastBtnSync();
+  funLog("Casting avatar view to TV…");
+}
+function toggleAvatarCast() {
+  if (avCastOn) { avCastStop(); return; }
+  if (!castAvailable || !castContext) { funLog("Cast isn't available in this browser", "warn"); return; }
+  const appId = getCastAppId();
+  if (appId) setReceiverApp(appId);
+  avCastPending = true;
+  if (castConnected) {
+    try { castContext.endCurrentSession(true); } catch (e) {}
+    setTimeout(() => { if (avCastPending && castContext) castContext.requestSession().catch(e => { avCastPending = false; funLog("Cast failed: " + ((e && (e.description || e.message || e.code)) || "unknown")); }); }, 600);
+    return;
+  }
+  castContext.requestSession().catch(e => { avCastPending = false; funLog("Cast failed: " + ((e && (e.description || e.message || e.code)) || "unknown")); });
+}
+function compCastBtn() {
+  if (avCastBtnEl) return avCastBtnEl;
+  avCastBtnEl = document.createElement("button");
+  avCastBtnEl.type = "button";
+  avCastBtnEl.textContent = "📺";
+  avCastBtnEl.style.cssText = "position:absolute;bottom:10px;left:10px;width:38px;height:38px;border-radius:50%;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:1.05rem;line-height:1;cursor:pointer;z-index:7;display:flex;align-items:center;justify-content:center;padding:0;";
+  avCastBtnEl.onclick = toggleAvatarCast;
+  return avCastBtnEl;
+}
+function compCastBtnSync() {
+  if (!avCastBtnEl) return;
+  if (avCastOn) {
+    avCastBtnEl.style.background = "#7c3aed";
+    avCastBtnEl.style.borderColor = "#a78bfa";
+    avCastBtnEl.style.color = "#fff";
+    avCastBtnEl.title = "Stop casting the avatar view";
+  } else {
+    avCastBtnEl.style.background = "#0f172a";
+    avCastBtnEl.style.borderColor = "#334155";
+    avCastBtnEl.style.color = "#94a3b8";
+    avCastBtnEl.title = "Cast the avatar to TV (project your partner)";
+  }
+}
+function compCastBtnAttach() {
+  const box = $("companionAvatar");
+  if (!box || !compModeActive) { if (avCastBtnEl && avCastBtnEl.parentNode) avCastBtnEl.parentNode.removeChild(avCastBtnEl); return; }
+  const btn = compCastBtn();
+  if (btn.parentNode !== box) { try { box.appendChild(btn); } catch (e) {} }
+  compCastBtnSync();
 }
 function replayCast() {
   castRemoteTime = 0; castClockBaseMs = Date.now(); castEnded = false;
@@ -9909,6 +10094,7 @@ function companionRenderCore() {
 function companionRender() {
   companionRenderCore();
   compSeeMeAttach();
+  compCastBtnAttach();
 }
 function companionApplyShow(v) {
   const s = String(v || "").toLowerCase().trim();
@@ -10593,12 +10779,20 @@ function compSceneFromKeywords(text) {
 }
 // Parse one [toy:<device> <action> key=value ...] marker.
 function compToyParse(marker) {
-  const m = String(marker || "").match(/^\[toy\s*:\s*([a-z0-9]+)\s+(start|stop|on|off)((?:\s+[a-z0-9_]+=\d+)*)\s*\]$/i);
+  const m = String(marker || "").match(/^\[toy\s*:\s*([a-z0-9]+)\s+([a-z0-9_]+)([\s\S]*?)\s*\]$/i);
   if (!m) return null;
+  const device = m[1].toLowerCase();
+  const action = m[2].toLowerCase();
+  const rest = String(m[3] || "").trim();
   const pairs = {};
-  const re = /([a-z0-9_]+)=(\d+)/g;
-  let p; while ((p = re.exec(m[3]))) pairs[p[1].toLowerCase()] = parseInt(p[2], 10);
-  return { device: m[1].toLowerCase(), action: m[2].toLowerCase(), pairs };
+  let name = "";
+  if (/^(start|stop|on|off)$/i.test(action)) {
+    const re = /([a-z0-9_]+)=(\d+)/g;
+    let p; while ((p = re.exec(rest))) pairs[p[1].toLowerCase()] = parseInt(p[2], 10);
+  } else if (rest) {
+    name = rest.replace(/^["']+|["']+$/g, "").trim();
+  }
+  return { device, action, pairs, name };
 }
 // Execute a parsed toy marker through the existing addon handler (with its safety caps).
 function compToyExecute(toy) {
@@ -10606,7 +10800,23 @@ function compToyExecute(toy) {
   const def = ADDON_DEFS.find(x => x.id === toy.device);
   if (!def) { funLog("Unknown toy \"" + toy.device + "\"."); return; }
   if (!addonEnabled(toy.device)) { funLog(def.name + " isn't enabled — enable it in addon settings first."); return; }
-  const action = (toy.action === "on") ? "start" : (toy.action === "off") ? "stop" : toy.action;
+  const a = String(toy.action || "").toLowerCase();
+  if (toy.device === "coyote" && /preset/.test(a)) {
+    if (a === "preset_play" || a === "play_preset") {
+      if (toy.name) { const w = coyoteFindWave(toy.name); if (w) coyoteSelectWave(w.name, w.content); }
+      aiLog("scene toy: coyote preset_play" + (toy.name ? " (" + toy.name + ")" : ""));
+      coyotePlayPreset();
+    } else if (a === "preset_stop" || a === "stop_preset") {
+      aiLog("scene toy: coyote preset_stop");
+      coyoteStopPreset();
+    } else if (a === "preset" || a === "select_preset") {
+      const w = coyoteFindWave(toy.name);
+      if (w) { aiLog("scene toy: coyote select " + w.name); coyoteSelectWave(w.name, w.content); }
+      else funLog("Coyote wave not found: " + (toy.name || ""));
+    }
+    return;
+  }
+  const action = (a === "on") ? "start" : (a === "off") ? "stop" : a;
   const actions = [{ device: toy.device, action: action }];
   for (const k of Object.keys(toy.pairs)) {
     if (def.sliders.some(s => s.key === k)) actions.push({ device: toy.device, action: "set", key: k, value: toy.pairs[k] });
@@ -10618,7 +10828,7 @@ function compToyExecute(toy) {
 function compSceneProcessMarkers(text) {
   let t = String(text || "");
   t = t.replace(/\[timer\s*:\s*[a-z0-9 -]*\]/gi, " "); // prompt-only hints — never shown/spoken
-  t = t.replace(/\[toy\s*:\s*[a-z0-9]+\s+(?:start|stop|on|off)(?:\s+[a-z0-9_]+=\d+)*\s*\]/gi, (m) => { const toy = compToyParse(m); if (toy) compToyExecute(toy); return " "; });
+  t = t.replace(/\[toy\s*:\s*[a-z0-9]+\s+[a-z0-9_]+[\s\S]*?\]/gi, (m) => { const toy = compToyParse(m); if (toy) compToyExecute(toy); return " "; });
   let sceneKey = null;
   t = t.replace(/\[scene\s*:?\s*[a-z0-9][a-z0-9 _-]*\]/gi, (m) => { if (!sceneKey) sceneKey = m.replace(/^\[scene\s*:?\s*/i, "").replace(/\]$/, "").trim(); return " "; });
   if (sceneKey) compSceneShow(sceneKey);
@@ -13046,6 +13256,8 @@ let compSeeMeBtnEl = null;
 let compSeeMeLookTimer = null;
 let compSeeMeLookBusy = false;
 let compSeeMeLastDesc = "";
+let compSeeMePrevSig = "";      // low-res pixel signature of the previous sent frame (change detection)
+let compSeeMeLastRawSig = "";   // signature of the most recently captured frame
 let compSeeMeReactBusy = false;
 const COMP_SEEME_MAX = 2000;     // snapshots kept on-device (OPFS) before the oldest are trimmed
 const COMP_SEEME_MAX_MEM = 200;  // fallback cap when on-device storage isn't available (memory)
@@ -13161,7 +13373,7 @@ async function compSeeMeToggle() {
 }
 async function compSeeMeStart() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 } }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     compSeeMeStream = stream;
     compSeeMeOn = true;
     const v = compSeeMeVideo();
@@ -13173,6 +13385,8 @@ async function compSeeMeStart() {
     compSeeMeStatusSync();
     funLog("The avatar can see you now. Tap 👁 on the avatar to turn it off.");
     compSeeMeLastDesc = "";
+    compSeeMePrevSig = "";
+    compSeeMeLastRawSig = "";
     await new Promise((res) => {
       let n = 0;
       const poll = () => { n++; if ((v.videoWidth > 0 && v.readyState >= 2) || n > 40) return res(); setTimeout(poll, 150); };
@@ -13187,7 +13401,7 @@ async function compSeeMeStart() {
   }
 }
 function compSeeMeLookMode() {
-  try { const m = localStorage.getItem("ossm-seeme-look") || "turn"; return (m === "change" || m === "10" || m === "30") ? m : "turn"; } catch (e) { return "turn"; }
+  try { const m = localStorage.getItem("ossm-seeme-look"); if (!m) return "change"; return (m === "turn" || m === "change" || m === "10" || m === "30") ? m : "change"; } catch (e) { return "change"; }
 }
 function compSeeMeStyle() {
   try { return localStorage.getItem("ossm-seeme-style") === "real" ? "real" : "character"; } catch (e) { return "character"; }
@@ -13195,45 +13409,52 @@ function compSeeMeStyle() {
 function compSeeMeLogEnabled() {
   try { return localStorage.getItem("ossm-seeme-log") === "1"; } catch (e) { return false; }
 }
-async function compSeeMeLogShot(dataUrl, desc) {
-  if (!compSeeMeLogEnabled()) return;
-  const ts = Date.now();
-  const blob = dataUrl ? dataUrlToBlob(dataUrl) : null;
-  const name = compSeeMeSnapshotName(new Date(ts));
-  const dir = await compSeeMeOpfsEnsure();
-  let stored = false;
-  if (dir && blob) {
-    try {
-      const fh = await dir.getFileHandle(name, { create: true });
-      const w = await fh.createWritable();
-      await w.write(blob);
-      await w.close();
-      stored = true;
-    } catch (e) {
-      if (e && e.name === "QuotaExceededError") funLog("Snapshot storage is full — the oldest snapshots will be trimmed.");
+// Snapshot writes are queued — concurrent appends to snapshots.txt interleave and corrupt the file.
+let compSeeMeLogChain = Promise.resolve();
+function compSeeMeLogShot(dataUrl, desc) {
+  if (!compSeeMeLogEnabled()) return Promise.resolve();
+  const run = async () => {
+    const ts = Date.now();
+    const blob = dataUrl ? dataUrlToBlob(dataUrl) : null;
+    const name = compSeeMeSnapshotName(new Date(ts));
+    const clean = String(desc || "").replace(/[\r\n]+/g, " ").trim();
+    const dir = await compSeeMeOpfsEnsure();
+    let stored = false;
+    if (dir && blob) {
+      try {
+        const fh = await dir.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob);
+        await w.close();
+        stored = true;
+      } catch (e) {
+        if (e && e.name === "QuotaExceededError") funLog("Snapshot storage is full — the oldest snapshots will be trimmed.");
+      }
     }
-  }
-  compSeeMeShots.push({ name, ts, desc: desc || "", size: blob ? blob.size : 0, dataUrl: stored ? null : (dataUrl || "") });
-  const cap = dir ? COMP_SEEME_MAX : COMP_SEEME_MAX_MEM;
-  if (compSeeMeShots.length > cap) {
-    const dropped = compSeeMeShots.splice(0, compSeeMeShots.length - cap);
-    if (dir) { for (const d of dropped) { try { await dir.removeEntry(d.name); } catch (e) {} } }
-  }
-  if (dir) await compSeeMeOpfsSaveManifest();
-  compSeeMeStatusSync();
-  // Desktop only: also mirror into a user-picked folder (visible files on disk).
-  if (compSeeMeDirHandle && blob) {
-    try {
-      const fh = await compSeeMeDirHandle.getFileHandle(name, { create: true });
-      const w = await fh.createWritable();
-      await w.write(blob);
-      await w.close();
-      const lh = await compSeeMeDirHandle.getFileHandle("snapshots.txt", { create: true });
-      const lw = await lh.createWritable({ keepExistingData: true });
-      await lw.write("[" + new Date(ts).toLocaleString() + "] " + (desc || "(no description)") + "\n");
-      await lw.close();
-    } catch (e) {}
-  }
+    compSeeMeShots.push({ name, ts, desc: clean || "", size: blob ? blob.size : 0, dataUrl: stored ? null : (dataUrl || "") });
+    const cap = dir ? COMP_SEEME_MAX : COMP_SEEME_MAX_MEM;
+    if (compSeeMeShots.length > cap) {
+      const dropped = compSeeMeShots.splice(0, compSeeMeShots.length - cap);
+      if (dir) { for (const d of dropped) { try { await dir.removeEntry(d.name); } catch (e) {} } }
+    }
+    if (dir) await compSeeMeOpfsSaveManifest();
+    compSeeMeStatusSync();
+    // Desktop only: also mirror into a user-picked folder (visible files on disk).
+    if (compSeeMeDirHandle && blob) {
+      try {
+        const fh = await compSeeMeDirHandle.getFileHandle(name, { create: true });
+        const w = await fh.createWritable();
+        await w.write(blob);
+        await w.close();
+        const lh = await compSeeMeDirHandle.getFileHandle("snapshots.txt", { create: true });
+        const lw = await lh.createWritable({ keepExistingData: true });
+        await lw.write("[" + new Date(ts).toLocaleString() + "] " + (clean || "(no description)") + "\n");
+        await lw.close();
+      } catch (e) {}
+    }
+  };
+  compSeeMeLogChain = compSeeMeLogChain.then(run, run);
+  return compSeeMeLogChain;
 }
 function compSeeMeSnapshotName(d) {
   const pad = (n, w) => String(n).padStart(w, "0");
@@ -13400,7 +13621,7 @@ setTimeout(compMigratePhotoSizes, 1200);
 setTimeout(() => { compSeeMeOpfsEnsure().then(() => compSeeMeOpfsLoadManifest()); }, 900);
 function compSeeMeLookInterval() {
   const m = compSeeMeLookMode();
-  if (m === "change") return 4000;
+  if (m === "change") return 2000;
   if (m === "10") return 10000;
   if (m === "30") return 30000;
   return 0;
@@ -13414,16 +13635,33 @@ function compSeeMeLookSchedule() {
 function compSeeMeLookStop() {
   if (compSeeMeLookTimer) { clearInterval(compSeeMeLookTimer); compSeeMeLookTimer = null; }
 }
+// Key state words: if any of these appear/disappear between two descriptions, it is a real change
+// (e.g. shirt on -> shirtless, standing -> lying), even when the rest of the wording overlaps heavily.
+const COMP_SEEME_STATE = /(shirtless|topless|t[- ]?shirt|shirt\b|sweater|hoodie|jacket|nude|naked|undressed|underwear|boxers|briefs|pants|trousers|shorts|jeans|clothed|dressed|standing|sitting|seated|lying|kneeling|crouching|on all fours|face|chest|torso|crotch|between the legs|backside|\bass\b|full body|close[- ]?up|holding|in (his|their) hand|stroking|touching|pointing|glasses|\bhat\b|\bcap\b)/g;
+function compSeeMeState(s) {
+  const found = String(s || "").toLowerCase().match(COMP_SEEME_STATE) || [];
+  return new Set(found);
+}
 function compSeeMeSameDesc(a, b) {
   const norm = (s) => String(s || "").toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
   const na = norm(a), nb = norm(b);
   if (!na || !nb) return false;
   if (na === nb) return true;
+  const sa = compSeeMeState(na), sb = compSeeMeState(nb);
+  let diff = 0;
+  for (const w of sa) if (!sb.has(w)) diff++;
+  for (const w of sb) if (!sa.has(w)) diff++;
+  if (diff > 0) return false; // a key state word appeared or disappeared — a real change
   const wa = na.split(" "), wb = nb.split(" ");
   const set = new Set(wa);
   let same = 0;
   for (const w of wb) if (set.has(w)) same++;
-  return (same / Math.max(1, Math.min(wa.length, wb.length))) > 0.6;
+  return (same / Math.max(1, Math.min(wa.length, wb.length))) > 0.75;
+}
+// True when the vision model reported it couldn't read the frame (dark/blurry/blocked).
+function compSeeMeCantSee(s) {
+  const t = String(s || "").toLowerCase();
+  return /(can'?t|cannot|too dark|too blur|too close|blocked|unable to see|nothing visible|all black|all white|pitch black)/.test(t);
 }
 async function compSeeMeLookTick() {
   if (!compSeeMeOn || compSeeMeLookBusy) return;
@@ -13431,15 +13669,30 @@ async function compSeeMeLookTick() {
   try {
     const dataUrl = await compSeeMeSnapshot();
     if (dataUrl) {
-      const desc = await aiVisionDescribe(dataUrl, compSeeMeStyle());
-      if (desc) {
-        const mode = compSeeMeLookMode();
-        const isFirst = !compSeeMeLastDesc;
-        const changed = !isFirst && !compSeeMeSameDesc(compSeeMeLastDesc, desc);
-        const quiet = (mode !== "turn") && !isFirst && !changed; // keep watching, but stay quiet until something actually changes
-        compSeeMeLastDesc = desc;
-        compSeeMeLogShot(dataUrl, desc);
-        if (!quiet) compSeeMeReact(desc);
+      const mode = compSeeMeLookMode();
+      if (mode === "change" && compSeeMePrevSig && compSeeMeLastRawSig && compSeeMeSigDiff(compSeeMeLastRawSig, compSeeMePrevSig) < 0.05) {
+        // Scene barely changed — skip the (paid) vision call until something actually happens.
+        compSeeMePrevSig = compSeeMeLastRawSig;
+      } else {
+        if (compSeeMeLastRawSig) compSeeMePrevSig = compSeeMeLastRawSig;
+        let desc = await aiVisionDescribe(dataUrl, compSeeMeStyle());
+        let shotUrl = dataUrl;
+        if (desc && compSeeMeCantSee(desc)) {
+          // One recovery attempt: the frame was likely too dark/soft — grab a fresh frame and ask again.
+          const dataUrl2 = await compSeeMeSnapshot();
+          if (dataUrl2) {
+            const desc2 = await aiVisionDescribe(dataUrl2, compSeeMeStyle());
+            if (desc2 && !compSeeMeCantSee(desc2)) { desc = desc2; shotUrl = dataUrl2; }
+          }
+        }
+        if (desc) {
+          const isFirst = !compSeeMeLastDesc;
+          const changed = !isFirst && !compSeeMeSameDesc(compSeeMeLastDesc, desc);
+          const quiet = (mode !== "turn") && !isFirst && !changed; // keep watching, but stay quiet until something actually changes
+          compSeeMeLastDesc = desc;
+          compSeeMeLogShot(shotUrl, desc);
+          if (!quiet) compSeeMeReact(desc);
+        }
       }
     }
   } catch (e) {}
@@ -13488,32 +13741,83 @@ async function compSeeMeSnapshot() {
     try {
       const cap = new ImageCapture(track);
       const bmp = await cap.grabFrame();
-      const w = 1024, h = Math.max(1, Math.round(1024 * bmp.height / bmp.width));
-      const c = document.createElement("canvas");
-      c.width = w; c.height = h;
-      c.getContext("2d").drawImage(bmp, 0, 0, w, h);
-      compSeeMeFlash();
-      return c.toDataURL("image/jpeg", 0.85);
+      return compSeeMeFrameToJpeg(bmp);
     } catch (e) {}
   }
   const v = compSeeMeVideo();
   if (!v || !v.videoWidth) return "";
   try {
-    const w = 1024, h = Math.max(1, Math.round(1024 * v.videoHeight / v.videoWidth));
-    const c = document.createElement("canvas");
-    c.width = w; c.height = h;
-    c.getContext("2d").drawImage(v, 0, 0, w, h);
-    compSeeMeFlash();
-    return c.toDataURL("image/jpeg", 0.85);
+    return compSeeMeFrameToJpeg(v);
   } catch (e) { return ""; }
+}
+// Draw a camera frame to a canvas, auto-correct low light / low contrast, and export a JPEG.
+function compSeeMeFrameToJpeg(src) {
+  compSeeMeLastRawSig = compSeeMeFrameSig(src);
+  const sw = src.videoWidth || src.width || 640;
+  const sh = src.videoHeight || src.height || 480;
+  const MAX = 1280;
+  const scale = Math.min(1, MAX / Math.max(sw, sh));
+  const w = Math.max(1, Math.round(sw * scale));
+  const h = Math.max(1, Math.round(sh * scale));
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(src, 0, 0, w, h);
+  compSeeMeEnhance(ctx);
+  compSeeMeFlash();
+  return c.toDataURL("image/jpeg", 0.9);
+}
+// Auto-levels: stretch the brightness histogram so dark/grainy webcam frames become readable.
+function compSeeMeEnhance(ctx) {
+  try {
+    const img = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height);
+    const d = img.data;
+    const hist = new Array(256).fill(0);
+    for (let i = 0; i < d.length; i += 4) {
+      hist[Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2])]++;
+    }
+    const total = d.length / 4;
+    let lo = 0, hi = 255, acc = 0;
+    for (let i = 0; i < 256; i++) { acc += hist[i]; if (acc <= total * 0.01) lo = i; }
+    acc = 0;
+    for (let i = 255; i >= 0; i--) { acc += hist[i]; if (acc <= total * 0.01) hi = i; }
+    if (hi - lo < 24) return; // uniform frame — nothing useful to stretch
+    const range = hi - lo;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = Math.max(0, Math.min(255, (d[i] - lo) * 255 / range));
+      d[i + 1] = Math.max(0, Math.min(255, (d[i + 1] - lo) * 255 / range));
+      d[i + 2] = Math.max(0, Math.min(255, (d[i + 2] - lo) * 255 / range));
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch (e) {}
+}
+// Low-res pixel signature of a frame, used to detect real visual change without a model call.
+function compSeeMeFrameSig(src) {
+  try {
+    const SW = 16, SH = 12;
+    const c = document.createElement("canvas");
+    c.width = SW; c.height = SH;
+    const ctx = c.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(src, 0, 0, SW, SH);
+    const d = ctx.getImageData(0, 0, SW, SH).data;
+    let out = "";
+    for (let i = 0; i < d.length; i += 4) out += String.fromCharCode(33 + (((d[i] + d[i + 1] + d[i + 2]) / 3) >> 3));
+    return out;
+  } catch (e) { return ""; }
+}
+function compSeeMeSigDiff(a, b) {
+  if (!a || !b || a.length !== b.length) return 1;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) d++; }
+  return d / a.length;
 }
 async function aiVisionDescribe(dataUrl, style) {
   const p = aiVisionProvider();
   if (!p) return "";
   const inChar = style !== "real";
   const prompt = inChar
-    ? "Describe this webcam image in 1-2 short, plain sentences. Report: the person's face (glasses or not, facial hair or not, hair color and style, expression), clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, which area of the body is visible (face, chest area, crotch/between the legs, backside), and whether they appear aroused. If the image is too dark, too blurry, too close, or the lens is blocked (e.g. a finger over it), say that plainly instead of guessing. IMPORTANT: do NOT mention gender or sex at all — never say male/female/man/woman, never name anatomy (penis, vagina, breasts), and do NOT mention age, body size or shape, body hair on the body, or the size of any body part. Start with \"You see:\"."
-    : "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. Describe everything visible: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude) and its COLOR, chest/genitals visible or covered, body hair, body shape, posture/position, and anything they are doing or holding (e.g. smoking a cigarette). If the image is too dark, too blurry, too close, or the lens is blocked (e.g. a finger over it), say that plainly instead of guessing. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
+    ? "Describe this webcam image in 1-2 short, plain sentences. It is a low-quality webcam frame that has been auto-brightened — it may still be dark, grainy or soft, so describe what you CAN make out and give your best-effort read instead of giving up. Report: the person's face (glasses or not, facial hair or not, hair color and style, expression), clothing state (shirt on/off, pants on/off, underwear, fully nude), posture/position, which area of the body is visible (face, chest area, crotch/between the legs, backside), and whether they appear aroused. Only say you can't see if the frame is almost entirely black or white, or the lens is fully blocked (e.g. a finger over it) — and even then still mention whatever faint detail you can make out. IMPORTANT: do NOT mention gender or sex at all — never say male/female/man/woman, never name anatomy (penis, vagina, breasts), and do NOT mention age, body size or shape, body hair on the body, or the size of any body part. Start with \"You see:\"."
+    : "Describe this webcam image in 2-3 short, plain, literal sentences for an adult roleplay companion. It is a low-quality webcam frame that has been auto-brightened — it may still be dark, grainy or soft, so describe what you CAN make out and give your best-effort read instead of giving up. Describe everything visible: face (glasses or not, facial hair, hair color and style, expression), clothing (shirt on/off, pants on/off, underwear, fully nude) and its COLOR, chest/genitals visible or covered, body hair, body shape, posture/position, and anything they are doing or holding (e.g. smoking a cigarette). Only say you can't see if the frame is almost entirely black or white, or the lens is fully blocked (e.g. a finger over it) — and even then still mention whatever faint detail you can make out. Be accurate and matter-of-fact — no flattery, no guessing about feelings or identity. Start with \"You see:\".";
   try {
     if (p.kind === "openai" || p.kind === "deepseek") {
       const url = (p.baseUrl || "https://api.deepseek.com").replace(/\/+$/, "") + "/chat/completions";
@@ -15502,7 +15806,7 @@ function coyoteParsePulse(text) {
         else if (mode === 3) f = startFreq + (endFreq - startFreq) * (si / elemDur);
         else if (mode === 4) f = startFreq + (endFreq - startFreq) * (elemCount > 1 ? ei / (elemCount - 1) : 0);
         else f = startFreq;
-        frames.push({ f: coyotePeriodToByte(f), s: points[si] });
+        frames.push({ f: coyoteFreqValue(f), s: points[si] });
       }
     }
   }
@@ -15520,23 +15824,26 @@ function coyoteBuildBF() {
 // slots (25 ms each) per channel.
 function coyoteBuildPacket() {
   const st = coyoteState();
+  const ch = coyoteChannel();
+  const hasA = (ch === "a" || ch === "ab");
+  const hasB = (ch === "b" || ch === "ab");
   const b = new Uint8Array(20);
   b[0] = 0xB0;
   b[1] = 0x0F; // serial 0 + absolute intensity mode for both channels
-  b[2] = clamp(Math.round(coyoteSliderVal("a_power", COYOTE_DEFAULTS.a_power)), 0, 200);
-  b[3] = clamp(Math.round(coyoteSliderVal("b_power", COYOTE_DEFAULTS.b_power)), 0, 200);
+  b[2] = hasA ? clamp(Math.round(coyoteSliderVal("a_power", COYOTE_DEFAULTS.a_power)), 0, 200) : 0;
+  b[3] = hasB ? clamp(Math.round(coyoteSliderVal("b_power", COYOTE_DEFAULTS.b_power)), 0, 200) : 0;
   let aF, aW, bF, bW;
   if (st.presetPlaying && st.preset && st.preset.frames && st.preset.frames.length) {
     const fr = st.preset.frames[st.preset.idx % st.preset.frames.length];
     st.preset.idx = (st.preset.idx + 1) % st.preset.frames.length;
-    aF = fr.f; aW = fr.s; // preset drives channel A's frequency + waveform strength
-    bF = coyoteFreqValue(coyoteSliderVal("b_freq", COYOTE_DEFAULTS.b_freq));
-    bW = clamp(Math.round(coyoteSliderVal("b_wave", COYOTE_DEFAULTS.b_wave)), 0, 100);
+    // The wave drives the selected channel(s); the other channel stays silent.
+    aF = hasA ? fr.f : 0; aW = hasA ? fr.s : 0;
+    bF = hasB ? fr.f : 0; bW = hasB ? fr.s : 0;
   } else {
-    aF = coyoteFreqValue(coyoteSliderVal("a_freq", COYOTE_DEFAULTS.a_freq));
-    aW = clamp(Math.round(coyoteSliderVal("a_wave", COYOTE_DEFAULTS.a_wave)), 0, 100);
-    bF = coyoteFreqValue(coyoteSliderVal("b_freq", COYOTE_DEFAULTS.b_freq));
-    bW = clamp(Math.round(coyoteSliderVal("b_wave", COYOTE_DEFAULTS.b_wave)), 0, 100);
+    aF = hasA ? coyoteFreqValue(coyoteSliderVal("a_freq", COYOTE_DEFAULTS.a_freq)) : 0;
+    aW = hasA ? clamp(Math.round(coyoteSliderVal("a_wave", COYOTE_DEFAULTS.a_wave)), 0, 100) : 0;
+    bF = hasB ? coyoteFreqValue(coyoteSliderVal("b_freq", COYOTE_DEFAULTS.b_freq)) : 0;
+    bW = hasB ? clamp(Math.round(coyoteSliderVal("b_wave", COYOTE_DEFAULTS.b_wave)), 0, 100) : 0;
   }
   for (let i = 0; i < 4; i++) { b[4 + i] = aF; b[8 + i] = aW; b[12 + i] = bF; b[16 + i] = bW; }
   return b;
@@ -15662,6 +15969,31 @@ function coyoteSlider(key, v) {
   // stream is running, the 100 ms loop keeps applying every slider value.
   if (!st.on && (key === "a_power" || key === "b_power") && v > 0) coyoteStart();
 }
+function coyoteChannel() {
+  const st = coyoteState();
+  if (st.channel !== "a" && st.channel !== "b" && st.channel !== "ab") st.channel = "ab";
+  return st.channel;
+}
+function coyoteSetChannel(ch) {
+  const st = coyoteState();
+  if (ch !== "a" && ch !== "b" && ch !== "ab") ch = "ab";
+  st.channel = ch;
+  // ALWAYS drop intensity back to 0 after a channel change (safety).
+  st.sliderValues = st.sliderValues || {};
+  st.sliderValues.a_power = 0;
+  st.sliderValues.b_power = 0;
+  if (st.connected && st.on) coyoteWrite(st, coyoteKillPacket());
+  coyoteRender();
+}
+function coyoteShowSlider(key, st) {
+  if (key === "limit") return true;
+  const ch = coyoteChannel();
+  if (key.indexOf("a_") === 0 && ch !== "a" && ch !== "ab") return false;
+  if (key.indexOf("b_") === 0 && ch !== "b" && ch !== "ab") return false;
+  // During wave playback only intensity matters — the wave drives frequency/strength.
+  if (st.presetPlaying && (key === "a_freq" || key === "b_freq" || key === "a_wave" || key === "b_wave")) return false;
+  return true;
+}
 function coyoteUserWaves() {
   try { const a = JSON.parse(localStorage.getItem("ossm-coyote-user-waves") || "[]"); return Array.isArray(a) ? a : []; } catch (e) { return []; }
 }
@@ -15674,6 +16006,23 @@ function coyoteUserWaveAdd(name, content) {
 }
 function coyoteUserWaveRemove(name) {
   coyoteUserWavesSave(coyoteUserWaves().filter(w => w && w.name !== name));
+}
+function coyoteWaveNames() {
+  const names = [];
+  (COYOTE_BUNDLED_PRESETS || []).forEach(w => names.push(w.name));
+  coyoteUserWaves().forEach(w => names.push(w.name));
+  return names;
+}
+function coyoteFindWave(name) {
+  const n = String(name || "").trim().toLowerCase();
+  if (!n) return null;
+  const all = [];
+  (COYOTE_BUNDLED_PRESETS || []).forEach(w => all.push({ name: w.name, content: w.content }));
+  coyoteUserWaves().forEach(w => all.push({ name: w.name, content: w.content }));
+  return all.find(w => String(w.name || "").trim().toLowerCase() === n)
+    || all.find(w => String(w.name || "").trim().toLowerCase().indexOf(n) === 0)
+    || all.find(w => String(w.name || "").trim().toLowerCase().indexOf(n) >= 0)
+    || null;
 }
 function coyoteSelectWave(name, content) {
   const st = coyoteState();
@@ -15719,8 +16068,11 @@ function coyotePlayPreset() {
   if (!st.on) coyoteStart(); // starts the 100 ms stream (first packet is slider-based and safe)
   st.presetPlaying = true;
   st.preset.idx = 0;
-  if (coyoteSliderVal("a_power", 0) <= 0) {
-    monitor("Coyote: preset playing — raise the A intensity slider to feel it", "warn");
+  const ch = coyoteChannel();
+  const needA = (ch === "a" || ch === "ab") && coyoteSliderVal("a_power", 0) <= 0;
+  const needB = (ch === "b" || ch === "ab") && coyoteSliderVal("b_power", 0) <= 0;
+  if (needA || needB) {
+    monitor("Coyote: wave playing — raise the " + (ch === "ab" ? "A/B" : (ch === "a" ? "A" : "B")) + " intensity slider to feel it", "warn");
   }
   coyoteRender();
 }
@@ -15825,7 +16177,25 @@ function coyoteBuildSection() {
   sd.appendChild(ss);
   const sb = document.createElement("div");
   sb.style.cssText = "margin-top:6px;";
+  // Channel selector: A, B or A+B. Switching channels always zeroes intensity.
+  const chRow = document.createElement("div");
+  chRow.style.cssText = "display:flex;gap:5px;margin:0 0 8px;align-items:center;";
+  const chLbl = document.createElement("span");
+  chLbl.className = "ai-set-hint";
+  chLbl.textContent = "Channel:";
+  chRow.appendChild(chLbl);
+  [["a", "A"], ["b", "B"], ["ab", "A+B"]].forEach((pair) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ble-btn small";
+    btn.textContent = pair[1];
+    if (coyoteChannel() === pair[0]) { btn.style.borderColor = "#38bdf8"; btn.style.color = "#7dd3fc"; }
+    btn.onclick = () => coyoteSetChannel(pair[0]);
+    chRow.appendChild(btn);
+  });
+  sb.appendChild(chRow);
   for (const s of coyoteDef().sliders) {
+    if (!coyoteShowSlider(s.key, st)) continue;
     const cur = coyoteSliderVal(s.key, COYOTE_DEFAULTS[s.key] !== undefined ? COYOTE_DEFAULTS[s.key] : s.min);
     sb.appendChild(sliderEl(s.label, s.min, s.max, cur, "#38bdf8", (v) => coyoteSlider(s.key, v)));
   }
@@ -15859,6 +16229,11 @@ function aiApplyCoyote(action, p) {
   else if (action === "stop" || action === "off") { if (st.on) { aiLog("addon coyote: stop"); coyoteStop(); } }
   else if (action === "preset_play" || action === "play_preset") { aiLog("addon coyote: play preset"); coyotePlayPreset(); }
   else if (action === "preset_stop" || action === "stop_preset") { aiLog("addon coyote: stop preset"); coyoteStopPreset(); }
+  else if (action === "preset_set" || action === "select_preset" || action === "preset") {
+    const w = coyoteFindWave(p && (p.name || p.preset || p.wave));
+    if (w) { aiLog("addon coyote: select preset " + w.name); coyoteSelectWave(w.name, w.content); }
+    else { aiLog("addon coyote: preset not found"); }
+  }
   else if (action === "set" || action === "value") {
     const key = String(p.key || "").toLowerCase();
     const s = coyoteDef().sliders.find(x => x.key === key);
@@ -15877,7 +16252,8 @@ function aiApplyCoyote(action, p) {
   }
 }
 function addonCoyoteIntentText() {
-  return "\n\nCOYOTE (e-stim) — INTENT: when the user asks for e-stim / electro / shocks / tingling, actually run it via the \"addon\" field. Start with {\"device\":\"coyote\",\"action\":\"start\"}, then set the channels — e.g. [{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_power\",\"value\":15},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_freq\",\"value\":50},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_wave\",\"value\":60}]. \"a_power\"/\"b_power\" = channel intensity (0-200); \"a_freq\"/\"b_freq\" = frequency in Hz (10-1000); \"a_wave\"/\"b_wave\" = waveform strength (0-100). \"limit\" = soft safety cap (1-200). If a .pulse preset is loaded, {\"device\":\"coyote\",\"action\":\"preset_play\"} starts it on channel A and {\"device\":\"coyote\",\"action\":\"preset_stop\"} stops it. To end: {\"device\":\"coyote\",\"action\":\"stop\"}.";
+  const waves = coyoteWaveNames();
+  return "\n\nCOYOTE (e-stim) — INTENT: when the user asks for e-stim / electro / shocks / tingling, actually run it via the \"addon\" field. Start with {\"device\":\"coyote\",\"action\":\"start\"}, then set intensity — e.g. [{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"a_power\",\"value\":15},{\"device\":\"coyote\",\"action\":\"set\",\"key\":\"b_power\",\"value\":15}]. \"a_power\"/\"b_power\" = channel intensity (0-200); \"a_freq\"/\"b_freq\" = frequency in Hz (10-1000); \"a_wave\"/\"b_wave\" = waveform strength (0-100); \"limit\" = soft safety cap (1-200). CHANNELS: the user chooses the active channel (A / B / A+B) themselves — NEVER change it; set both \"a_power\" and \"b_power\" together when ramping so the user's selected channel responds. WAVES: available waves: " + (waves.length ? waves.join(", ") : "(none)") + ". Select one with {\"device\":\"coyote\",\"action\":\"preset_set\",\"name\":\"<wave name>\"}, play it with {\"device\":\"coyote\",\"action\":\"preset_play\"} and stop it with {\"device\":\"coyote\",\"action\":\"preset_stop\"}. To switch waves or play/stop on a schedule (\"switch to H BUMPS in 3 minutes\"), use the timer envelope whose line contains toy markers, e.g. {\"timer\":{\"min\":180,\"max\":180,\"lines\":[\"[toy:coyote preset H BUMPS] [toy:coyote preset_play]\"],\"repeat\":1}}. To end: {\"device\":\"coyote\",\"action\":\"stop\"}.";
 }
 function addonCoyoteSafetyText() {
   return "\n\nE-STIM SAFETY (CRITICAL — applies while the Coyote is connected/running): electricity is dangerous — wrong settings can injure. NEVER raise channel intensity (a_power/b_power) sharply: the app caps every increase to a small step that grows with the initiative level (Strict ±1, Playful ±3, Wild ±5, Full ±10) — ramp up gradually over several turns, always staying under the soft limit. Lowering is never capped, so you can always reduce or stop instantly. Start very low and check in with the user. On the user's safe word the app zeroes the Coyote automatically, but you must also send {\"device\":\"coyote\",\"action\":\"stop\"} yourself. Never set a frequency or intensity outside the stated ranges, and never aim for the chest or head — assume the user has placed the electrodes safely themselves.";

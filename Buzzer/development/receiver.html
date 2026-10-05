@@ -40,6 +40,33 @@ let sbError = false;
 let firstAppendTime = 0;
 let currentTrackId = 1;
 let expectStreamInfo = false;
+let livePc = null, liveMode = false;
+function cleanupLive() {
+  if (livePc) { try { livePc.close(); } catch (e) {} }
+  livePc = null; liveMode = false;
+  try { video.srcObject = null; } catch (e) {}
+}
+function onAvatarOffer(sdp) {
+  cleanupLive();
+  liveMode = true;
+  try {
+    livePc = new RTCPeerConnection({ iceServers: [] });
+  } catch (e) { setStatus("WebRTC unavailable on this TV"); return; }
+  livePc.ontrack = (e) => {
+    try {
+      const stream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
+      video.srcObject = stream;
+      video.play().catch(() => {});
+      setStatus("Live avatar view");
+    } catch (err) { setStatus("Could not start live view: " + (err && err.message)); }
+  };
+  livePc.setRemoteDescription({ type: "offer", sdp: sdp })
+    .then(() => livePc.createAnswer())
+    .then(a => livePc.setLocalDescription(a))
+    .then(() => waitIceComplete(livePc, 1500))
+    .then(() => { send({ type: "avatar-answer", sdp: livePc.localDescription.sdp }); setStatus("Answering…"); })
+    .catch(e => { setStatus("Avatar signaling failed"); send({ type: "error", msg: "Avatar signaling failed: " + (e && e.message) }); });
+}
 
 function send(obj) {
   try { context.sendCustomMessage(NS, undefined, obj); } catch (e) {
@@ -327,8 +354,14 @@ function onMessage(event) {
     } else if (m.type === "pause") {
       video.pause();
       pushStatus();
+    } else if (m.type === "avatar-offer") {
+      onAvatarOffer(m.sdp);
+    } else if (m.type === "avatar-stop") {
+      cleanupLive();
+      setStatus("Waiting for a video…");
     } else if (m.type === "stop") {
       video.pause();
+      cleanupLive();
       try { video.removeAttribute("src"); video.load(); } catch (e) {}
       chunks = []; received = 0; totalSize = 0; finished = false;
       mseMode = false; mseStarted = false; sbError = false; firstAppendTime = 0;
