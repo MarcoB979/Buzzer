@@ -11615,15 +11615,43 @@ function compVrCmdApply(cmd) {
         const dev = buttplugDeviceByIndex(cmd.devIndex);
         if (dev) buttplugSet(dev, cmd.type, cmd.value);
       }
+    } else if (cmd.id === "chat") {
+      if (typeof cmd.text === "string" && cmd.text.trim()) compVrChatSend(cmd.text);
     }
   } catch (e) {}
+}
+async function compVrChatSend(text) {
+  text = String(text || "").trim();
+  if (!text || compBusy) return;
+  if (compQuickie(text)) { compCum.quickie = true; compCum.staminaMs = COMP_STAMINA_QUICKIE_MS; }
+  if (!aiPos.active && !aiMachineRunning() && (compWantsReal(text) || compWantsStart(text))) {
+    compEnsureRealPlay("the user asked to start/move for real");
+  }
+  compAddMsg("user", escapeHtml(text));
+  compMessages.push({ role: "user", content: text, ts: Date.now() });
+  aiDebugPersistSoon();
+  await compRoomSend();
+}
+function compVrChatLines(n) {
+  const out = [];
+  const recent = compMessages.slice(-(n || 8));
+  for (const m of recent) {
+    if (m.role === "system") continue;
+    let text = String(m.content || "");
+    if (m.role === "assistant" && text.trim().startsWith("{")) {
+      try { const j = JSON.parse(text); if (j && typeof j.reply === "string") text = j.reply; } catch (e) {}
+    }
+    text = text.trim().slice(0, 220);
+    if (text) out.push({ role: m.role, text });
+  }
+  return out;
 }
 function compVrState() {
   const scene = compSceneCurrent();
   const cast = compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" }));
   const guests = (typeof sess !== "undefined" && sess && Array.isArray(sess.guests)) ? sess.guests.map(g => ({ name: g.name || "Guest", state: g.state || "watch" })) : [];
   const scenes = compScenes().map(s => ({ id: s.id, name: s.name || "" }));
-  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes, strokeMs: rideState.avgOutMs || null };
+  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes, chat: compVrChatLines(8), strokeMs: rideState.avgOutMs || null };
 }
 function compVrTick() {
   if (!compModeActive) return;
