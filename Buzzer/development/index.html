@@ -13435,12 +13435,14 @@ function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
   m.style.display = "";
 }
 function aiVisionProvider() {
-  // Vision for adult content goes through an OpenAI-compatible endpoint only:
-  // Gemini's safety filter refuses NSFW, and DeepSeek's chat API is text-only
-  // (it can't take image input), so neither works for reading webcam/video frames.
+  // Vision for adult content: DeepSeek (vision model) or an OpenAI-compatible endpoint.
+  // Gemini's safety filter refuses NSFW, so it is excluded from vision.
   const s = aiProviderSettings();
+  if (s.provider === "deepseek" && s.key) return { kind: "deepseek", key: s.key, baseUrl: "https://api.deepseek.com", model: "deepseek-flash" };
   if (s.provider === "openai" && s.key) return { kind: "openai", key: s.key, baseUrl: s.baseUrl, model: s.model };
   try {
+    const dkey = (localStorage.getItem("ossm-ai-key-deepseek") || "").trim();
+    if (dkey) return { kind: "deepseek", key: dkey, baseUrl: "https://api.deepseek.com", model: "deepseek-flash" };
     const okey = (localStorage.getItem("ossm-ai-key-openai") || "").trim();
     if (okey) {
       const base = (localStorage.getItem("ossm-ai-base-url-openai") || "").trim() || "https://api.openai.com/v1";
@@ -13451,13 +13453,13 @@ function aiVisionProvider() {
   return null;
 }
 function aiVisionProviderName(p) {
-  return "OpenAI (compatible)";
+  return p.kind === "openai" ? "OpenAI (compatible)" : "DeepSeek";
 }
 async function compSeeMeToggle() {
   if (compSeeMeOn) { compSeeMeOff(); funLog("The avatar can't see you anymore."); return; }
   const p = aiVisionProvider();
   if (!p) {
-    compSeeMeModalShow("The avatar can't see you yet — vision needs an <b>OpenAI-compatible</b> API key. Gemini blocks adult content and DeepSeek is text-only, so neither can read images for this. Add one under 🤖 AI assistant → <b>OpenAI (compatible)</b> — it can be a local or self-hosted model too.", "OK", null);
+    compSeeMeModalShow("The avatar can't see you yet — vision needs a <b>DeepSeek</b> or <b>OpenAI-compatible</b> API key. (Gemini is excluded — it blocks adult content.) Add one under 🤖 AI assistant.", "OK", null);
     return;
   }
   compSeeMeModalShow(
