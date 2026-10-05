@@ -1546,6 +1546,13 @@
         <div class="ai-set-section">Tools</div>
         <button class="ble-btn small" id="aiExportInfo" type="button" style="margin-top:4px;">📄 Export developer info</button>
         <div class="ai-set-hint">Downloads a text file with the AI conversation, the live monitor log and what the AI has learned about you — for reporting bugs to the developer. Your API key is never included.</div>
+        <div class="ai-set-divider"></div>
+        <div class="ai-set-section">🥽 Buzzer VR</div>
+        <label class="ai-set-label" for="vrKeyInput">Buzzer VR API key</label>
+        <input type="password" id="vrKeyInput" placeholder="Your personal VR key" autocomplete="off">
+        <button type="button" class="ble-btn small" id="vrKeyApply" style="margin-top:6px;">🔓 Unlock VR / Beamer / See-me</button>
+        <span id="vrKeyStatus" style="font-size:.72rem;color:#94a3b8;"></span>
+        <div class="ai-set-hint">Unlocks the VR companion, Beamer and See-me buttons. Your key is checked on this device only.</div>
       </div>
     </details>
 
@@ -5835,7 +5842,7 @@ function compCastBtnSync() {
 }
 function compCastBtnAttach() {
   const box = $("companionAvatar");
-  if (!box || !compModeActive) { if (avCastBtnEl && avCastBtnEl.parentNode) avCastBtnEl.parentNode.removeChild(avCastBtnEl); return; }
+  if (!box || !compModeActive || !vrUnlocked()) { if (avCastBtnEl && avCastBtnEl.parentNode) avCastBtnEl.parentNode.removeChild(avCastBtnEl); return; }
   const btn = compCastBtn();
   if (btn.parentNode !== box) { try { box.appendChild(btn); } catch (e) {} }
   compCastBtnSync();
@@ -5852,7 +5859,7 @@ function compVrBtn() {
 }
 function compVrBtnAttach() {
   const box = $("companionAvatar");
-  if (!box || !compModeActive) { if (avVrBtnEl && avVrBtnEl.parentNode) avVrBtnEl.parentNode.removeChild(avVrBtnEl); return; }
+  if (!box || !compModeActive || !vrUnlocked()) { if (avVrBtnEl && avVrBtnEl.parentNode) avVrBtnEl.parentNode.removeChild(avVrBtnEl); return; }
   const btn = compVrBtn();
   if (btn.parentNode !== box) { try { box.appendChild(btn); } catch (e) {} }
 }
@@ -11556,6 +11563,34 @@ async function ossmImgPut(id, url) {
     } catch (e) { try { db.close(); } catch (e2) {} res(false); }
   });
 }
+const VR_KEY_HASH = "32c49a748c515d7f8a454de764c034a9e30173d1b25d029056690cec674ecbcc";
+function vrUnlocked() { try { return localStorage.getItem("ossm-vr-key-ok") === "1"; } catch (e) { return false; } }
+async function vrKeySha256(s) {
+  const data = new TextEncoder().encode(s);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function vrKeyStatus(msg, ok) {
+  const st = $("vrKeyStatus");
+  if (st) { st.textContent = msg || ""; st.style.color = ok ? "#4ade80" : "#f87171"; }
+}
+async function vrKeyApply() {
+  const inp = $("vrKeyInput");
+  const val = (inp ? inp.value : "").trim();
+  if (!val) { vrKeyStatus("Enter your Buzzer VR key.", false); return; }
+  let ok = false;
+  try { ok = (await vrKeySha256(val)) === VR_KEY_HASH; } catch (e) { ok = false; }
+  try { localStorage.setItem("ossm-vr-key-ok", ok ? "1" : "0"); } catch (e) {}
+  vrKeyStatus(ok ? "✓ Unlocked — VR, Beamer and See-me are now available" : "Invalid key", ok);
+  compVrGateApply();
+}
+function compVrGateApply() {
+  const on = vrUnlocked();
+  ["compVrBtn", "avatarVrBtn", "compCastBtn"].forEach(id => { const el = $(id); if (el) el.style.display = on ? "" : "none"; });
+  if (avVrBtnEl) avVrBtnEl.style.display = on ? "" : "none";
+  if (avCastBtnEl) avCastBtnEl.style.display = on ? "" : "none";
+  if (compSeeMeBtnEl) compSeeMeBtnEl.style.display = on ? "" : "none";
+}
 async function compVrOpen() {
   compAvatarSyncInputs();
   const scene = compSceneCurrent();
@@ -13590,6 +13625,7 @@ function compSeeMeAttach() {
   const box = $("companionAvatar");
   if (!box) return;
   const btn = compSeeMeBtn();
+  if (!vrUnlocked()) { if (btn.parentNode) btn.parentNode.removeChild(btn); return; }
   if (btn.parentNode !== box) { try { box.appendChild(btn); } catch (e) {} }
   if (compSeeMeVideoEl && compSeeMeVideoEl.parentNode !== box) { try { box.appendChild(compSeeMeVideoEl); } catch (e) {} }
 }
@@ -15577,6 +15613,12 @@ function aiDebugRestore() {
   const forgetBtn = $("aiForget");
   const exportBtn = $("aiExportInfo");
   if (exportBtn) exportBtn.onclick = exportDeveloperInfo;
+  const vrKeyBtn = $("vrKeyApply");
+  if (vrKeyBtn) vrKeyBtn.onclick = vrKeyApply;
+  const vrKeyIn = $("vrKeyInput");
+  if (vrKeyIn) vrKeyIn.addEventListener("keydown", (e) => { if (e.key === "Enter") vrKeyApply(); });
+  if (vrUnlocked()) vrKeyStatus("✓ Unlocked", true);
+  compVrGateApply();
   const bkExport = $("backupExportBtn");
   if (bkExport) bkExport.onclick = exportBackup;
   const bkImport = $("backupImportBtn");
