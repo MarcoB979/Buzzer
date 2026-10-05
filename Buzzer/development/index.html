@@ -5629,6 +5629,10 @@ function avCastImage(src) {
   }
   return avCastFaceImg;
 }
+function avCastLiveCanvas() {
+  const cv = document.querySelector("#companionAvatar canvas.live");
+  return (cv && cv.width > 0) ? cv : null;
+}
 function avCastDraw() {
   if (!avCastOn || !avCastCanvas) return;
   const c = avCastCanvas, ctx = c.getContext("2d");
@@ -5642,6 +5646,28 @@ function avCastDraw() {
     const dw = vw * s, dh = vh * s;
     try { ctx.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
   }
+  // Prefer the avatar's own rendered canvas — it carries the real mouth/eye/body animation.
+  const liveCv = avCastLiveCanvas();
+  if (liveCv) {
+    if (vidPlaying) {
+      const d = Math.min(W, H) * 0.34;
+      const cx = W - d * 0.58, cy = H - d * 0.58;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.clip();
+      const s2 = Math.max(d / liveCv.width, d / liveCv.height);
+      const dw2 = liveCv.width * s2, dh2 = liveCv.height * s2;
+      ctx.drawImage(liveCv, cx - dw2 / 2, cy - dh2 / 2, dw2, dh2);
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(cx, cy, d / 2 + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(56,189,248,.85)"; ctx.lineWidth = 4; ctx.stroke();
+    } else {
+      const s2 = Math.min(W / liveCv.width, H / liveCv.height);
+      const dw2 = liveCv.width * s2, dh2 = liveCv.height * s2;
+      ctx.drawImage(liveCv, (W - dw2) / 2, (H - dh2) / 2, dw2, dh2);
+    }
+    return;
+  }
+  // Fallback: static face image with a simple talking/blinking pulse.
   const img = avCastImage(avCastGetFace());
   if (img && img.complete && img.naturalWidth) {
     const now = performance.now();
