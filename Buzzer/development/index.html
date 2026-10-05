@@ -975,6 +975,7 @@
             <button class="ble-btn small" id="compBuilderBtn" type="button" title="Open the Avatar builder">🧑 Builder</button>
             <button class="ble-btn small" id="compFreedomBtn" type="button" title="Companion initiative — tap to change">🛡 Strict</button>
             <button class="ble-btn small" id="compSceneBtn" type="button" title="Open the Scene builder">🎬 Scene</button>
+            <button class="ble-btn small" id="compVrBtn" type="button" title="Open the VR companion viewer — 360° room + your avatar">🥽 VR</button>
           </div>
           <div class="comp-scene-name" id="compSceneName"></div>
           <div class="comp-social" id="compSocial" style="width:100%;display:flex;flex-direction:column;gap:6px;"></div>
@@ -14313,6 +14314,7 @@ function compLiveStart() {
   const prev = $("compPrev"); if (prev) prev.onclick = () => compAvatarStep(-1);
   const next = $("compNext"); if (next) next.onclick = () => compAvatarStep(1);
   const builderBtn = $("compBuilderBtn"); if (builderBtn) builderBtn.onclick = companionOpenAvatarSetup;
+  const vrOpenBtn = $("compVrBtn"); if (vrOpenBtn) vrOpenBtn.onclick = compVrOpen;
   const smOk = $("compSeeMeModalOk"); if (smOk) smOk.onclick = async () => { const cb = compSeeMeModalCb; if (cb) { const sel = $("compSeeMeLookSel"); if (sel) { try { localStorage.setItem("ossm-seeme-look", sel.value || "turn"); } catch (e) {} } const sel2 = $("compSeeMeStyleSel"); if (sel2) { try { localStorage.setItem("ossm-seeme-style", sel2.value || "character"); } catch (e) {} } const keepChk = $("compSeeMeKeepChk"); if (keepChk) { try { localStorage.setItem("ossm-seeme-keep", keepChk.checked ? "1" : "0"); } catch (e) {} } const logChk = $("compSeeMeLogChk"); if (logChk) { try { localStorage.setItem("ossm-seeme-log", logChk.checked ? "1" : "0"); } catch (e) {} if (logChk.checked) { try { if (window.showDirectoryPicker) { compSeeMeDirHandle = await window.showDirectoryPicker({ mode: "readwrite" }); funLog("Snapshots are also mirrored to the folder you picked (desktop)."); } else { funLog("Snapshots are saved on this device and can be downloaded as a .zip from the chat column."); } } catch (e) { compSeeMeDirHandle = null; } } else { compSeeMeDirHandle = null; } } } compSeeMeModalHide(); if (cb) cb(); };
   const smCancel = $("compSeeMeModalCancel"); if (smCancel) smCancel.onclick = compSeeMeModalHide;
   const send = $("compSend"); if (send) send.onclick = compSend;
