@@ -5669,7 +5669,10 @@ function avCastDraw() {
   if (!avCastOn || !avCastCanvas) return;
   const c = avCastCanvas, ctx = c.getContext("2d");
   const W = c.width, H = c.height;
-  ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+  // Never pure black — a dark gradient proves the stream is live even with no avatar/video.
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#16223a"); bg.addColorStop(1, "#0a0f1c");
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const v = localVideoEl();
   const vidPlaying = !!(v && v.videoWidth && !v.paused && !v.ended);
   const liveCv = avCastLiveCanvas();
@@ -5717,6 +5720,13 @@ function avCastDraw() {
     ctx.translate(W / 2, H / 2); ctx.scale(1, sy);
     ctx.drawImage(img, -dw2 / 2, -dh2 / 2, dw2, dh2);
     ctx.restore();
+  } else {
+    // No avatar image yet — show a branded placeholder so the beamer is never empty.
+    ctx.fillStyle = "#e2e8f0"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.font = "bold 64px system-ui, sans-serif";
+    ctx.fillText("Buzzer", W / 2, H / 2 - 20);
+    ctx.fillStyle = "#94a3b8"; ctx.font = "28px system-ui, sans-serif";
+    ctx.fillText(companionState.avatarName || "Companion", W / 2, H / 2 + 40);
   }
 }
 function avCastLoop() {
@@ -5761,7 +5771,7 @@ function avCastStart() {
   avCastMsg = session.addMessageListener(CAST_NS, onAvCastMessage);
   avCastCanvas = document.createElement("canvas");
   avCastCanvas.width = 960; avCastCanvas.height = 540;
-  avCastCanvas.style.cssText = "position:fixed;left:-10000px;top:0;width:960px;height:540px;pointer-events:none;";
+  avCastCanvas.style.cssText = "position:fixed;left:0;top:0;width:960px;height:540px;opacity:0.01;pointer-events:none;z-index:-1;";
   document.body.appendChild(avCastCanvas);
   try { avCastStream = avCastCanvas.captureStream(30); }
   catch (e) { avCastStream = avCastCanvas.captureStream ? avCastCanvas.captureStream() : null; }
