@@ -1226,8 +1226,8 @@
             <button class="ble-btn small" id="avatarRoom2dClear" type="button" title="Remove the 2D backdrop">✕</button>
             <span id="avatarRoom2dInfo" style="font-size:.72rem;color:#94a3b8;"></span>
           </div>
-          <input type="file" id="avatarRoomInput" accept="image/*" style="display:none;">
-          <input type="file" id="avatarRoom2dInput" accept="image/*" style="display:none;">
+          <input type="file" id="avatarRoomInput" accept="*/*" style="display:none;">
+          <input type="file" id="avatarRoom2dInput" accept="*/*" style="display:none;">
           <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">360° = the room you stand in (VR) · 2D = the flat backdrop on PC/phone/beamer.</div>
           <button class="ble-btn small" id="avatarVrBtn" type="button" style="margin-top:8px;" title="Open the VR viewer">🥽 View in VR</button>
         </div>
@@ -12533,6 +12533,9 @@ function companionLiveStop() {
 function pickFile(accept, multiple, cb) {
   const inp = document.createElement("input");
   inp.type = "file";
+  // On Android, accept="image/*" (or video/*) opens the gallery/Photos picker and
+  // hides files that aren't gallery-indexed. Force the file explorer via */*.
+  if (accept && (accept.indexOf("image") >= 0 || accept.indexOf("video") >= 0)) accept = "*/*";
   if (accept) inp.accept = accept;
   if (multiple) inp.multiple = true;
   inp.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;";
