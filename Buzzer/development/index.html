@@ -11523,7 +11523,7 @@ function compRoomClear() {
 }
 function compVrOpen() {
   compAvatarSyncInputs();
-  const payload = { name: companionState.avatarName || "Companion", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {} };
+  const payload = { name: companionState.avatarName || "Aaron", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {} };
   compExprKeys().forEach(k => { const e = companionState.expr && companionState.expr[k]; if (e && e.img) payload.expr[k] = e.img; });
   try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
   try { window.open("vrcompanion.html", "_blank"); } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
