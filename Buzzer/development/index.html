@@ -11509,10 +11509,10 @@ function compRoomPresetUrl(name) {
 }
 function compRoom2dLoad(file) {
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => { companionState.room2d = String(reader.result || ""); companionSave(); compRoomSync(); funLog("2D room backdrop loaded."); };
-  reader.onerror = () => funLog("Could not read the room image.", "warn");
-  reader.readAsDataURL(file);
+  compResizeImage(file, 2048, 0.82).then((dataUrl) => {
+    if (dataUrl) { companionState.room2d = dataUrl; companionSave(); compRoomSync(); funLog("2D room backdrop loaded."); }
+    else funLog("Could not read the room image — try a JPG or PNG.", "warn");
+  });
 }
 function compRoom2dClear() {
   companionState.room2d = null;
@@ -11521,10 +11521,12 @@ function compRoom2dClear() {
 }
 function compRoomLoad(file) {
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => { companionState.room = String(reader.result || ""); companionSave(); compRoomSync(); funLog("VR room image loaded."); };
-  reader.onerror = () => funLog("Could not read the room image.", "warn");
-  reader.readAsDataURL(file);
+  // Downscale so the 360° panorama fits in localStorage (full-size panos are
+  // several MB and would silently fail to save / hand off to the VR page).
+  compResizeImage(file, 2048, 0.82).then((dataUrl) => {
+    if (dataUrl) { companionState.room = dataUrl; companionSave(); compRoomSync(); funLog("VR room image loaded."); }
+    else funLog("Could not read the room image — try a JPG or PNG.", "warn");
+  });
 }
 function compRoomClear() {
   companionState.room = null;
