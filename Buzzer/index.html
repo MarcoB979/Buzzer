@@ -11512,11 +11512,81 @@ function compRoomClear() {
 }
 function compVrOpen() {
   compAvatarSyncInputs();
-  const payload = { name: companionState.avatarName || "Aaron", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {} };
+  const payload = { name: companionState.avatarName || "Aaron", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {}, toys: compDeviceSummary() };
   compExprKeys().forEach(k => { const e = companionState.expr && companionState.expr[k]; if (e && e.img) payload.expr[k] = e.img; });
   try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
   try { window.open("vrcompanion.html", "_blank"); } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
 }
+
+// ---------- VR toy panel: summary of active devices + safe remote commands ----------
+function compDeviceSummary() {
+  const toys = [];
+  try {
+    if (connected) toys.push({ id: "ossm", icon: "🛏", label: "OSSM", on: speed() > 0, speed: speed(), maxPos: Math.round(sv("Max Pos", 0)) });
+  } catch (e) {}
+  try {
+    if (addonEnabled("coyote")) {
+      const st = coyoteState();
+      if (st.connected || st.on) toys.push({ id: "coyote", icon: "⚡", label: "Coyote", on: !!st.on, connected: !!st.connected, a: Math.round(coyoteSliderVal("a_power", 0)), b: Math.round(coyoteSliderVal("b_power", 0)), channel: coyoteChannel() });
+    }
+  } catch (e) {}
+  try {
+    for (const id of ["fist", "eject"]) {
+      if (!addonEnabled(id)) continue;
+      const a = ADDON_DEFS.find(x => x.id === id);
+      const st = ADDON_STATE[id] || {};
+      if (!st.connected && !st.on) continue;
+      const sliders = {};
+      (a && a.sliders ? a.sliders : []).forEach(s => {
+        const v = (st.sliderValues && typeof st.sliderValues[s.key] === "number") ? st.sliderValues[s.key] : s.min;
+        sliders[s.key] = { label: s.label, min: s.min, max: s.max, value: Math.round(v) };
+      });
+      toys.push({ id, icon: a ? a.icon : "➕", label: a ? a.name : id, on: !!st.on, connected: !!st.connected, sliders });
+    }
+  } catch (e) {}
+  try {
+    if (addonEnabled("buttplug")) {
+      const st = buttplugState();
+      if (st.connected) {
+        const devs = buttplugDevices().map(d => ({ name: d.displayName || d.name }));
+        toys.push({ id: "buttplug", icon: "🔌", label: "Buttplug", on: true, devices: devs });
+      }
+    }
+  } catch (e) {}
+  return toys;
+}
+let compVrCmdLast = "";
+function compVrCmdApply(cmd) {
+  if (!cmd || typeof cmd !== "object") return;
+  try {
+    if (cmd.id === "ossm") {
+      if (cmd.stop) emergencyStop();
+      else if (typeof cmd.speed === "number") setSpeed(cmd.speed);
+      else if (typeof cmd.maxPos === "number") setBase(0, cmd.maxPos);
+    } else if (cmd.id === "coyote") {
+      if (cmd.stop) coyoteStop();
+      else if (typeof cmd.a === "number") coyoteSlider("a_power", cmd.a);
+      else if (typeof cmd.b === "number") coyoteSlider("b_power", cmd.b);
+      else if (cmd.channel) coyoteSetChannel(cmd.channel);
+    } else if (cmd.id === "fist" || cmd.id === "eject") {
+      if (cmd.stop) { addonSend(cmd.id, 10, 0).then(() => { const st = ADDON_STATE[cmd.id] || (ADDON_STATE[cmd.id] = {}); st.on = false; addonRender(); }); }
+      else if (typeof cmd.value === "number" && cmd.key) addonSlider(cmd.id, cmd.key, cmd.value);
+    } else if (cmd.id === "buttplug") {
+      if (cmd.stop) buttplugStopAll();
+    }
+  } catch (e) {}
+}
+function compVrCmdPoll() {
+  if (!compModeActive) return;
+  try {
+    const raw = localStorage.getItem("ossm-vr-cmd");
+    if (raw && raw !== compVrCmdLast) {
+      compVrCmdLast = raw;
+      compVrCmdApply(JSON.parse(raw));
+    }
+  } catch (e) {}
+}
+setInterval(compVrCmdPoll, 400);
 
 // ---------- Per-character voice + cast (multi-person avatar) ----------
 function compVoiceUiLoad() {
