@@ -11528,7 +11528,7 @@ function compDeviceSummary() {
   try {
     if (addonEnabled("coyote")) {
       const st = coyoteState();
-      if (st.connected || st.on) toys.push({ id: "coyote", icon: "⚡", label: "Coyote", on: !!st.on, connected: !!st.connected, a: Math.round(coyoteSliderVal("a_power", 0)), b: Math.round(coyoteSliderVal("b_power", 0)), channel: coyoteChannel() });
+      if (st.connected || st.on) toys.push({ id: "coyote", icon: "⚡", label: "Coyote", on: !!st.on, connected: !!st.connected, ride: coyoteRideAlong(), a: Math.round(coyoteSliderVal("a_power", 0)), b: Math.round(coyoteSliderVal("b_power", 0)), channel: coyoteChannel() });
     }
   } catch (e) {}
   try {
@@ -11578,6 +11578,7 @@ function compVrCmdApply(cmd) {
       else if (typeof cmd.maxPos === "number") setBase(0, cmd.maxPos);
     } else if (cmd.id === "coyote") {
       if (cmd.stop) coyoteStop();
+      else if (typeof cmd.ride === "boolean") { coyoteRideSet(cmd.ride); if (cmd.ride) coyoteRideStart(); else coyoteRideStop(); }
       else if (typeof cmd.a === "number") coyoteSlider("a_power", cmd.a);
       else if (typeof cmd.b === "number") coyoteSlider("b_power", cmd.b);
       else if (cmd.channel) coyoteSetChannel(cmd.channel);
@@ -16381,6 +16382,14 @@ function coyoteBuildSection() {
   btnRow.appendChild(conn); btnRow.appendChild(onoff); btnRow.appendChild(kill);
   wrap.appendChild(btnRow);
 
+  const rideRow = document.createElement("label");
+  rideRow.style.cssText = "display:flex;align-items:center;gap:6px;font-size:.8rem;margin:6px 0;cursor:pointer;";
+  const rideChk = document.createElement("input"); rideChk.type = "checkbox"; rideChk.checked = coyoteRideAlong();
+  rideChk.addEventListener("change", () => { coyoteRideSet(rideChk.checked); if (rideChk.checked) coyoteRideStart(); else coyoteRideStop(); });
+  rideRow.appendChild(rideChk);
+  rideRow.appendChild(document.createTextNode("Ride-along: follow the rail position"));
+  wrap.appendChild(rideRow);
+
   // Waves (foldable): bundled + user waves as a list, plus load and play/stop.
   const wd = document.createElement("details");
   wd.className = "coyote-fold";
@@ -16647,6 +16656,32 @@ function buttplugSet(dev, type, v) {
 function buttplugDeviceByIndex(idx) {
   return buttplugDevices().find(d => d.index === idx) || null;
 }
+// Shared ride-along helpers: follow the live rail position instead of just speed.
+function rideRailPos() { return (typeof stdRailPos === "number") ? stdRailPos : null; }
+function rideStrokeWindow() {
+  const mn = Math.round(sv("Min Pos", 0));
+  const mx = Math.round(sv("Max Pos", 100));
+  return { min: mn, max: mx > mn ? mx : mn + 1 };
+}
+function rideFraction(pos, win) { return clamp((pos - win.min) / (win.max - win.min), 0, 1); }
+let rideState = { lastPos: null, dir: null, upStart: null, avgOutMs: null, samples: [] };
+function rideObserve(pos) {
+  const s = rideState;
+  if (s.lastPos == null) { s.lastPos = pos; return; }
+  const d = pos - s.lastPos;
+  if (Math.abs(d) < 0.5) { s.lastPos = pos; return; }
+  const nd = d > 0 ? "up" : "down";
+  if (s.dir === "down" && nd === "up") { s.upStart = Date.now(); }
+  else if (s.dir === "up" && nd === "down") {
+    if (s.upStart) {
+      const t = Date.now() - s.upStart;
+      s.samples.push(t);
+      if (s.samples.length > 8) s.samples.shift();
+      s.avgOutMs = Math.round(s.samples.reduce((a, b) => a + b, 0) / s.samples.length);
+    }
+  }
+  s.dir = nd; s.lastPos = pos;
+}
 function buttplugRideAlong() { try { return localStorage.getItem("ossm-buttplug-ride") === "1"; } catch (e) { return false; } }
 function buttplugRideSet(on) { try { localStorage.setItem("ossm-buttplug-ride", on ? "1" : "0"); } catch (e) {} }
 let buttplugRideTimer = null;
@@ -16654,18 +16689,38 @@ function buttplugRideTick() {
   if (!buttplugRideAlong()) return;
   const st = buttplugState();
   if (!st || !st.client || !st.client.connected) return;
-  const level = clamp(Math.round(speed()), 0, 100);
+  const pos = rideRailPos();
+  if (typeof pos === "number") rideObserve(pos);
+  const level = (typeof pos === "number") ? Math.round(rideFraction(pos, rideStrokeWindow()) * 100) : clamp(Math.round(speed()), 0, 100);
   buttplugDevices().forEach(d => { if (buttplugFeatureOutputs(d).has("Vibrate")) buttplugRun(d, "Vibrate", level / 100); });
 }
-function buttplugRideStart() {
-  buttplugRideStop();
-  buttplugRideTimer = setInterval(buttplugRideTick, 250);
-}
+function buttplugRideStart() { buttplugRideStop(); buttplugRideTimer = setInterval(buttplugRideTick, 120); }
 function buttplugRideStop() {
   if (buttplugRideTimer) { clearInterval(buttplugRideTimer); buttplugRideTimer = null; }
   try { if (buttplugState().client && buttplugState().client.connected) buttplugDevices().forEach(d => { if (buttplugFeatureOutputs(d).has("Vibrate")) buttplugRun(d, "Vibrate", 0); }); } catch (e) {}
 }
-setTimeout(() => { if (buttplugRideAlong()) buttplugRideStart(); }, 1500);
+// Coyote ride-along (follows the same live rail position)
+function coyoteRideAlong() { try { return localStorage.getItem("ossm-coyote-ride") === "1"; } catch (e) { return false; } }
+function coyoteRideSet(on) { try { localStorage.setItem("ossm-coyote-ride", on ? "1" : "0"); } catch (e) {} }
+let coyoteRideTimer = null;
+function coyoteRideTick() {
+  if (!coyoteRideAlong()) return;
+  const st = coyoteState();
+  if (!st.connected) return;
+  const pos = rideRailPos();
+  if (typeof pos === "number") rideObserve(pos);
+  const level = (typeof pos === "number") ? Math.round(rideFraction(pos, rideStrokeWindow()) * 200) : clamp(Math.round(speed()) * 2, 0, 200);
+  const ch = coyoteChannel();
+  if (ch === "a" || ch === "ab") coyoteSlider("a_power", level);
+  if (ch === "b" || ch === "ab") coyoteSlider("b_power", level);
+}
+function coyoteRideStart() { coyoteRideStop(); coyoteRideTimer = setInterval(coyoteRideTick, 120); }
+function coyoteRideStop() {
+  if (coyoteRideTimer) { clearInterval(coyoteRideTimer); coyoteRideTimer = null; }
+  const st = coyoteState();
+  if (st && st.connected) { coyoteSlider("a_power", 0); coyoteSlider("b_power", 0); }
+}
+setTimeout(() => { if (buttplugRideAlong()) buttplugRideStart(); if (coyoteRideAlong()) coyoteRideStart(); }, 1500);
 function buttplugBuildSection() {
   const st = buttplugState();
   const wrap = document.createElement("div");
