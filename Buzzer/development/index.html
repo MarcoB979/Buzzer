@@ -11600,7 +11600,7 @@ function compVrState() {
   const cast = compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" }));
   const guests = (typeof sess !== "undefined" && sess && Array.isArray(sess.guests)) ? sess.guests.map(g => ({ name: g.name || "Guest", state: g.state || "watch" })) : [];
   const scenes = compScenes().map(s => ({ id: s.id, name: s.name || "" }));
-  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes };
+  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes, strokeMs: rideState.avgOutMs || null };
 }
 function compVrTick() {
   if (!compModeActive) return;
@@ -16678,6 +16678,7 @@ function rideObserve(pos) {
       s.samples.push(t);
       if (s.samples.length > 8) s.samples.shift();
       s.avgOutMs = Math.round(s.samples.reduce((a, b) => a + b, 0) / s.samples.length);
+      if (s.lastLoggedAvg === undefined || Math.abs(s.avgOutMs - (s.lastLoggedAvg || 0)) >= 100) { s.lastLoggedAvg = s.avgOutMs; monitor("⏱ stroke ~" + s.avgOutMs + " ms (out)", "ai"); }
     }
   }
   s.dir = nd; s.lastPos = pos;
