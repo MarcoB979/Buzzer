@@ -5801,8 +5801,8 @@ function compCastBtn() {
   if (avCastBtnEl) return avCastBtnEl;
   avCastBtnEl = document.createElement("button");
   avCastBtnEl.type = "button";
-  avCastBtnEl.textContent = "📺";
-  avCastBtnEl.style.cssText = "position:absolute;bottom:10px;left:10px;width:38px;height:38px;border-radius:50%;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:1.05rem;line-height:1;cursor:pointer;z-index:7;display:flex;align-items:center;justify-content:center;padding:0;";
+  avCastBtnEl.textContent = "�️ Beamer";
+  avCastBtnEl.style.cssText = "position:absolute;bottom:10px;left:10px;height:30px;border-radius:15px;border:1px solid #a78bfa;background:#1e1040;color:#c4b5fd;font-size:.72rem;font-weight:700;letter-spacing:.3px;line-height:1;cursor:pointer;z-index:7;display:flex;align-items:center;justify-content:center;gap:4px;padding:0 9px;";
   avCastBtnEl.onclick = toggleAvatarCast;
   return avCastBtnEl;
 }
@@ -5815,9 +5815,9 @@ function compCastBtnSync() {
     avCastBtnEl.title = "Stop casting the avatar view";
   } else {
     avCastBtnEl.style.background = "#0f172a";
-    avCastBtnEl.style.borderColor = "#334155";
-    avCastBtnEl.style.color = "#94a3b8";
-    avCastBtnEl.title = "Cast the avatar to TV (project your partner)";
+    avCastBtnEl.style.borderColor = "#a78bfa";
+    avCastBtnEl.style.color = "#c4b5fd";
+    avCastBtnEl.title = "Cast the avatar to the beamer (project your partner)";
   }
 }
 function compCastBtnAttach() {
