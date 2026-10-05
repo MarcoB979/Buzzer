@@ -11533,11 +11533,48 @@ function compRoomClear() {
   companionSave();
   compRoomSync();
 }
-function compVrOpen() {
+function ossmAssetsDb() {
+  return new Promise((res) => {
+    try {
+      const req = indexedDB.open("ossm-assets", 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore("images"); };
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => res(null);
+    } catch (e) { res(null); }
+  });
+}
+async function ossmImgPut(id, url) {
+  if (!id || !url) return false;
+  const db = await ossmAssetsDb();
+  if (!db) return false;
+  return new Promise((res) => {
+    try {
+      const tx = db.transaction("images", "readwrite");
+      tx.objectStore("images").put(url, id);
+      tx.oncomplete = () => { try { db.close(); } catch (e) {} res(true); };
+      tx.onerror = () => { try { db.close(); } catch (e) {} res(false); };
+    } catch (e) { try { db.close(); } catch (e2) {} res(false); }
+  });
+}
+async function compVrOpen() {
   compAvatarSyncInputs();
   const scene = compSceneCurrent();
-  const payload = { name: companionState.avatarName || "Aaron", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {}, toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast: compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" })) };
-  compExprKeys().forEach(k => { const e = companionState.expr && companionState.expr[k]; if (e && e.img) payload.expr[k] = e.img; });
+  const payload = { name: companionState.avatarName || "Aaron", room: null, room2d: null, face: null, body: null, expr: {}, toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast: compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" })) };
+  const uid = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  const put = async (key, url) => {
+    if (!url) return null;
+    const ok = await ossmImgPut(key, url);
+    return ok ? key : url;   // fall back to embedding the URL if IndexedDB is unavailable
+  };
+  payload.room = await put("room-" + uid, companionState.room);
+  payload.room2d = await put("room2d-" + uid, companionState.room2d);
+  payload.face = await put("face-" + uid, companionState.customImage);
+  payload.body = await put("body-" + uid, (companionState.body && companionState.body.img) || null);
+  const ek = compExprKeys();
+  for (const k of ek) {
+    const e = companionState.expr && companionState.expr[k];
+    if (e && e.img) payload.expr[k] = await put("expr-" + k + "-" + uid, e.img);
+  }
   try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
   try { window.open("vrcompanion.html", "_blank"); } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
 }
