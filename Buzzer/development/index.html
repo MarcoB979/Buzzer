@@ -11700,6 +11700,16 @@ function compVrCmdApply(cmd) {
         const dev = buttplugDeviceByIndex(cmd.devIndex);
         if (dev) buttplugSet(dev, cmd.type, cmd.value);
       }
+    } else if (cmd.id === "safe") {
+      if (cmd.stop) {
+        emergencyStop();
+        try { aiStopLive(); } catch (e) {}
+        try { coyoteStop(); } catch (e) {}
+        ["fist", "eject"].forEach(id => { if (addonEnabled(id)) addonSend(id, 10, 0).then(() => { const st = ADDON_STATE[id] || (ADDON_STATE[id] = {}); st.on = false; addonRender(); }); });
+        try { buttplugStopAll(); } catch (e) {}
+        try { compAddMsg("assistant", "Safe word — full emergency stop."); } catch (e) {}
+        try { aiSpeak("Emergency stop."); } catch (e) {}
+      }
     } else if (cmd.id === "chat") {
       if (typeof cmd.text === "string" && cmd.text.trim()) compVrChatSend(cmd.text);
     }
