@@ -1437,6 +1437,10 @@
           <option value="free">Free (Pollinations)</option>
           <option value="deepseek">DeepSeek (your key)</option>
           <option value="openai">OpenAI (compatible)</option>
+          <option value="grok">xAI Grok (your key)</option>
+          <option value="openrouter">OpenRouter (your key)</option>
+          <option value="novita">Novita AI (your key)</option>
+          <option value="deepinfra">DeepInfra (your key)</option>
           <option value="gemini">Google Gemini (free)</option>
         </select>
         <div class="ai-set-hint" id="aiFreeWarning" style="display:none;color:#fbbf24;">⚠ Free (Pollinations) is a shared, unauthenticated public service with no privacy guarantee. For private use, choose DeepSeek or OpenAI (compatible) and add your own key.</div>
@@ -7256,8 +7260,8 @@ function aiFallbackError(res) {
   if (res && res.error) {
     let hint;
     if (s.provider === "deepseek" && !s.key) hint = " You selected DeepSeek but no key is saved on this device — add it under 🤖 AI assistant.";
-    else if (s.provider === "openai" && !s.key) hint = " You selected OpenAI (compatible) but no key is saved — add it under 🤖 AI assistant.";
-    else if (s.provider === "openai") hint = " Check your key, base URL and model under 🤖 AI assistant. If it's a local model, make sure it's running.";
+    else if (aiIsOpenAiLike(s.provider) && !s.key) hint = " You selected " + aiProviderName(s.provider) + " but no key is saved — add it under 🤖 AI assistant.";
+    else if (aiIsOpenAiLike(s.provider)) hint = " Check your key, base URL and model under 🤖 AI assistant. If it's a local model, make sure it's running.";
     else if (s.provider !== "deepseek") hint = " The free service is unreliable — switch to DeepSeek under 🤖 AI assistant and add your key.";
     else hint = " Check your key and balance under 🤖 AI assistant.";
     return escapeHtml("The AI couldn't reply (" + res.error + ")." + hint);
@@ -8586,10 +8590,37 @@ function aiProviderSettings() {
     if (!baseUrl) baseUrl = "https://api.openai.com/v1";
     if (!model) model = "gpt-4o-mini";
   }
+  // Predefined OpenAI-compatible providers — picking one pre-fills base URL + model,
+  // so only the API key is needed. The model stays editable (e.g. for a vision model).
+  const AI_PROVIDER_PRESETS = {
+    grok:       { baseUrl: "https://api.x.ai/v1",             model: "grok-3" },
+    openrouter: { baseUrl: "https://openrouter.ai/api/v1",    model: "nousresearch/hermes-3-llama-3.1-405b" },
+    novita:     { baseUrl: "https://api.novita.ai/v3/openai", model: "deepseek/deepseek-r1" },
+    deepinfra:  { baseUrl: "https://api.deepinfra.com/v1/openai", model: "mistralai/Mistral-Nemo-Instruct-2407" }
+  };
+  if (AI_PROVIDER_PRESETS[provider]) {
+    if (!baseUrl) baseUrl = AI_PROVIDER_PRESETS[provider].baseUrl;
+    if (!model) model = AI_PROVIDER_PRESETS[provider].model;
+  }
   if (provider === "gemini") {
     if (!model) model = "gemini-flash-latest";
   }
   return { provider, key, baseUrl, model };
+}
+function aiIsOpenAiLike(p) {
+  return p === "openai" || p === "grok" || p === "openrouter" || p === "novita" || p === "deepinfra";
+}
+function aiProviderName(provider) {
+  switch (provider) {
+    case "deepseek": return "DeepSeek";
+    case "gemini": return "Google Gemini";
+    case "grok": return "xAI Grok";
+    case "openrouter": return "OpenRouter";
+    case "novita": return "Novita AI";
+    case "deepinfra": return "DeepInfra";
+    case "openai": return "OpenAI";
+    default: return "Free";
+  }
 }
 function aiEnabled() {
   try { return localStorage.getItem("ossm-ai-enabled") !== "0"; } catch (e) { return true; }
@@ -8614,7 +8645,7 @@ function aiIsDeepSeek() {
 }
 function aiIsKeyedProvider() {
   const p = aiProviderSettings().provider;
-  return p === "deepseek" || p === "openai" || p === "gemini";
+  return p === "deepseek" || p === "gemini" || aiIsOpenAiLike(p);
 }
 function aiFreeBlocked() {
   if (aiProviderSettings().provider !== "free") return false;
@@ -8774,7 +8805,7 @@ async function aiCall(messages) {
   if (provider === "deepseek" && key) {
     return aiCallDeepSeek(messages, key);
   }
-  if (provider === "openai") {
+  if (provider === "openai" || aiIsOpenAiLike(provider)) {
     if (key) return aiCallOpenAI(messages);
     return { raw: "", reply: null, params: null, limits: null, run: null, memory: null, pos: null, ui: null, face: null, avatar: null, lang: null, error: "No API key saved — add it under 🤖 AI assistant." };
   }
@@ -15563,24 +15594,24 @@ function aiDebugRestore() {
   const syncAiSettingsUI = () => {
     const s = aiProviderSettings();
     const isDs = s.provider === "deepseek";
-    const isOa = s.provider === "openai";
+    const isOa = aiIsOpenAiLike(s.provider);
     const isGe = s.provider === "gemini";
     const keyed = isDs || isOa || isGe;
     if (prov) prov.value = s.provider;
     if (keyInp) keyInp.value = s.key;
     if (keyRow) keyRow.style.display = keyed ? "" : "none";
-    if (keyLabel) keyLabel.textContent = isGe ? "Gemini API key" : isOa ? "OpenAI API key" : "DeepSeek API key";
-    if (keyHint) keyHint.textContent = isGe ? "Free tier with your Google account — get a key at aistudio.google.com/apikey. Sent to Google with your key. Free tier can return 503 under high demand; a paid plan (DeepSeek or OpenAI) is more reliable for Fist-IT / Wild / Full-submission play." : isOa ? "Sent to your OpenAI-compatible endpoint with your key." : "Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account.";
+    if (keyLabel) keyLabel.textContent = aiProviderName(s.provider) + " API key";
+    if (keyHint) keyHint.textContent = isGe ? "Free tier with your Google account — get a key at aistudio.google.com/apikey. Sent to Google with your key. Free tier can return 503 under high demand; a paid plan (DeepSeek or OpenAI) is more reliable for Fist-IT / Wild / Full-submission play." : isDs ? "Sent straight to DeepSeek with your key — billed to your DeepSeek account only. No third party, no extra account." : "Sent to " + aiProviderName(s.provider) + " with your key. The base URL and model are pre-filled — just add your key.";
     if (oaRow) oaRow.style.display = (isOa || isGe) ? "" : "none";
     const baseUrlLabel = $("aiBaseUrlLabel");
     if (baseInp) { baseInp.value = s.baseUrl; baseInp.style.display = isGe ? "none" : ""; }
     if (baseUrlLabel) baseUrlLabel.style.display = isGe ? "none" : "";
     if (modelInp) { modelInp.value = s.model; modelInp.placeholder = isGe ? "gemini-flash-latest" : "gpt-4o-mini"; }
     const baseUrlHint = $("aiBaseUrlHint");
-    if (baseUrlHint) baseUrlHint.textContent = isGe ? "Google Gemini (free tier). Only the model name is used — e.g. gemini-flash-latest or gemini-pro-latest." : "Works with any OpenAI-compatible server: OpenAI, Groq, Together, OpenRouter, or a local model. For Ollama use base URL http://localhost:11434/v1 and the model name you have pulled. For LM Studio use http://localhost:1234/v1.";
+    if (baseUrlHint) baseUrlHint.textContent = isGe ? "Google Gemini (free tier). Only the model name is used — e.g. gemini-flash-latest or gemini-pro-latest." : (isOa && s.provider !== "openai") ? "Pre-filled " + aiProviderName(s.provider) + " endpoint. Swap the model if you want a different one (e.g. a vision model)." : "Works with any OpenAI-compatible server: OpenAI, Groq, Together, OpenRouter, or a local model. For Ollama use base URL http://localhost:11434/v1 and the model name you have pulled. For LM Studio use http://localhost:1234/v1.";
     if (extrasRow) extrasRow.style.display = keyed ? "" : "none";
     syncAiFreeWarning();
-    if (provLabel) provLabel.textContent = isGe ? (s.key ? "Gemini ✓" : "Gemini (add key)") : isDs ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : isOa ? (s.key ? "OpenAI ✓" : "OpenAI (add key)") : "Free";
+    if (provLabel) provLabel.textContent = isGe ? (s.key ? "Gemini ✓" : "Gemini (add key)") : isDs ? (s.key ? "DeepSeek ✓" : "DeepSeek (add key)") : isOa ? (s.key ? aiProviderName(s.provider) + " ✓" : aiProviderName(s.provider) + " (add key)") : "Free";
   };
   if (prov) prov.addEventListener("change", () => {
     try { localStorage.setItem("ossm-ai-provider", prov.value); } catch (e) {}
