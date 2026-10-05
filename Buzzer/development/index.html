@@ -11588,7 +11588,9 @@ function compVrCmdApply(cmd) {
 function compVrState() {
   const scene = compSceneCurrent();
   const cast = compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" }));
-  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast };
+  const guests = (typeof sess !== "undefined" && sess && Array.isArray(sess.guests)) ? sess.guests.map(g => ({ name: g.name || "Guest", state: g.state || "watch" })) : [];
+  const scenes = compScenes().map(s => ({ id: s.id, name: s.name || "" }));
+  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes };
 }
 function compVrTick() {
   if (!compModeActive) return;
@@ -11602,6 +11604,21 @@ function compVrTick() {
   } catch (e) {}
 }
 setInterval(compVrTick, 400);
+function compVrAvatarCapture() {
+  if (!compModeActive) return;
+  try {
+    const cv = avCastLiveCanvas();
+    if (!cv || !cv.width) return;
+    const MAX = 320;
+    const scale = Math.min(1, MAX / Math.max(cv.width, cv.height));
+    const c = document.createElement("canvas");
+    c.width = Math.max(1, Math.round(cv.width * scale));
+    c.height = Math.max(1, Math.round(cv.height * scale));
+    c.getContext("2d").drawImage(cv, 0, 0, c.width, c.height);
+    localStorage.setItem("ossm-vr-avatar", c.toDataURL("image/jpeg", 0.72));
+  } catch (e) {}
+}
+setInterval(compVrAvatarCapture, 600);
 
 // ---------- Per-character voice + cast (multi-person avatar) ----------
 function compVoiceUiLoad() {
