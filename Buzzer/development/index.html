@@ -10585,7 +10585,7 @@ function compBodyUpload(file) {
     buildBodySetupRows();
     funLog("Full-body photo set — now tap each body state to set its focus point.");
   };
-  compResizeImage(file, 1024, 0.8).then((dataUrl) => {
+  compResizeImage(file, 1024, 0.8, (file.type === "image/png") ? "image/png" : "image/jpeg").then((dataUrl) => {
     if (dataUrl) { apply(dataUrl); return; }
     funLog("Couldn't read that photo — try a JPG or PNG.");
   });
@@ -10600,7 +10600,7 @@ function compBodyStatePhoto(file, state) {
     buildBodySetupRows();
     funLog("Photo set for \"" + compBodyLabel(state) + "\".");
   };
-  compResizeImage(file, 1024, 0.8).then((dataUrl) => {
+  compResizeImage(file, 1024, 0.8, (file.type === "image/png") ? "image/png" : "image/jpeg").then((dataUrl) => {
     if (dataUrl) { apply(dataUrl); return; }
     funLog("Couldn't read that photo — try a JPG or PNG.");
   });
@@ -12540,11 +12540,13 @@ function pickFile(accept, multiple, cb) {
   inp.onchange = () => { const files = inp.files; try { inp.remove(); } catch (e) {} if (cb) cb(files); };
   inp.click();
 }
-function compResizeImage(file, maxDim, quality) {
-  // Downscale a photo to a JPEG data URL so localStorage doesn't overflow
+function compResizeImage(file, maxDim, quality, mime) {
+  // Downscale a photo to a data URL so localStorage doesn't overflow
   // (full-size photos would make the avatar silently fail to save).
+  // mime defaults to JPEG; pass "image/png" to keep transparency (cut-outs).
   maxDim = maxDim || 1280;
   quality = (quality === undefined) ? 0.85 : quality;
+  mime = mime || "image/jpeg";
   return new Promise((res) => {
     try {
       const url = URL.createObjectURL(file);
@@ -12560,7 +12562,7 @@ function compResizeImage(file, maxDim, quality) {
           c.width = cw; c.height = ch;
           c.getContext("2d").drawImage(img, 0, 0, cw, ch);
           let out = null;
-          try { out = c.toDataURL("image/jpeg", quality); } catch (e) {}
+          try { out = c.toDataURL(mime, quality); } catch (e) {}
           res(out);
         } catch (e) { res(null); }
         URL.revokeObjectURL(url);
