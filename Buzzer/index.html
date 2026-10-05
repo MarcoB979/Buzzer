@@ -4706,6 +4706,7 @@ let avCastPc = null, avCastCanvas = null, avCastStream = null;
 let avCastRaf = 0, avCastMsg = null, avCastGotAnswer = false, avCastRetry = null;
 let avCastFaceImg = null, avCastFaceSrc = "", avCastLastBlink = 0;
 let avCastBtnEl = null;
+let avVrBtnEl = null;
 let castRemotePlayer = null, castRemoteController = null;
 const CAST_NS = "urn:x-cast:com.buzzer.local";
 // Paste your PUBLISHED Custom Receiver Application ID here (cast.google.com/publish).
@@ -5825,6 +5826,22 @@ function compCastBtnAttach() {
   const btn = compCastBtn();
   if (btn.parentNode !== box) { try { box.appendChild(btn); } catch (e) {} }
   compCastBtnSync();
+}
+function compVrBtn() {
+  if (avVrBtnEl) return avVrBtnEl;
+  avVrBtnEl = document.createElement("button");
+  avVrBtnEl.type = "button";
+  avVrBtnEl.textContent = "🥽";
+  avVrBtnEl.title = "Open the VR companion (360° room + your avatar)";
+  avVrBtnEl.style.cssText = "position:absolute;top:10px;left:10px;width:38px;height:38px;border-radius:50%;border:1px solid #334155;background:#0f172a;color:#94a3b8;font-size:1.05rem;line-height:1;cursor:pointer;z-index:7;display:flex;align-items:center;justify-content:center;padding:0;";
+  avVrBtnEl.onclick = compVrOpen;
+  return avVrBtnEl;
+}
+function compVrBtnAttach() {
+  const box = $("companionAvatar");
+  if (!box || !compModeActive) { if (avVrBtnEl && avVrBtnEl.parentNode) avVrBtnEl.parentNode.removeChild(avVrBtnEl); return; }
+  const btn = compVrBtn();
+  if (btn.parentNode !== box) { try { box.appendChild(btn); } catch (e) {} }
 }
 function replayCast() {
   castRemoteTime = 0; castClockBaseMs = Date.now(); castEnded = false;
@@ -10141,6 +10158,7 @@ function companionRender() {
   companionRenderCore();
   compSeeMeAttach();
   compCastBtnAttach();
+  compVrBtnAttach();
 }
 function companionApplyShow(v) {
   const s = String(v || "").toLowerCase().trim();
