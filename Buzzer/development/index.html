@@ -1203,6 +1203,17 @@
           <button class="ble-btn small" id="avatarFreshBtn" type="button">🔄 Generate a fresh look</button>
           <span style="font-size:.78rem;color:#94a3b8;"> — saved with this avatar.</span>
         </div>
+        <div class="photo-modal-body" style="font-size:.8rem;">
+          <div style="font-weight:bold;margin-bottom:4px;">🌌 VR room (360° background)</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <button class="ble-btn small" id="avatarRoomBtn" type="button">📁 Load 360° image</button>
+            <button class="ble-btn small" id="avatarRoomClear" type="button" title="Remove the room">✕</button>
+            <span id="avatarRoomInfo" style="font-size:.72rem;color:#94a3b8;"></span>
+          </div>
+          <input type="file" id="avatarRoomInput" accept="image/*" style="display:none;">
+          <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">An equirectangular (360°) image used as the room when you view the avatar in VR.</div>
+          <button class="ble-btn small" id="avatarVrBtn" type="button" style="margin-top:8px;" title="Open the VR viewer">🥽 View in VR</button>
+        </div>
         <div class="photo-modal-actions" style="margin-top:10px;">
           <button class="ble-btn small" id="avatarSetupDone" type="button">Done</button>
         </div>
@@ -9971,7 +9982,7 @@ const COMPANION_PRESETS = [
   { name:"Kai",  seed:"Kai",   style:"lorelei",   hair:"#f6d365", skin:"#ffe0bd" },
   { name:"Luca", seed:"Luca",  style:"lorelei",   hair:"#a16207", skin:"#f3c39c" }
 ];
-let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated", persona:"", about:"", expr:null };
+let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated", persona:"", about:"", expr:null, room:null };
 let companionBlinkTimer = null;
 try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
 if (!companionState.expr || typeof companionState.expr !== "object" || Array.isArray(companionState.expr)) {
@@ -10001,6 +10012,7 @@ if (!companionState.body || typeof companionState.body !== "object" || Array.isA
   if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
   if (typeof companionState.body.img !== "string") companionState.body.img = null;
 }
+if (typeof companionState.room !== "string") companionState.room = null;
 if (companionState.kind !== "drawn" && companionState.kind !== "photo") {
   companionState.kind = (companionState.customImage || (companionState.body && companionState.body.img) || Object.keys(companionState.expr || {}).some(k => companionState.expr[k] && companionState.expr[k].img)) ? "photo" : "drawn";
 }
@@ -11394,7 +11406,7 @@ function compAvatarSnapshot() {
     preset: companionState.preset, custom: companionState.custom,
     customImage: companionState.customImage, customVideos: companionState.customVideos,
     landmarks: companionState.landmarks, source: companionState.source,
-    expr: companionState.expr, body: companionState.body,
+    expr: companionState.expr, body: companionState.body, room: companionState.room || null,
     mediaId: companionState.mediaId || "",
     voice: companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 },
     cast: JSON.parse(JSON.stringify(companionState.cast || []))
@@ -11420,6 +11432,7 @@ function compAvatarApply(snap) {
   companionState.body = snap.body || { img: null, face: { x: 0.5, y: 0.18 }, points: {} };
   if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
   if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
+  companionState.room = snap.room || null;
   if (snap.voice && typeof snap.voice === "object") {
     const rn = (x, def) => { const n = Number(x); return (isFinite(n) && n > 0) ? Math.min(2, Math.max(0.5, n)) : def; };
     companionState.voice = { provider: snap.voice.provider || "system", voiceId: snap.voice.voiceId || "", voiceName: snap.voice.voiceName || "", lang: snap.voice.lang || "", rate: rn(snap.voice.rate, 1), pitch: rn(snap.voice.pitch, 1) };
@@ -11464,6 +11477,32 @@ function compAvatarRefreshBuilder() {
   buildBodySetupRows();
   compVoiceUiLoad();
   compCastRender();
+  compRoomSync();
+}
+function compRoomSync() {
+  const info = $("avatarRoomInfo");
+  if (info) info.textContent = companionState.room ? "✓ room set" : "no room — plain dark room";
+  const clr = $("avatarRoomClear");
+  if (clr) clr.style.display = companionState.room ? "" : "none";
+}
+function compRoomLoad(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { companionState.room = String(reader.result || ""); companionSave(); compRoomSync(); funLog("VR room image loaded."); };
+  reader.onerror = () => funLog("Could not read the room image.", "warn");
+  reader.readAsDataURL(file);
+}
+function compRoomClear() {
+  companionState.room = null;
+  companionSave();
+  compRoomSync();
+}
+function compVrOpen() {
+  compAvatarSyncInputs();
+  const payload = { name: companionState.avatarName || "Companion", room: companionState.room || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {} };
+  compExprKeys().forEach(k => { const e = companionState.expr && companionState.expr[k]; if (e && e.img) payload.expr[k] = e.img; });
+  try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
+  try { window.open("vrcompanion.html", "_blank"); } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
 }
 
 // ---------- Per-character voice + cast (multi-person avatar) ----------
@@ -14230,6 +14269,10 @@ function compLiveStart() {
   const avExport = $("avatarExportBtn"); if (avExport) avExport.onclick = exportAvatar;
   const avImport = $("avatarImportBtn"); const avImportInput = $("avatarImportInput");
   if (avImport && avImportInput) { avImport.onclick = () => avImportInput.click(); avImportInput.onchange = () => { const f = avImportInput.files && avImportInput.files[0]; avImportInput.value = ""; importAvatar(f); }; }
+  const roomBtn = $("avatarRoomBtn"); const roomInput = $("avatarRoomInput");
+  if (roomBtn && roomInput) { roomBtn.onclick = () => roomInput.click(); roomInput.onchange = () => { const f = roomInput.files && roomInput.files[0]; roomInput.value = ""; compRoomLoad(f); }; }
+  const roomClear = $("avatarRoomClear"); if (roomClear) roomClear.onclick = compRoomClear;
+  const vrBtn = $("avatarVrBtn"); if (vrBtn) vrBtn.onclick = compVrOpen;
   compSpeakSync();
   const spk = $("compSpeak");
   if (spk) spk.onclick = () => { try { localStorage.setItem("ossm-ai-speak", aiSpeakEnabled() ? "0" : "1"); } catch (e) {} compSpeakSync(); };
