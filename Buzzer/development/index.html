@@ -11512,7 +11512,8 @@ function compRoomClear() {
 }
 function compVrOpen() {
   compAvatarSyncInputs();
-  const payload = { name: companionState.avatarName || "Aaron", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {}, toys: compDeviceSummary() };
+  const scene = compSceneCurrent();
+  const payload = { name: companionState.avatarName || "Aaron", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {}, toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast: compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" })) };
   compExprKeys().forEach(k => { const e = companionState.expr && companionState.expr[k]; if (e && e.img) payload.expr[k] = e.img; });
   try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
   try { window.open("vrcompanion.html", "_blank"); } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
@@ -11556,10 +11557,18 @@ function compDeviceSummary() {
   return toys;
 }
 let compVrCmdLast = "";
+let compVrStateLast = "";
 function compVrCmdApply(cmd) {
   if (!cmd || typeof cmd !== "object") return;
   try {
-    if (cmd.id === "ossm") {
+    if (cmd.id === "all") {
+      if (cmd.stop) {
+        emergencyStop();
+        coyoteStop();
+        ["fist", "eject"].forEach(id => { if (addonEnabled(id)) addonSend(id, 10, 0).then(() => { const st = ADDON_STATE[id] || (ADDON_STATE[id] = {}); st.on = false; addonRender(); }); });
+        buttplugStopAll();
+      }
+    } else if (cmd.id === "ossm") {
       if (cmd.stop) emergencyStop();
       else if (typeof cmd.speed === "number") setSpeed(cmd.speed);
       else if (typeof cmd.maxPos === "number") setBase(0, cmd.maxPos);
@@ -11576,17 +11585,23 @@ function compVrCmdApply(cmd) {
     }
   } catch (e) {}
 }
-function compVrCmdPoll() {
+function compVrState() {
+  const scene = compSceneCurrent();
+  const cast = compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" }));
+  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast };
+}
+function compVrTick() {
   if (!compModeActive) return;
   try {
     const raw = localStorage.getItem("ossm-vr-cmd");
-    if (raw && raw !== compVrCmdLast) {
-      compVrCmdLast = raw;
-      compVrCmdApply(JSON.parse(raw));
-    }
+    if (raw && raw !== compVrCmdLast) { compVrCmdLast = raw; compVrCmdApply(JSON.parse(raw)); }
+  } catch (e) {}
+  try {
+    const s = JSON.stringify(compVrState());
+    if (s !== compVrStateLast) { compVrStateLast = s; localStorage.setItem("ossm-vr-state", s); }
   } catch (e) {}
 }
-setInterval(compVrCmdPoll, 400);
+setInterval(compVrTick, 400);
 
 // ---------- Per-character voice + cast (multi-person avatar) ----------
 function compVoiceUiLoad() {
