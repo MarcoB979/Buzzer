@@ -6503,6 +6503,11 @@ syncWakeLock();
 syncOrientationLock();
 setTimeout(syncOrientationLock, 300);
 setTimeout(syncOrientationLock, 1000);
+// Embedded inside the VR page (iframe): bring up the companion engine so the
+// device layer, AI chat, voice and the VR relay are all live automatically.
+if (window.self !== window.top) {
+  setTimeout(function () { try { companionOpen(); } catch (e) {} }, 1200);
+}
 $("header-disconnect").onclick = disconnect;
 $("header-stop").onclick = emergencyStop;
 const kofiToggleBtn = $("kofiToggle");
@@ -11622,6 +11627,7 @@ async function compVrOpen() {
   }
   try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
   try {
+    if (window.self !== window.top) return;   // already embedded inside the VR page — don't open a new tab
     const vrUrl = (function () { try { return (localStorage.getItem("ossm-vr-url") || "").trim(); } catch (e) { return ""; } })() || "vrcompanion.html";
     window.open(vrUrl, "_blank");
   } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
