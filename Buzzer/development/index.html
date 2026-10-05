@@ -1204,14 +1204,20 @@
           <span style="font-size:.78rem;color:#94a3b8;"> — saved with this avatar.</span>
         </div>
         <div class="photo-modal-body" style="font-size:.8rem;">
-          <div style="font-weight:bold;margin-bottom:4px;">🌌 VR room (360° background)</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-            <button class="ble-btn small" id="avatarRoomBtn" type="button">📁 Load 360° image</button>
-            <button class="ble-btn small" id="avatarRoomClear" type="button" title="Remove the room">✕</button>
+          <div style="font-weight:bold;margin-bottom:4px;">🌌 Room (360° VR + flat backdrop)</div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+            <button class="ble-btn small" id="avatarRoomBtn" type="button">📁 360° image</button>
+            <button class="ble-btn small" id="avatarRoomClear" type="button" title="Remove the 360° room">✕</button>
             <span id="avatarRoomInfo" style="font-size:.72rem;color:#94a3b8;"></span>
           </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <button class="ble-btn small" id="avatarRoom2dBtn" type="button">🖼 2D backdrop</button>
+            <button class="ble-btn small" id="avatarRoom2dClear" type="button" title="Remove the 2D backdrop">✕</button>
+            <span id="avatarRoom2dInfo" style="font-size:.72rem;color:#94a3b8;"></span>
+          </div>
           <input type="file" id="avatarRoomInput" accept="image/*" style="display:none;">
-          <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">An equirectangular (360°) image used as the room when you view the avatar in VR.</div>
+          <input type="file" id="avatarRoom2dInput" accept="image/*" style="display:none;">
+          <div style="font-size:.72rem;color:#94a3b8;margin-top:4px;">360° = the room you stand in (VR) · 2D = the flat backdrop on PC/phone/beamer.</div>
           <button class="ble-btn small" id="avatarVrBtn" type="button" style="margin-top:8px;" title="Open the VR viewer">🥽 View in VR</button>
         </div>
         <div class="photo-modal-actions" style="margin-top:10px;">
@@ -9982,7 +9988,7 @@ const COMPANION_PRESETS = [
   { name:"Kai",  seed:"Kai",   style:"lorelei",   hair:"#f6d365", skin:"#ffe0bd" },
   { name:"Luca", seed:"Luca",  style:"lorelei",   hair:"#a16207", skin:"#f3c39c" }
 ];
-let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated", persona:"", about:"", expr:null, room:null };
+let companionState = { preset:0, custom:null, customImage:null, customVideos:0, shown:false, source:"generated", persona:"", about:"", expr:null, room:null, room2d:null };
 let companionBlinkTimer = null;
 try { const c = JSON.parse(localStorage.getItem("ossm-companion") || "{}"); companionState = Object.assign(companionState, c); } catch (e) {}
 if (!companionState.expr || typeof companionState.expr !== "object" || Array.isArray(companionState.expr)) {
@@ -10013,6 +10019,7 @@ if (!companionState.body || typeof companionState.body !== "object" || Array.isA
   if (typeof companionState.body.img !== "string") companionState.body.img = null;
 }
 if (typeof companionState.room !== "string") companionState.room = null;
+if (typeof companionState.room2d !== "string") companionState.room2d = null;
 if (companionState.kind !== "drawn" && companionState.kind !== "photo") {
   companionState.kind = (companionState.customImage || (companionState.body && companionState.body.img) || Object.keys(companionState.expr || {}).some(k => companionState.expr[k] && companionState.expr[k].img)) ? "photo" : "drawn";
 }
@@ -11406,7 +11413,7 @@ function compAvatarSnapshot() {
     preset: companionState.preset, custom: companionState.custom,
     customImage: companionState.customImage, customVideos: companionState.customVideos,
     landmarks: companionState.landmarks, source: companionState.source,
-    expr: companionState.expr, body: companionState.body, room: companionState.room || null,
+    expr: companionState.expr, body: companionState.body, room: companionState.room || null, room2d: companionState.room2d || null,
     mediaId: companionState.mediaId || "",
     voice: companionState.voice || { provider: "system", voiceId: "", voiceName: "", lang: "", rate: 1, pitch: 1 },
     cast: JSON.parse(JSON.stringify(companionState.cast || []))
@@ -11433,6 +11440,7 @@ function compAvatarApply(snap) {
   if (!companionState.body.points || typeof companionState.body.points !== "object") companionState.body.points = {};
   if (!companionState.body.face) companionState.body.face = { x: 0.5, y: 0.18 };
   companionState.room = snap.room || null;
+  companionState.room2d = snap.room2d || null;
   if (snap.voice && typeof snap.voice === "object") {
     const rn = (x, def) => { const n = Number(x); return (isFinite(n) && n > 0) ? Math.min(2, Math.max(0.5, n)) : def; };
     companionState.voice = { provider: snap.voice.provider || "system", voiceId: snap.voice.voiceId || "", voiceName: snap.voice.voiceName || "", lang: snap.voice.lang || "", rate: rn(snap.voice.rate, 1), pitch: rn(snap.voice.pitch, 1) };
@@ -11481,9 +11489,25 @@ function compAvatarRefreshBuilder() {
 }
 function compRoomSync() {
   const info = $("avatarRoomInfo");
-  if (info) info.textContent = companionState.room ? "✓ room set" : "no room — plain dark room";
+  if (info) info.textContent = companionState.room ? "✓ 360° set" : "no 360° — a built-in room is used";
   const clr = $("avatarRoomClear");
   if (clr) clr.style.display = companionState.room ? "" : "none";
+  const info2 = $("avatarRoom2dInfo");
+  if (info2) info2.textContent = companionState.room2d ? "✓ 2D set" : "no 2D — a default backdrop is used";
+  const clr2 = $("avatarRoom2dClear");
+  if (clr2) clr2.style.display = companionState.room2d ? "" : "none";
+}
+function compRoom2dLoad(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { companionState.room2d = String(reader.result || ""); companionSave(); compRoomSync(); funLog("2D room backdrop loaded."); };
+  reader.onerror = () => funLog("Could not read the room image.", "warn");
+  reader.readAsDataURL(file);
+}
+function compRoom2dClear() {
+  companionState.room2d = null;
+  companionSave();
+  compRoomSync();
 }
 function compRoomLoad(file) {
   if (!file) return;
@@ -11499,7 +11523,7 @@ function compRoomClear() {
 }
 function compVrOpen() {
   compAvatarSyncInputs();
-  const payload = { name: companionState.avatarName || "Companion", room: companionState.room || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {} };
+  const payload = { name: companionState.avatarName || "Companion", room: companionState.room || null, room2d: companionState.room2d || null, face: companionState.customImage || null, body: (companionState.body && companionState.body.img) || null, expr: {} };
   compExprKeys().forEach(k => { const e = companionState.expr && companionState.expr[k]; if (e && e.img) payload.expr[k] = e.img; });
   try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
   try { window.open("vrcompanion.html", "_blank"); } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
@@ -14272,6 +14296,9 @@ function compLiveStart() {
   const roomBtn = $("avatarRoomBtn"); const roomInput = $("avatarRoomInput");
   if (roomBtn && roomInput) { roomBtn.onclick = () => roomInput.click(); roomInput.onchange = () => { const f = roomInput.files && roomInput.files[0]; roomInput.value = ""; compRoomLoad(f); }; }
   const roomClear = $("avatarRoomClear"); if (roomClear) roomClear.onclick = compRoomClear;
+  const room2dBtn = $("avatarRoom2dBtn"); const room2dInput = $("avatarRoom2dInput");
+  if (room2dBtn && room2dInput) { room2dBtn.onclick = () => room2dInput.click(); room2dInput.onchange = () => { const f = room2dInput.files && room2dInput.files[0]; room2dInput.value = ""; compRoom2dLoad(f); }; }
+  const room2dClear = $("avatarRoom2dClear"); if (room2dClear) room2dClear.onclick = compRoom2dClear;
   const vrBtn = $("avatarVrBtn"); if (vrBtn) vrBtn.onclick = compVrOpen;
   compSpeakSync();
   const spk = $("compSpeak");
