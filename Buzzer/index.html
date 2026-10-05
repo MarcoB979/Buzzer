@@ -5659,31 +5659,34 @@ function avCastDraw() {
   ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
   const v = localVideoEl();
   const vidPlaying = !!(v && v.videoWidth && !v.paused && !v.ended);
-  if (vidPlaying) {
-    const vw = v.videoWidth, vh = v.videoHeight;
-    const s = Math.max(W / vw, H / vh);
-    const dw = vw * s, dh = vh * s;
-    try { ctx.drawImage(v, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
-  }
-  // Prefer the avatar's own rendered canvas — it carries the real mouth/eye/body animation.
   const liveCv = avCastLiveCanvas();
-  if (liveCv) {
-    if (vidPlaying) {
-      const d = Math.min(W, H) * 0.34;
-      const cx = W - d * 0.58, cy = H - d * 0.58;
-      ctx.save();
-      ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.clip();
-      const s2 = Math.max(d / liveCv.width, d / liveCv.height);
+  if (vidPlaying) {
+    // Watch together: video on the left, the live avatar on the right.
+    const vw2 = W * 0.66, ax = vw2, aw2 = W - vw2;
+    const vw = v.videoWidth, vh = v.videoHeight;
+    const s = Math.max(vw2 / vw, H / vh);
+    const dw = vw * s, dh = vh * s;
+    try { ctx.drawImage(v, (vw2 - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
+    ctx.fillStyle = "rgba(0,0,0,.9)"; ctx.fillRect(ax, 0, aw2, H);
+    if (liveCv && liveCv.width > 0) {
+      const s2 = Math.min(aw2 / liveCv.width, H / liveCv.height);
       const dw2 = liveCv.width * s2, dh2 = liveCv.height * s2;
-      ctx.drawImage(liveCv, cx - dw2 / 2, cy - dh2 / 2, dw2, dh2);
-      ctx.restore();
-      ctx.beginPath(); ctx.arc(cx, cy, d / 2 + 2, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(56,189,248,.85)"; ctx.lineWidth = 4; ctx.stroke();
+      ctx.drawImage(liveCv, ax + (aw2 - dw2) / 2, (H - dh2) / 2, dw2, dh2);
     } else {
-      const s2 = Math.min(W / liveCv.width, H / liveCv.height);
-      const dw2 = liveCv.width * s2, dh2 = liveCv.height * s2;
-      ctx.drawImage(liveCv, (W - dw2) / 2, (H - dh2) / 2, dw2, dh2);
+      const img = avCastImage(avCastGetFace());
+      if (img && img.complete && img.naturalWidth) {
+        const s2 = Math.min(aw2 / img.naturalWidth, H / img.naturalHeight);
+        const dw2 = img.naturalWidth * s2, dh2 = img.naturalHeight * s2;
+        ctx.drawImage(img, ax + (aw2 - dw2) / 2, (H - dh2) / 2, dw2, dh2);
+      }
     }
+    return;
+  }
+  // No video: full-bleed live avatar.
+  if (liveCv && liveCv.width > 0) {
+    const s2 = Math.min(W / liveCv.width, H / liveCv.height);
+    const dw2 = liveCv.width * s2, dh2 = liveCv.height * s2;
+    ctx.drawImage(liveCv, (W - dw2) / 2, (H - dh2) / 2, dw2, dh2);
     return;
   }
   // Fallback: static face image with a simple talking/blinking pulse.
@@ -5694,28 +5697,13 @@ function avCastDraw() {
     const blinking = (now - avCastLastBlink) < 160;
     const speaking = aiIsSpeaking();
     const sy = blinking ? 0.9 : (speaking ? 1 + 0.025 * Math.sin(now / 85) : 1);
-    if (vidPlaying) {
-      const d = Math.min(W, H) * 0.34;
-      const cx = W - d * 0.58, cy = H - d * 0.58;
-      ctx.save();
-      ctx.beginPath(); ctx.arc(cx, cy, d / 2, 0, Math.PI * 2); ctx.clip();
-      const iw = img.naturalWidth, ih = img.naturalHeight;
-      const s2 = Math.max(d / iw, d / ih);
-      const dw2 = iw * s2, dh2 = ih * s2;
-      ctx.translate(cx, cy); ctx.scale(1, sy);
-      ctx.drawImage(img, -dw2 / 2, -dh2 / 2, dw2, dh2);
-      ctx.restore();
-      ctx.beginPath(); ctx.arc(cx, cy, d / 2 + 2, 0, Math.PI * 2);
-      ctx.strokeStyle = "rgba(56,189,248,.85)"; ctx.lineWidth = 4; ctx.stroke();
-    } else {
-      const iw = img.naturalWidth, ih = img.naturalHeight;
-      const s2 = Math.min(W / iw, H / ih);
-      const dw2 = iw * s2, dh2 = ih * s2;
-      ctx.save();
-      ctx.translate(W / 2, H / 2); ctx.scale(1, sy);
-      ctx.drawImage(img, -dw2 / 2, -dh2 / 2, dw2, dh2);
-      ctx.restore();
-    }
+    const iw = img.naturalWidth, ih = img.naturalHeight;
+    const s2 = Math.min(W / iw, H / ih);
+    const dw2 = iw * s2, dh2 = ih * s2;
+    ctx.save();
+    ctx.translate(W / 2, H / 2); ctx.scale(1, sy);
+    ctx.drawImage(img, -dw2 / 2, -dh2 / 2, dw2, dh2);
+    ctx.restore();
   }
 }
 function avCastLoop() {
@@ -5782,7 +5770,7 @@ function avCastStart() {
   avCastLastBlink = performance.now();
   avCastLoop();
   compCastBtnSync();
-  funLog("Casting avatar view to TV…");
+  funLog("Casting video + avatar to the beamer…");
 }
 function toggleAvatarCast() {
   if (avCastOn) { avCastStop(); return; }
@@ -5809,15 +5797,17 @@ function compCastBtn() {
 function compCastBtnSync() {
   if (!avCastBtnEl) return;
   if (avCastOn) {
+    avCastBtnEl.textContent = "⏹ Stop beamer";
     avCastBtnEl.style.background = "#7c3aed";
     avCastBtnEl.style.borderColor = "#a78bfa";
     avCastBtnEl.style.color = "#fff";
-    avCastBtnEl.title = "Stop casting the avatar view";
+    avCastBtnEl.title = "Stop casting video + avatar";
   } else {
+    avCastBtnEl.textContent = "📽️ Beamer";
     avCastBtnEl.style.background = "#0f172a";
     avCastBtnEl.style.borderColor = "#a78bfa";
     avCastBtnEl.style.color = "#c4b5fd";
-    avCastBtnEl.title = "Cast the avatar to the beamer (project your partner)";
+    avCastBtnEl.title = "Cast video + live avatar to the beamer — watch together";
   }
 }
 function compCastBtnAttach() {
@@ -10157,6 +10147,7 @@ function companionRenderCore() {
 function companionRender() {
   companionRenderCore();
   compSeeMeAttach();
+  compCastBtnAttach();
   compVrBtnAttach();
 }
 function companionApplyShow(v) {
