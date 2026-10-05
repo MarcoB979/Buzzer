@@ -10514,10 +10514,7 @@ function buildBodySetupRows() {
 function compBodyRowAction(b, s) {
   if (b === "photo") {
     compEnsureConsent(() => {
-      const inp = document.createElement("input");
-      inp.type = "file"; inp.accept = "image/*";
-      inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compBodyUpload(f); };
-      inp.click();
+      pickFile("image/*", false, (files) => { const f = files && files[0]; if (f) compBodyUpload(f); });
     });
   } else if (b === "photoclr") {
     companionState.body.img = null;
@@ -10532,17 +10529,11 @@ function compBodyRowAction(b, s) {
     companionBodyCalibrate(s, "start");
   } else if (b === "pimg") {
     compEnsureConsent(() => {
-      const inp = document.createElement("input");
-      inp.type = "file"; inp.accept = "image/*";
-      inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compBodyStatePhoto(f, s); };
-      inp.click();
+      pickFile("image/*", false, (files) => { const f = files && files[0]; if (f) compBodyStatePhoto(f, s); });
     });
   } else if (b === "pvid") {
     compEnsureConsent(() => {
-      const inp = document.createElement("input");
-      inp.type = "file"; inp.accept = "video/*"; inp.multiple = true;
-      inp.onchange = () => { compBodyStateVideos(inp.files, s); };
-      inp.click();
+      pickFile("video/*", true, (files) => { compBodyStateVideos(files, s); });
     });
   } else if (b === "pclr") {
     const p = companionState.body.points[s];
@@ -11023,9 +11014,9 @@ function compSceneStateVideos(files, si) {
 }
 function compSceneStateAction(a, si) {
   if (a === "img") {
-    compEnsureConsent(() => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*"; inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) compSceneStatePhoto(f, si); }; inp.click(); });
+    compEnsureConsent(() => { pickFile("image/*", false, (files) => { const f = files && files[0]; if (f) compSceneStatePhoto(f, si); }); });
   } else if (a === "vid") {
-    compEnsureConsent(() => { const inp = document.createElement("input"); inp.type = "file"; inp.accept = "video/*"; inp.multiple = true; inp.onchange = () => { compSceneStateVideos(inp.files, si); }; inp.click(); });
+    compEnsureConsent(() => { pickFile("video/*", true, (files) => { compSceneStateVideos(files, si); }); });
   } else if (a === "start") {
     compSceneCalibrate(si, "start");
   } else if (a === "target") {
@@ -11924,17 +11915,11 @@ function compAvatarSetKind(kind) {
 function compAvatarRowAction(action, state) {
   if (action === "img") {
     compEnsureConsent(() => {
-      const inp = document.createElement("input");
-      inp.type = "file"; inp.accept = "image/*";
-      inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) companionConsentAndLoad(f, state); };
-      inp.click();
+      pickFile("image/*", false, (files) => { const f = files && files[0]; if (f) companionConsentAndLoad(f, state); });
     });
   } else if (action === "vid") {
     compEnsureConsent(() => {
-      const inp = document.createElement("input");
-      inp.type = "file"; inp.accept = "video/*"; inp.multiple = true;
-      inp.onchange = () => { companionUploadVideos(inp.files, state); };
-      inp.click();
+      pickFile("video/*", true, (files) => { companionUploadVideos(files, state); });
     });
   } else if (action === "cal") {
     const media = compStateMedia(state);
@@ -12512,6 +12497,16 @@ const companionLive = {
 function companionLiveStop() {
   if (companionLive.raf) { cancelAnimationFrame(companionLive.raf); companionLive.raf = 0; }
   companionLive.active = false;
+}
+function pickFile(accept, multiple, cb) {
+  const inp = document.createElement("input");
+  inp.type = "file";
+  if (accept) inp.accept = accept;
+  if (multiple) inp.multiple = true;
+  inp.style.cssText = "position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;";
+  document.body.appendChild(inp);
+  inp.onchange = () => { const files = inp.files; try { inp.remove(); } catch (e) {} if (cb) cb(files); };
+  inp.click();
 }
 function compResizeImage(file, maxDim, quality) {
   // Downscale a photo to a JPEG data URL so localStorage doesn't overflow
@@ -14520,11 +14515,9 @@ function compLiveStart() {
   if (sStrict) { sStrict.addEventListener("input", () => { if (sStrictVal) sStrictVal.textContent = sStrict.value; }); sStrict.addEventListener("change", () => { const sc = compSceneCurrent(); if (sc) { sc.strict = parseInt(sStrict.value, 10); compScenesSave(compScenes()); } }); }
   const sThumb = $("sceneThumbBtn");
   if (sThumb) sThumb.onclick = () => {
-    const inp = document.createElement("input"); inp.type = "file"; inp.accept = "image/*";
-    inp.onchange = () => { const f = inp.files && inp.files[0]; if (!f) return;
+    pickFile("image/*", false, (files) => { const f = files && files[0]; if (!f) return;
       compResizeImage(f, 400, 0.8).then((dataUrl) => { if (!dataUrl) return; const sc = compSceneCurrent(); if (!sc) return; sc.thumb = dataUrl; compScenesSave(compScenes()); compSceneBuildList(); });
-    };
-    inp.click();
+    });
   };
   const sTimer = $("sceneHelperTimer"); if (sTimer) sTimer.onclick = () => sceneHelperOpen("⏱ Timer", sceneHelperTimer);
   const sToy = $("sceneHelperToy"); if (sToy) sToy.onclick = () => sceneHelperOpen("🧸 Toy", sceneHelperToy);
