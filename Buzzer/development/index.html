@@ -13414,13 +13414,18 @@ function compSeeMeModalShow(bodyHtml, okLabel, onOk) {
   if (keepChk) { try { keepChk.checked = compSeeMeKeep(); } catch (e) {} }
   m.style.display = "";
 }
+const AI_VISION_MODELS = {
+  grok: "grok-2-vision",
+  openrouter: "qwen/qwen2.5-vl-72b-instruct",
+  novita: "qwen/qwen2.5-vl-72b-instruct",
+  deepinfra: "Qwen/Qwen2.5-VL-72B-Instruct"
+};
 function aiVisionProvider() {
-  // Vision follows the selected provider: DeepSeek (its vision model) or any
-  // OpenAI-compatible provider (Grok, OpenRouter, Novita, DeepInfra, OpenAI…).
-  // If the provider's default model is text-only, set a vision model in the Model field.
+  // Vision follows the selected provider, but automatically swaps to a vision-capable
+  // model when the chat model is text-only. Chat keeps its own model untouched.
   const s = aiProviderSettings();
   if (s.provider === "deepseek" && s.key) return { kind: "deepseek", key: s.key, baseUrl: "https://api.deepseek.com", model: "deepseek-flash" };
-  if (aiIsOpenAiLike(s.provider) && s.key) return { kind: "openai", key: s.key, baseUrl: s.baseUrl, model: s.model };
+  if (aiIsOpenAiLike(s.provider) && s.key) return { kind: "openai", key: s.key, baseUrl: s.baseUrl, model: AI_VISION_MODELS[s.provider] || s.model };
   try {
     const dkey = (localStorage.getItem("ossm-ai-key-deepseek") || "").trim();
     if (dkey) return { kind: "deepseek", key: dkey, baseUrl: "https://api.deepseek.com", model: "deepseek-flash" };
