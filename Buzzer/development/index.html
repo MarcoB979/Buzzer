@@ -1553,6 +1553,11 @@
         <button type="button" class="ble-btn small" id="vrKeyApply" style="margin-top:6px;">🔓 Unlock VR / Beamer / See-me</button>
         <span id="vrKeyStatus" style="font-size:.72rem;color:#94a3b8;"></span>
         <div class="ai-set-hint">Unlocks the VR companion, Beamer and See-me buttons. Your key is checked on this device only.</div>
+        <div id="vrUrlRow" style="display:none;">
+          <label class="ai-set-label" for="vrUrlInput">VR companion URL</label>
+          <input type="text" id="vrUrlInput" placeholder="https://your-vr-host.example/vrcompanion.html" autocomplete="off">
+          <div class="ai-set-hint">Where 'View in VR' opens. Leave blank for the built-in viewer. Saved with your settings export and full backup.</div>
+        </div>
       </div>
     </details>
 
@@ -11581,6 +11586,7 @@ async function vrKeyApply() {
   let ok = false;
   try { ok = (await vrKeySha256(val)) === VR_KEY_HASH; } catch (e) { ok = false; }
   try { localStorage.setItem("ossm-vr-key-ok", ok ? "1" : "0"); } catch (e) {}
+  try { if (ok) localStorage.setItem("ossm-vr-key", val); } catch (e) {}
   vrKeyStatus(ok ? "✓ Unlocked — VR, Beamer and See-me are now available" : "Invalid key", ok);
   compVrGateApply();
 }
@@ -11590,6 +11596,10 @@ function compVrGateApply() {
   if (avVrBtnEl) avVrBtnEl.style.display = on ? "" : "none";
   if (avCastBtnEl) avCastBtnEl.style.display = on ? "" : "none";
   if (compSeeMeBtnEl) compSeeMeBtnEl.style.display = on ? "" : "none";
+  const urlRow = $("vrUrlRow");
+  if (urlRow) urlRow.style.display = on ? "" : "none";
+  const urlIn = $("vrUrlInput");
+  if (urlIn) { try { urlIn.value = localStorage.getItem("ossm-vr-url") || ""; } catch (e) {} }
 }
 async function compVrOpen() {
   compAvatarSyncInputs();
@@ -11611,7 +11621,10 @@ async function compVrOpen() {
     if (e && e.img) payload.expr[k] = await put("expr-" + k + "-" + uid, e.img);
   }
   try { localStorage.setItem("ossm-vr-handoff", JSON.stringify(payload)); } catch (e) {}
-  try { window.open("vrcompanion.html", "_blank"); } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
+  try {
+    const vrUrl = (function () { try { return (localStorage.getItem("ossm-vr-url") || "").trim(); } catch (e) { return ""; } })() || "vrcompanion.html";
+    window.open(vrUrl, "_blank");
+  } catch (e) { funLog("Could not open VR viewer: " + (e && e.message), "warn"); }
 }
 
 // ---------- VR toy panel: summary of active devices + safe remote commands ----------
@@ -15617,8 +15630,21 @@ function aiDebugRestore() {
   if (vrKeyBtn) vrKeyBtn.onclick = vrKeyApply;
   const vrKeyIn = $("vrKeyInput");
   if (vrKeyIn) vrKeyIn.addEventListener("keydown", (e) => { if (e.key === "Enter") vrKeyApply(); });
-  if (vrUnlocked()) vrKeyStatus("✓ Unlocked", true);
-  compVrGateApply();
+  const vrUrlIn = $("vrUrlInput");
+  if (vrUrlIn) vrUrlIn.addEventListener("change", () => { try { localStorage.setItem("ossm-vr-url", vrUrlIn.value.trim()); } catch (e) {} });
+  // Auto-unlock if a stored key still matches (and restore it into the field).
+  (async () => {
+    let stored = "";
+    try { stored = localStorage.getItem("ossm-vr-key") || ""; } catch (e) {}
+    if (stored && !vrUnlocked()) {
+      try {
+        if ((await vrKeySha256(stored)) === VR_KEY_HASH) { try { localStorage.setItem("ossm-vr-key-ok", "1"); } catch (e) {} }
+      } catch (e) {}
+    }
+    if (vrKeyIn && stored) { try { vrKeyIn.value = stored; } catch (e) {} }
+    if (vrUnlocked()) vrKeyStatus("✓ Unlocked", true);
+    compVrGateApply();
+  })();
   const bkExport = $("backupExportBtn");
   if (bkExport) bkExport.onclick = exportBackup;
   const bkImport = $("backupImportBtn");
