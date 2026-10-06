@@ -11752,7 +11752,9 @@ function compVrState() {
   const cast = compCast().map(c => ({ name: c.name || "", toy: c.toy || "host" }));
   const guests = (typeof sess !== "undefined" && sess && Array.isArray(sess.guests)) ? sess.guests.map(g => ({ name: g.name || "Guest", state: g.state || "watch" })) : [];
   const scenes = compScenes().map(s => ({ id: s.id, name: s.name || "" }));
-  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes, chat: compVrChatLines(8), strokeMs: rideState.avgOutMs || null };
+  const friends = (typeof social !== "undefined" && social && Array.isArray(social.friends)) ? social.friends.map(f => ({ name: f.name || "Friend", online: !!f.online })) : [];
+  const online = friends.filter(f => f.online).map(f => f.name);
+  return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes, friends, online, chat: compVrChatLines(8), strokeMs: rideState.avgOutMs || null };
 }
 function compVrTick() {
   if (!compModeActive) return;
