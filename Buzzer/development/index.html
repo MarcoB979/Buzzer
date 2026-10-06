@@ -11718,6 +11718,9 @@ function compVrCmdApply(cmd) {
       }
     } else if (cmd.id === "chat") {
       if (typeof cmd.text === "string" && cmd.text.trim()) compVrChatSend(cmd.text);
+    } else if (cmd.id === "builder") {
+      if (cmd.which === "avatar") { try { companionOpenAvatarSetup(); } catch (e) {} }
+      else if (cmd.which === "scene") { try { compSceneOpenBuilder(); } catch (e) {} }
     }
   } catch (e) {}
 }
