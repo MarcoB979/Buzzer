@@ -11756,8 +11756,9 @@ function compVrState() {
   const online = friends.filter(f => f.online).map(f => f.name);
   return { t: Date.now(), toys: compDeviceSummary(), scene: scene ? { name: scene.name || "Scene" } : null, cast, guests, scenes, friends, online, chat: compVrChatLines(8), strokeMs: rideState.avgOutMs || null };
 }
+const ossmVrEmbedded = (window.self !== window.top);
 function compVrTick() {
-  if (!compModeActive) return;
+  if (!compModeActive && !ossmVrEmbedded) return;
   try {
     const raw = localStorage.getItem("ossm-vr-cmd");
     if (raw && raw !== compVrCmdLast) { compVrCmdLast = raw; compVrCmdApply(JSON.parse(raw)); }
@@ -11769,7 +11770,7 @@ function compVrTick() {
 }
 setInterval(compVrTick, 400);
 function compVrAvatarCapture() {
-  if (!compModeActive) return;
+  if (!compModeActive && !ossmVrEmbedded) return;
   try {
     const cv = avCastLiveCanvas();
     if (!cv || !cv.width) return;
@@ -17138,6 +17139,7 @@ function sessionBreakoutEnter(avatar) {
   compMessages = [];
   compSetupGreeted = true; // don't run the generic first-time greeting
   try { companionOpen(false); } catch (e) {}
+  try { if (ossmVrEmbedded) window.parent.postMessage({ ossm: "open-drawer" }, "*"); } catch (e) {}
   compMessages.push({ role: "system", content: "BREAKOUT SETUP (private, just you and this guest): get them ready and safe to play on their own device, one step at a time: (1) make sure their OSSM is connected (if not, tell them to tap Connect), (2) choose a safe word, (3) set min depth, max depth and max speed — via the position flow or the three numbers with a confirmation. NEVER start the machine until limits are confirmed. When they are ready, ask if they want to rejoin the room; if they confirm, they'll be taken back automatically.", ts: Date.now() });
   compAddMsg("assistant", "Okay — let's get you ready in private. Is your machine connected? If not, tap 🔌 Connect, then tell me a safe word.");
   compBreakoutBarSync();
@@ -17857,7 +17859,7 @@ async function sessionLeave() {
   sess.role = null; sess.code = ""; sess.myRole = "watch"; sess.myState = "watch"; sess.hostState = null;
   try { sessionStorage.removeItem("ossm-session-my-state"); } catch (e) {}
   sessAudioParts = {};
-  if (sess.compSynced) { sess.compSynced = false; if (compModeActive) { try { companionClose(); } catch (e) {} } }
+  if (sess.compSynced) { sess.compSynced = false; if (compModeActive && !ossmVrEmbedded) { try { companionClose(); } catch (e) {} } }
   sess.mirrorDevice = false;
   playReset();
   try { if (p) p.destroy(); } catch (e) {}
@@ -17934,6 +17936,7 @@ function sessionUpdateStatus() {
   el.textContent = parts.join(" · ");
 }
 function sessionSyncCompanion(s) {
+  if (ossmVrEmbedded) return; // embedded in the VR page — the welcome page is the companion UI, don't toggle modes
   if (sess.role !== "guest") return;
   if (sess.myState === "breakout") return; // private breakout session — don't mirror the room
   if (s.compMode) {
