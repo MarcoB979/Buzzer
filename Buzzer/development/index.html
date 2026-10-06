@@ -11733,6 +11733,28 @@ async function compVrChatSend(text) {
   aiDebugPersistSoon();
   await compRoomSend();
 }
+function compVrChunkText(text, max) {
+  text = String(text || "").trim();
+  if (text.length <= max) return [text];
+  const parts = [];
+  let cur = "", buf = "";
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    buf += ch;
+    if ((ch === "." || ch === "!" || ch === "?" || ch === "\n") && buf.trim().length > 40) {
+      cur += buf; buf = "";
+      if (cur.trim().length >= max) { parts.push(cur.trim()); cur = ""; }
+    }
+  }
+  cur += buf;
+  if (cur.trim()) parts.push(cur.trim());
+  const out = [];
+  for (const p of parts) {
+    if (p.length <= max) out.push(p);
+    else for (let i = 0; i < p.length; i += max) out.push(p.slice(i, i + max));
+  }
+  return out.filter(Boolean);
+}
 function compVrChatLines(n) {
   const out = [];
   const recent = compMessages.slice(-(n || 8));
@@ -11742,8 +11764,8 @@ function compVrChatLines(n) {
     if (m.role === "assistant" && text.trim().startsWith("{")) {
       try { const j = JSON.parse(text); if (j && typeof j.reply === "string") text = j.reply; } catch (e) {}
     }
-    text = text.trim().slice(0, 220);
-    if (text) out.push({ role: m.role, text });
+    const chunks = compVrChunkText(text, 220);
+    for (const ch of chunks) out.push({ role: m.role, text: ch });
   }
   return out;
 }
