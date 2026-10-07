@@ -11764,22 +11764,29 @@ function compVrChatLines(n) {
   for (const m of recent) {
     if (m.role === "system") continue;
     let text = String(m.content || "");
-    if (m.role === "assistant" && text.trim().startsWith("{")) {
-      // Unwrap nested JSON — some companion replies get stringified twice, so
-      // `{"{"reply":"..."}}` needs two parses before the reply text is reachable.
-      for (let i = 0; i < 3; i++) {
-        try {
-          const j = JSON.parse(text);
-          if (j && typeof j === "object" && !Array.isArray(j) && typeof j.reply === "string") { text = j.reply; break; }
-          if (typeof j === "string" && j.trim().startsWith("{")) { text = j.trim(); continue; }
-          break;
-        } catch (e) { break; }
-      }
-    }
+    if (m.role === "assistant" && text.trim().startsWith("{")) text = compVrReplyText(text);
     const chunks = compVrChunkText(text, 220);
     for (const ch of chunks) out.push({ role: m.role, text: ch });
   }
   return out;
+}
+function compVrReplyText(t) {
+  const s = String(t || "").trim();
+  if (!s) return s;
+  // Unwrap nested JSON (some replies are stringified twice).
+  let cur = s;
+  for (let i = 0; i < 4; i++) {
+    try {
+      const j = JSON.parse(cur);
+      if (j && typeof j === "object" && !Array.isArray(j) && typeof j.reply === "string" && j.reply) return j.reply;
+      if (typeof j === "string" && j.trim().startsWith("{")) { cur = j.trim(); continue; }
+      break;
+    } catch (e) { break; }
+  }
+  // Malformed/double-encoded JSON: pull the "reply" value out with a regex.
+  const m = s.match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (m) return m[1].replace(/\\n/g, "\n").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  return s;
 }
 function compVrState() {
   const scene = compSceneCurrent();
