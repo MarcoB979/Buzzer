@@ -11765,7 +11765,16 @@ function compVrChatLines(n) {
     if (m.role === "system") continue;
     let text = String(m.content || "");
     if (m.role === "assistant" && text.trim().startsWith("{")) {
-      try { const j = JSON.parse(text); if (j && typeof j.reply === "string") text = j.reply; } catch (e) {}
+      // Unwrap nested JSON — some companion replies get stringified twice, so
+      // `{"{"reply":"..."}}` needs two parses before the reply text is reachable.
+      for (let i = 0; i < 3; i++) {
+        try {
+          const j = JSON.parse(text);
+          if (j && typeof j === "object" && !Array.isArray(j) && typeof j.reply === "string") { text = j.reply; break; }
+          if (typeof j === "string" && j.trim().startsWith("{")) { text = j.trim(); continue; }
+          break;
+        } catch (e) { break; }
+      }
     }
     const chunks = compVrChunkText(text, 220);
     for (const ch of chunks) out.push({ role: m.role, text: ch });
