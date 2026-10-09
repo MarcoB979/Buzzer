@@ -3968,27 +3968,21 @@ function funIsIdleStreaming() {
 }
 // While idle in streaming mode (after homing, before the video starts), gently
 // move the rail to the configured Max/Min Pos so the user can position themselves.
-async function funPrePosition(kind) {
+function funPrePosition(kind) {
   if (!funIsIdleStreaming()) return;
   const isMin = kind === "min";
   const target = Math.round(clamp(isMin ? funState.minDepth : funState.maxDepth, isMin ? 0 : 1, 100));
   const key = (isMin ? "min:" : "max:") + target;
   if (funState.prePosAt === key) return;
-  funState.prePosAt = key; // mark in-flight so a repeated drag to the same value doesn't stack
-  const dist = isMin ? Math.max(1, 100 - target) : Math.max(1, target);
-  const dur = Math.min(8000, Math.max(1500, Math.round(dist * 100)));
-  // The OSSM skips stream motion while its speed is 0, and set: commands are
-  // applied asynchronously on the device. Await them and give the speed a
-  // moment to land before streaming the position, or the rail won't move.
-  await stdWriteReliable("set:speed:" + funState.maxSpeed);
-  await stdWriteReliable("set:max:" + funState.maxDepth);
-  await stdWriteReliable("set:min:" + funState.minDepth);
-  await stdWriteReliable("set:buffer:" + funState.buffer);
-  await stdWriteReliable("set:sensation:" + funState.sensation);
-  await new Promise(r => setTimeout(r, 250));
-  if (!funIsIdleStreaming()) return; // the user started playing while we were sending
-  // Stream position 0 maps to the configured min depth, 100 to max depth.
-  writeStream((isMin ? "0" : "100") + ":" + dur);
+  funState.prePosAt = key;
+  const dur = Math.min(8000, Math.max(1500, Math.round(Math.max(1, target) * 100)));
+  stdWrite("set:speed:" + funState.maxSpeed);
+  stdWrite("set:max:" + funState.maxDepth);
+  stdWrite("set:min:" + funState.minDepth);
+  stdWrite("set:buffer:" + funState.buffer);
+  stdWrite("set:sensation:" + funState.sensation);
+  // OSSM streaming positions are inverted: 0 = deepest (Max Pos), 100 = shallowest (Min Pos).
+  writeStream((isMin ? "100" : "0") + ":" + dur);
   funLog("Moving to " + (isMin ? "Min Pos " + funState.minDepth : "Max Pos " + target) + "…");
 }
 function toggleVideoFullscreen() {
