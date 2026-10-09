@@ -1679,7 +1679,7 @@ function onStdState(ev) {
   parseStdState(decode(ev.target.value));
   if (appMode === "ap") enforceModeAvailability();
   else if (appMode === "std") buildInterface();
-  else if (appMode === "fun") { updateStartButton(); funPrePosition(); }
+  else if (appMode === "fun") updateStartButton();
 }
 
 async function stdWrite(cmd) {
@@ -3527,7 +3527,23 @@ function buildFunVideo() {
     v.controls = true;
     v.playsInline = true;
     v.addEventListener("play", () => {
-      if (!machineRunningState()) { v.pause(); funLog("Waiting for the OSSM to finish homing…"); return; }
+      if (!machineRunningState()) {
+        // The device isn't in streaming mode yet (e.g. it's still homing after
+        // switching to the Funscript screen). Enter streaming and start once the
+        // firmware confirms it is running.
+        if (connected && stdCmd) {
+          enterStreamingMode();
+          funLog("Returning to streaming — homing…");
+          const iv = setInterval(() => {
+            if (!connected || !stdCmd) { clearInterval(iv); return; }
+            if (machineRunningState()) { clearInterval(iv); funStartStreaming(); }
+          }, 300);
+          setTimeout(() => clearInterval(iv), 25000);
+        } else {
+          v.pause(); funLog("Waiting for the OSSM to finish homing…");
+        }
+        return;
+      }
       funStartStreaming();
     });
     v.addEventListener("pause", funStopStreaming);
@@ -3963,26 +3979,29 @@ function funStopStreaming() {
   if (connected && stdCmd) stdWrite("set:speed:0"); // pause the rail so buffered stream moves stop
   updateStartButton();
 }
-function funIsIdleStreaming() {
-  return appMode === "fun" && connected && machineRunningState() && !funState.playing && !funState.startedOnce;
+function funCanPosition() {
+  return appMode === "fun" && connected && (streamChar || stdCmd) && !funState.playing;
 }
-// While idle in streaming mode (after homing, before the video starts), gently
-// move the rail to the configured Max/Min Pos so the user can position themselves.
+// Move the rail to the configured Max/Min Pos while the video is not playing.
+// Mirrors the OSSM Lite funscript player: write the streaming range, then send a
+// single stream position — 0 = Max Pos (deepest), 100 = Min Pos (shallowest).
+// The firmware moves the rail over 2s and then holds it (queue is empty), so the
+// rail travels to the requested depth and stops there.
 function funPrePosition(kind) {
-  if (!funIsIdleStreaming()) return;
+  if (!funCanPosition()) return;
   const isMin = kind === "min";
   const target = Math.round(clamp(isMin ? funState.minDepth : funState.maxDepth, isMin ? 0 : 1, 100));
   const key = (isMin ? "min:" : "max:") + target;
   if (funState.prePosAt === key) return;
   funState.prePosAt = key;
-  const dur = Math.min(8000, Math.max(1500, Math.round(Math.max(1, target) * 100)));
-  stdWrite("set:speed:" + funState.maxSpeed);
-  stdWrite("set:max:" + funState.maxDepth);
-  stdWrite("set:min:" + funState.minDepth);
-  stdWrite("set:buffer:" + funState.buffer);
-  stdWrite("set:sensation:" + funState.sensation);
-  // OSSM streaming positions are inverted: 0 = deepest (Max Pos), 100 = shallowest (Min Pos).
-  writeStream((isMin ? "100" : "0") + ":" + dur);
+  const go = async () => {
+    // Speed must be non-zero or the streaming task skips the move entirely.
+    await stdWrite("set:speed:" + funState.maxSpeed);
+    await stdWrite("set:max:" + funState.maxDepth);
+    await stdWrite("set:min:" + funState.minDepth);
+    writeStream((isMin ? "100" : "0") + ":2000");
+  };
+  go();
   funLog("Moving to " + (isMin ? "Min Pos " + funState.minDepth : "Max Pos " + target) + "…");
 }
 function toggleVideoFullscreen() {
@@ -10146,7 +10165,7 @@ function gpStdStep(field, d, mag) {
       if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
       stdWrite("set:max:" + funState.maxDepth);
       stdWrite("set:min:" + funState.minDepth);
-      funPrePosition();
+      funPrePosition("max");
       if (funMaxDepthSlider && funMaxDepthSlider.setValue) funMaxDepthSlider.setValue(funState.maxDepth);
       if (funMinDepthSlider && funMinDepthSlider.setValue) funMinDepthSlider.setValue(funState.minDepth);
     } else if (field === "min") {
@@ -10154,6 +10173,7 @@ function gpStdStep(field, d, mag) {
       if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
       stdWrite("set:max:" + funState.maxDepth);
       stdWrite("set:min:" + funState.minDepth);
+      funPrePosition("min");
       if (funMinDepthSlider && funMinDepthSlider.setValue) funMinDepthSlider.setValue(funState.minDepth);
     }
     return;
