@@ -6444,6 +6444,7 @@ function aiNewSession(confirmFirst) {
     }
   }
   aiStopLive();
+  aiStopSession(false, true);
   aiMessages = [];
   aiPendingLimits = null;
   aiLimitsClearConfirmed();
@@ -7649,6 +7650,7 @@ function compNewSession(confirmFirst) {
     }
   }
   compLiveStop();
+  aiStopSession(false, true);
   compBusy = false;
   compMessages = [];
   compPendingLimits = null;
@@ -8362,6 +8364,8 @@ FUNSCRIPT MODE (video + script): when they want to watch a video with a synced s
 
 POSITIONING (before play): while the video is paused, Max Pos and Min Pos physically move the rail so they can check their depth — have them set Max Pos to their deepest comfortable point and Min Pos to their shallowest start point. Pausing the video pauses the machine; playing it resumes.
 
+TIMED SESSIONS (important): when they ask you to drive for a length of time — "fuck me for 10 minutes", "10 minutes, vary it at your discretion" — the app runs the clock for you, so never say you can't tell time or that they need to prompt you for every step. On that request: if their safety limits are already confirmed, send "run":"start" plus an opening "set" in the same reply; if not, ask for their limits first. The app will then re-prompt you every ~30 seconds with the elapsed/remaining time — on each tick, vary the movement at your discretion and return fresh "set" values with a very short "reply" (never send "run" during a tick).
+
 FIRMWARE (important): on a Lite OSSM you control Min/Max position as usual (Advanced Penetration). On older OSSM or Rust firmware there is NO Advanced Penetration — only Standard mode (depth, stroke, speed, sensation, pattern); there you can't use the fine in/out-speed controls, so steer them with the Standard-mode values instead. Funscript streaming works on every firmware, so that's always available regardless of machine type.
 
 "ui" does app actions: {"action":"connect"} (you can't pair Bluetooth yourself — tell the user to tap Connect), {"action":"settings"}, {"action":"video"}, {"action":"binding"}. SAFETY (critical, in-character): never start the machine ("run":"start") unless the user has confirmed their safety limits this session (min depth, max depth, max speed). Only bring this up when they actually want to start playing — never at the start of a conversation. When they do, stay warm and personal, not robotic: ask them to get into a comfortable position, then offer to find their positions together by feel — the app starts fully retracted and slides in: they say "stop" at their shallowest (start) point first, then it keeps sliding deeper and they say "stop" again at their deepest point (while moving, keep it to a few words — "ok", "a little more", "is this the spot?" — never full sentences). That is the "pos" flow. Or they can simply tell you the three numbers. Keep it short and stay in character — never mention firmware or modes unless they ask, and never narrate a movement you haven't sent the matching action for. IMPORTANT: ALWAYS answer with exactly that JSON envelope — never plain text outside the JSON. Put your whole message in "reply" (plain text, in the user's language, no emoticons/asterisks) and leave every other field null unless you actually need it this turn.`;
@@ -8413,6 +8417,7 @@ async function compSend() {
     compAddMsg("user", escapeHtml(text));
     emergencyStop();
     aiStopLive();
+    aiStopSession(false);
     compAddMsg("assistant", "Safe word — full emergency stop.");
     aiSpeak("Emergency stop.");
     return;
@@ -8421,6 +8426,7 @@ async function compSend() {
     if (inp) inp.value = "";
     compAddMsg("user", escapeHtml(text));
     aiStopLive();
+    aiStopSession(false);
     if (aiStopMode() === "gentle") {
       aiPauseMachine();
       compAddMsg("assistant", "Slowing to a gentle stop.");
@@ -8509,6 +8515,7 @@ async function compSend() {
       aiApplyUi(res.ui);
       aiLog("ui: " + (typeof res.ui === "string" ? res.ui : (res.ui && res.ui.action ? res.ui.action : "action")));
     }
+    aiMaybeStartSession(text, res.run === "start", true);
   } catch (e) {
     if (th) th.remove();
     compAddMsg("assistant", "Hmm, I lost the connection — try again?");
@@ -8649,6 +8656,7 @@ async function aiSend(opts) {
     aiAddMsg("user", escapeHtml(text));
     emergencyStop();
     aiStopLive();
+    aiStopSession(false);
     aiAddMsg("assistant", "Safe word — full emergency stop.");
     aiSpeak("Stopped.");
     return;
@@ -8657,6 +8665,7 @@ async function aiSend(opts) {
     if (inp) inp.value = "";
     aiAddMsg("user", escapeHtml(text));
     aiStopLive();
+    aiStopSession(false);
     if (aiStopMode() === "gentle") {
       aiPauseMachine();
       aiAddMsg("assistant", "Slowing to a gentle stop.");
@@ -8737,6 +8746,7 @@ async function aiSend(opts) {
     if (res.face) companionApplyFace(res.face);
     if (res.video) aiApplyVideo(res.video);
     if (res.search) aiApplySearch(res.search);
+    aiMaybeStartSession(text, res.run === "start", false);
     if (!res.reply && !res.params && !res.limits && !res.run && !res.memory && !res.pos && !res.ui && !res.face) {
       const local = (appMode === "std") ? aiLocalStd(text) : aiLocalInterpret(text);
       if (local && Object.keys(local).length) {
@@ -8831,6 +8841,117 @@ function aiStopLive() {
   const btn = $("aiLive");
   if (btn) btn.classList.remove("active");
 }
+
+// ---------- Timed auto-drive session ("fuck me for 10 minutes, vary it") ----------
+// The LLM has no concept of time, so the app provides the clock: on each tick it
+// re-prompts the model with elapsed/remaining time and lets it vary the movement.
+let aiSession = null; // {startedAt, durationMs, tickMs, timer, busy, companion}
+
+function aiSessionSay(companion, html) {
+  if (companion) compAddMsg("system", html); else aiAddMsg("system", html);
+}
+
+function aiParseSessionRequest(text) {
+  if (!text) return null;
+  let minutes = null;
+  const m = String(text).match(/\b(\d{1,3})\s*(?:min(?:ute)?s?|m)\b/i);
+  if (m) minutes = parseInt(m[1], 10);
+  else if (/\b(?:half\s*an?\s*hour|30\s*min(?:ute)?s?)\b/i.test(text)) minutes = 30;
+  else if (/\b(?:one|1)\s*hour\b/i.test(text)) minutes = 60;
+  if (!minutes || minutes <= 0) return null;
+  if (minutes > 180) minutes = 180; // hard cap
+  return { durationMs: minutes * 60000 };
+}
+
+function aiSessionLine() {
+  if (!aiSession) return "";
+  return "\n\nTIMED SESSION (active): you are driving the machine for " + Math.round(aiSession.durationMs / 60000)
+    + " minutes total, and every tick the user sends a \"[timed session]\" message with the elapsed/remaining time. On each tick, vary the movement at your discretion (pattern, intensity, speed, depth) within the user's safety limits and output your next \"set\" values plus a very short \"reply\" (a few words). Keep \"Speed\" above 0 so the machine keeps running. Do NOT send \"run\" during ticks — the app starts and stops the machine itself. When the tick says the session is over, just give a warm short closing \"reply\".";
+}
+
+function aiScheduleSessionTick(ms) {
+  if (!aiSession) return;
+  aiSession.timer = setTimeout(aiSessionTick, ms);
+}
+
+async function aiSessionTick() {
+  if (!aiSession) return;
+  const s = aiSession;
+  if (s.busy) { aiScheduleSessionTick(3000); return; }
+  const elapsed = Date.now() - s.startedAt;
+  if (elapsed >= s.durationMs) { aiStopSession(true); return; }
+  if (!connected || !aiMachineRunning()) { aiStopSession(false); return; } // user paused/disconnected
+  if (compBusy || aiBusy) { aiScheduleSessionTick(3000); return; } // don't collide with a user turn
+  s.busy = true;
+  const totalSec = Math.round(s.durationMs / 1000);
+  const elSec = Math.round(elapsed / 1000);
+  const mmss = (n) => String(Math.floor(n / 60)).padStart(2, "0") + ":" + String(n % 60).padStart(2, "0");
+  const tickPrompt = "[timed session] elapsed " + mmss(elSec) + " of " + mmss(totalSec)
+    + " — keep driving and vary the movement at your discretion. Output your next \"set\" values and a very short \"reply\".";
+  try {
+    const cur = aiCurrentState();
+    const mem = aiMemoryActive() ? aiMemory() : "";
+    const memLine = mem ? ("\n\nABOUT THIS USER (stable facts you always keep in mind and use naturally):\n" + mem) : "";
+    const basePrompt = s.companion ? AI_COMPANION_SYSTEM : AI_SYSTEM;
+    const hist = s.companion ? compMessages : aiMessages;
+    hist.push({ role: "user", content: tickPrompt, ts: Date.now() });
+    const msgs = [
+      { role: "system", content: basePrompt + "\n\n" + aiModeContext(cur) + aiLangLine() + memLine + aiSessionLine() + aiVideoContext() + localVideoContext() + stashVideoContext() },
+      ...hist
+    ];
+    const res = await aiCall(msgs);
+    if (!aiSession || aiSession !== s) {
+      // cancelled while the model was thinking — drop the synthetic tick prompt
+      if (hist.length && hist[hist.length - 1].role === "user" && hist[hist.length - 1].content === tickPrompt) hist.pop();
+      return;
+    }
+    if (res.params) { aiApplySet(res.params); if (s.companion) buildCompSliders(); }
+    if (res.raw) hist.push({ role: "assistant", content: res.raw, ts: Date.now() });
+    if (res.reply) {
+      const clean = aiStripEmotionTags(res.reply);
+      aiSessionSay(s.companion, mmss(elSec) + " — " + escapeHtml(clean));
+      companionLiveExpress(res.reply);
+    } else {
+      aiSessionSay(s.companion, "⏱ " + mmss(elSec) + " / " + mmss(totalSec));
+    }
+    aiDebugPersistSoon();
+  } catch (e) {
+    // a failed tick shouldn't end the session — just retry on the next interval
+  }
+  s.busy = false;
+  if (aiSession === s) aiScheduleSessionTick(s.tickMs);
+}
+
+function aiStopSession(natural, silent) {
+  if (!aiSession) return;
+  const s = aiSession;
+  if (s.timer) { clearTimeout(s.timer); s.timer = null; }
+  aiSession = null;
+  if (silent) return;
+  if (natural) {
+    aiPauseMachine();
+    aiSessionSay(s.companion, "⏱ Session complete — I've eased you down. Say \"go\" for another round.");
+    aiSpeak("Time's up. That was fun.");
+  } else {
+    aiSessionSay(s.companion, "⏱ Timed session ended.");
+  }
+}
+
+function aiMaybeStartSession(text, didStart, companion) {
+  if (!aiIsKeyedProvider() || aiSession) return; // sessions need a reliable model
+  const req = aiParseSessionRequest(text);
+  if (!req) return;
+  const mins = Math.round(req.durationMs / 60000);
+  if (!aiLimitsConfirmed()) return; // the start flow already prompts for limits
+  if (!aiMachineRunning() && !didStart) {
+    aiSessionSay(companion, "I can run a " + mins + "-minute session — just say \"go\" and I'll start and drive it.");
+    return;
+  }
+  aiSession = { startedAt: Date.now(), durationMs: req.durationMs, tickMs: 30000, timer: null, busy: false, companion };
+  aiSessionSay(companion, "⏱ Timed session started — " + mins + " minutes. I'll vary it as I go. Say \"stop\" anytime.");
+  aiScheduleSessionTick(aiSession.tickMs);
+}
+
 function aiLiveToggle() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { aiAddMsg("system", "Voice input isn't supported in this browser."); return; }
