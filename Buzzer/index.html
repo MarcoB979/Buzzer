@@ -3421,16 +3421,18 @@ function buildFunControls() {
   slidersBox.appendChild(sliderEl("Max Speed", 1, 100, funState.maxSpeed, "#22c55e", v => { funState.maxSpeed = v; if (funState.playing) stdWrite("set:speed:" + v); }, { up:"speedUp", down:"speedDown" }));
   funMaxDepthSlider = sliderEl("Max Pos", 1, 100, funState.maxDepth, "#ff0c00", v => {
     funState.maxDepth = v;
-    if (funState.minDepth > v) { funState.minDepth = v; if (funMinDepthSlider) funMinDepthSlider.setValue(v); }
+    if (funState.minDepth > v) {
+      funState.minDepth = v;
+      if (funMinDepthSlider) funMinDepthSlider.setValue(v);
+      stdWrite("set:min:" + funState.minDepth); // only when the clamp changed min
+    }
     stdWrite("set:max:" + funState.maxDepth);
-    stdWrite("set:min:" + funState.minDepth);
     funPrePosition("max");
   }, { up:"maxUp", down:"maxDown" });
   funMinDepthSlider = sliderEl("Min Pos", 0, 99, funState.minDepth, "#ff8100", v => {
     const clamped = Math.min(v, funState.maxDepth);
     funState.minDepth = clamped;
     if (clamped !== v) funMinDepthSlider.setValue(clamped);
-    stdWrite("set:max:" + funState.maxDepth);
     stdWrite("set:min:" + funState.minDepth);
     funPrePosition("min");
   }, { up:"minUp", down:"minDown" });
@@ -10168,16 +10170,17 @@ function gpStdStep(field, d, mag) {
   if (appMode === "fun") {
     if (field === "max") {
       funState.maxDepth = clamp(funState.maxDepth + d * mag, 1, 100);
-      if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
+      if (funState.minDepth > funState.maxDepth) {
+        funState.minDepth = funState.maxDepth;
+        stdWrite("set:min:" + funState.minDepth); // only when the clamp changed min
+      }
       stdWrite("set:max:" + funState.maxDepth);
-      stdWrite("set:min:" + funState.minDepth);
       funPrePosition("max");
       if (funMaxDepthSlider && funMaxDepthSlider.setValue) funMaxDepthSlider.setValue(funState.maxDepth);
       if (funMinDepthSlider && funMinDepthSlider.setValue) funMinDepthSlider.setValue(funState.minDepth);
     } else if (field === "min") {
       funState.minDepth = clamp(funState.minDepth + d * mag, 0, 99);
       if (funState.minDepth > funState.maxDepth) funState.minDepth = funState.maxDepth;
-      stdWrite("set:max:" + funState.maxDepth);
       stdWrite("set:min:" + funState.minDepth);
       funPrePosition("min");
       if (funMinDepthSlider && funMinDepthSlider.setValue) funMinDepthSlider.setValue(funState.minDepth);
