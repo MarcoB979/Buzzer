@@ -3985,9 +3985,10 @@ function funCanPosition() {
   return appMode === "fun" && connected && (streamChar || stdCmd) && !funState.playing;
 }
 // Move the rail to the configured Max/Min Pos while the video is not playing.
-// A stream command moves the rail to an ABSOLUTE position: stream(<pos>,2000)
-// travels to <pos> over 2s and then holds. So Max Pos 50 → stream(50,2000) and
-// Min Pos 10 → stream(10,2000). The device must be in streaming mode first.
+// Mirrors the official funscript player: write the depth settings, then send the
+// endpoint stream position — 0 = deepest (Max Pos), 100 = shallowest (Min Pos).
+// The firmware maps those endpoints through the min/max just written, so the rail
+// lands on the new depth and then holds (2s move, empty queue).
 function funPrePosition(kind) {
   if (!funCanPosition()) return;
   const isMin = kind === "min";
@@ -4006,8 +4007,12 @@ function funPrePosition(kind) {
       if (!machineRunningState()) { funLog("Still waiting for streaming mode…"); return; }
     }
     // Speed must be non-zero or the streaming task skips the move entirely.
-    await stdWrite("set:speed:" + funState.maxSpeed);
-    writeStream(target + ":2000");
+    // Write both depth settings reliably first so the endpoint below maps to
+    // the latest slider values (in streaming mode these only update the mapping).
+    await stdWriteReliable("set:speed:" + funState.maxSpeed);
+    await stdWriteReliable("set:max:" + funState.maxDepth);
+    await stdWriteReliable("set:min:" + funState.minDepth);
+    writeStream((isMin ? "100" : "0") + ":2000");
   };
   go();
   funLog("Moving to " + (isMin ? "Min Pos " + funState.minDepth : "Max Pos " + target) + "…");
