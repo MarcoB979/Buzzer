@@ -2133,10 +2133,17 @@ document.addEventListener("change", (e) => { if (e.target && e.target.tagName ==
 let selectOpen = false;
 document.addEventListener("focusin", (e) => { if (e.target && e.target.tagName === "SELECT") selectOpen = true; }, true);
 document.addEventListener("focusout", (e) => { if (e.target && e.target.tagName === "SELECT") selectOpen = false; }, true);
+// A native <select> keeps focus after an option is picked even though the
+// dropdown has closed. Blur it on change so the rebuild guard is released and the
+// parameter sliders refresh immediately instead of waiting for a click elsewhere.
+document.addEventListener("change", (e) => {
+  if (e.target && e.target.tagName === "SELECT") { try { e.target.blur(); } catch (err) {} }
+}, true);
 function uiBusy() {
-  if (sliderDragging || selectOpen) return true;
-  const ae = document.activeElement;
-  return !!(ae && ae.tagName === "SELECT");
+  // Block rebuilds only while the user is actively interacting: dragging a slider
+  // or while a dropdown is actually open. A merely-focused (closed) select must
+  // not block updates, or the sliders freeze after picking a value.
+  return sliderDragging || selectOpen;
 }
 let buildQueued = false;
 function buildInterface() {
