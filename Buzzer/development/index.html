@@ -3712,39 +3712,68 @@ function syncFunToTime(tMs) {
     funState.rampTo = Math.round(clamp(interpFunPos(tMs), 0, 100));
   }
 }
-// Remember the script offset per (video, funscript) combination so the user
-// doesn't have to re-tune it every time they load the same pair.
+// Remember the script offset per funscript file, so a script that needs (say)
+// +2.5s keeps that tuning whatever video it is paired with, and across reloads.
 const OFFSET_MEMORY_KEY = "ossm-fun-offset-memory";
+const OFFSET_MEMORY_MAX = 250; // keep localStorage bounded
 function offsetMemory() {
   try { const j = JSON.parse(localStorage.getItem(OFFSET_MEMORY_KEY) || "{}"); return (j && typeof j === "object") ? j : {}; } catch (e) { return {}; }
 }
 function saveOffsetMemory(mem) {
-  try { localStorage.setItem(OFFSET_MEMORY_KEY, JSON.stringify(mem)); } catch (e) {}
+  try {
+    const keys = Object.keys(mem);
+    // Oldest entries first (insertion order) — drop the surplus before saving.
+    if (keys.length > OFFSET_MEMORY_MAX) {
+      for (const k of keys.slice(0, keys.length - OFFSET_MEMORY_MAX)) delete mem[k];
+    }
+    localStorage.setItem(OFFSET_MEMORY_KEY, JSON.stringify(mem));
+  } catch (e) {}
 }
 function currentVideoId() {
   const u = funState.videoUrl || "";
   if (u && !/^blob:/i.test(u)) return u;
   return funState.videoName || "";
 }
+// Primary key: the script file name only (case-insensitive).
+function scriptOffsetKey() {
+  const scr = (funState.scriptName || "").trim().toLowerCase();
+  return scr ? ("s:" + scr) : "";
+}
+// Legacy key (video + script) — only read, to migrate what earlier versions saved.
 function offsetComboKey() {
   const vid = currentVideoId().trim();
   const scr = (funState.scriptName || "").trim();
   if (!vid && !scr) return "";
   return vid + "\u0001" + scr;
 }
+// Returns the offset (ms) that was restored, or 0 when there was nothing saved.
 function applyRememberedOffset() {
-  const key = offsetComboKey();
-  if (!key) return;
+  const key = scriptOffsetKey();
+  if (!key) return 0;
   const mem = offsetMemory();
-  if (typeof mem[key] === "number") {
-    funState.offsetMs = Math.max(-10000, Math.min(30000, Math.round(mem[key] / 100) * 100));
-    updateOffsetUI();
+  let v = mem[key];
+  if (typeof v !== "number") {
+    const legacy = offsetComboKey();
+    if (legacy && typeof mem[legacy] === "number") {
+      v = mem[legacy];
+      delete mem[legacy];
+      mem[key] = v;
+      saveOffsetMemory(mem); // migrate the old per-video entry
+    }
   }
+  if (typeof v !== "number") return 0;
+  funState.offsetMs = Math.max(-10000, Math.min(30000, Math.round(v / 100) * 100));
+  updateOffsetUI();
+  return funState.offsetMs;
+}
+function offsetLabel(ms) {
+  return (ms >= 0 ? "+" : "") + (ms / 1000).toFixed(1) + "s";
 }
 function rememberOffset() {
-  const key = offsetComboKey();
+  const key = scriptOffsetKey();
   if (!key) return;
   const mem = offsetMemory();
+  if (mem[key] === funState.offsetMs) return; // already stored, don't rewrite
   mem[key] = funState.offsetMs;
   saveOffsetMemory(mem);
 }
@@ -9492,10 +9521,10 @@ async function loadFunscriptUrl(url) {
     funState.scriptName = (url.split("/").pop() || "script").split("?")[0];
     funState.rawActions = (j.actions || []).filter(a => a && typeof a.at === "number" && typeof a.pos === "number").sort((a, b) => a.at - b.at);
     funState.offsetMs = 0;
-    applyRememberedOffset();
+    const restoredOffset = applyRememberedOffset();
     rebuildFunscript();
     updateOffsetUI();
-    funLog("Funscript loaded (" + funState.rawActions.length + " pts).");
+    funLog("Funscript loaded (" + funState.rawActions.length + " pts)." + (restoredOffset ? " Offset " + offsetLabel(restoredOffset) + " remembered." : ""));
     return true;
   } catch (e) {
     funLog("Funscript load failed: " + (e && e.message ? e.message : e));
@@ -9874,9 +9903,10 @@ if (fsi) fsi.addEventListener("change", e => {
         .sort((a, b) => a.at - b.at);
     } catch (err) { log("Funscript parse error: " + err.message); funState.rawActions = []; }
     funState.offsetMs = 0;
-    applyRememberedOffset();
+    const restoredOffset = applyRememberedOffset();
     rebuildFunscript();
     updateOffsetUI();
+    if (restoredOffset) funLog("Offset " + offsetLabel(restoredOffset) + " restored for " + funState.scriptName + ".");
   };
   r.readAsText(f);
 });
