@@ -243,6 +243,24 @@
     body.force-landscape .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; }
     body.force-landscape .col-title { display: block; }
     body.force-landscape .start-stop-row { position: static; }
+    /* ◀ / ▶ column toggles. The generic .hide-left/.hide-right rules live in the
+       (min-width: 700px) block and lose to this grid (body.force-landscape beats
+       .phone-container), so hiding a column left an empty track. Collapse the
+       track as well as the column, here, for every mode. */
+    body.force-landscape:not(.force-fun) .phone-container.hide-left {
+      grid-template-columns: minmax(0, 1fr) clamp(160px, 24%, 230px);
+      grid-template-areas: "header header" "center right";
+    }
+    body.force-landscape:not(.force-fun) .phone-container.hide-right {
+      grid-template-columns: clamp(140px, 26%, 280px) minmax(0, 1fr);
+      grid-template-areas: "header header" "left center";
+    }
+    body.force-landscape:not(.force-fun) .phone-container.hide-left.hide-right {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "header" "center";
+    }
+    body.force-landscape:not(.force-fun) .phone-container.hide-left  > .col-left  { display: none; }
+    body.force-landscape:not(.force-fun) .phone-container.hide-right > .col-right { display: none; }
   }
   /* Funscript mode inside the forced wide layout (500-699px wide viewports:
      unfolded foldables, large phones, tablets in split screen). Without these
@@ -252,10 +270,10 @@
      Above 700px and in short landscape the block @media (orientation:
      landscape) and (max-height: 520px), (min-width: 700px) below handles it. */
   @media (min-width: 500px) and (max-width: 699px) {
-    body.force-landscape:not(.force-fun) .phone-container.fun .col-left {
+    body.force-landscape:not(.force-fun) .phone-container.fun:not(.hide-left) .col-left {
       display: flex; max-height: calc(var(--app-vh) - 8px); overflow: hidden;
     }
-    body.force-landscape:not(.force-fun) .phone-container.fun .col-right { display: flex; }
+    body.force-landscape:not(.force-fun) .phone-container.fun:not(.hide-right) .col-right { display: flex; }
     body.force-landscape:not(.force-fun) .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
     body.force-landscape:not(.force-fun) .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
     body.force-landscape:not(.force-fun) .phone-container.fun .fun-stage { flex: 1 1 auto; min-height: 0; }
