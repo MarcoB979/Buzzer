@@ -225,7 +225,9 @@
     body.force-landscape .phone-container {
       max-width: 100%; border-radius: 0; border-width: 2px; padding: 8px;
       display: grid;
-      grid-template-columns: clamp(160px, 25%, 280px) minmax(40%, 1fr) 230px;
+      /* Flexible side columns so the grid still fits 500-699px wide viewports
+         (unfolded foldables / large phones in portrait) instead of overflowing. */
+      grid-template-columns: clamp(140px, 26%, 280px) minmax(0, 1fr) clamp(160px, 24%, 230px);
       grid-template-areas: "header header header" "left center right";
       grid-template-rows: auto minmax(0, 1fr);
       height: calc(var(--app-vh) - 8px); min-height: calc(var(--app-vh) - 8px);
@@ -241,6 +243,23 @@
     body.force-landscape .col-toggle { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; flex: 0 0 auto; }
     body.force-landscape .col-title { display: block; }
     body.force-landscape .start-stop-row { position: static; }
+  }
+  /* Funscript mode inside the forced wide layout (500-699px wide viewports:
+     unfolded foldables, large phones, tablets in split screen). Without these
+     rules the portrait fun rules win: .col-left stays display:none (so the
+     funscript panel + all its sliders are gone) while .col-right is
+     display:contents, which spills every settings panel into the grid cells.
+     Above 700px and in short landscape the block @media (orientation:
+     landscape) and (max-height: 520px), (min-width: 700px) below handles it. */
+  @media (min-width: 500px) and (max-width: 699px) {
+    body.force-landscape:not(.force-fun) .phone-container.fun .col-left {
+      display: flex; max-height: calc(var(--app-vh) - 8px); overflow: hidden;
+    }
+    body.force-landscape:not(.force-fun) .phone-container.fun .col-right { display: flex; }
+    body.force-landscape:not(.force-fun) .phone-container.fun #fun-controls { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+    body.force-landscape:not(.force-fun) .phone-container.fun .start-stop-row { flex: 0 0 auto; margin-top: 0; background: #0a0a12; padding: 4px 0 8px; }
+    body.force-landscape:not(.force-fun) .phone-container.fun .fun-stage { flex: 1 1 auto; min-height: 0; }
+    body.force-landscape:not(.force-fun) .phone-container.fun .col-center { max-height: calc(var(--app-vh) - 20px); }
   }
   .fun-status { font-size: .72rem; color: #fbbf24; margin-top: 8px; min-height: 1em; word-break: break-word; }
   .kofi-toggle { display: inline-flex; align-items: center; justify-content: center; height: 26px; min-width: 26px; padding: 0 7px; flex: 0 0 auto; background: #1e293b; border: 1px solid var(--border-color); border-radius: 6px; color: #cbd5e1; font-size: .8rem; cursor: pointer; }
@@ -3509,12 +3528,26 @@ let forceFunLayout = false; // session-only: resets on reload
 function applyFunLayout() {
   document.body.classList.toggle("force-fun", !!(forceFunLayout && appMode === "fun"));
 }
+// True when the Funscript screen gets the wide (multi-column grid) layout.
+// Mirrors the CSS branches that turn .phone-container into a grid, so the JS and
+// the stylesheet can never disagree about whether the mode is usable:
+//   1. min-width: 700px                                  (wide viewport)
+//   2. (orientation: landscape) and (max-height: 520px)  (short landscape)
+//   3. body.force-landscape + min-width: 500px           (forced wide layout)
+//   + the manual "Force screen" override.
+function wideFunLayout() {
+  if (forceFunLayout) return true;
+  if (typeof window.matchMedia !== "function") return false;
+  if (window.matchMedia("(min-width: 700px)").matches) return true;
+  if (window.matchMedia("(orientation: landscape) and (max-height: 520px)").matches) return true;
+  return document.body.classList.contains("force-landscape") &&
+         window.matchMedia("(min-width: 500px)").matches;
+}
 function buildFunVideo() {
   const wrap = $("fun-video");
   if (!wrap) return;
-  const wide = window.innerWidth >= 700;
-  const shortLandscape = window.matchMedia && window.matchMedia("(orientation: landscape) and (max-height: 520px)").matches;
-  if (!forceFunLayout && !wide && !shortLandscape) {
+  const wide = wideFunLayout();
+  if (!wide) {
     wrap.innerHTML = `<div class="fun-placeholder">📱↻ Rotate your phone or widen the window to use Funscript mode<br><button type="button" class="fun-btn" id="funForceBtn" style="margin-top:12px;">Force screen</button></div>`;
     const fb = $("funForceBtn");
     if (fb) fb.onclick = () => {
@@ -5440,6 +5473,7 @@ if (flToggle) {
   flToggle.addEventListener("change", () => {
     try { localStorage.setItem("ossm-force-landscape", flToggle.checked ? "1" : "0"); } catch (e) {}
     syncOrientationLock();
+    if (appMode === "fun") buildFunVideo(); // wide layout may have just changed
     if (flToggle.checked) { autoFsAttempted = false; maybeAutoFullscreen(); }
   });
 }
